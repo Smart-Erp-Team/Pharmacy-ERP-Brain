@@ -181,3 +181,32 @@ jobs:
       - name: Run Schema Validation
         # Placeholder for actual contract testing logic (e.g., AJV or Testcontainers)
         run: echo "Validating JSON schemas in /contracts directory to ensure Frontend and Backend sync..."
+
+  # 4. Brain HTTP/runtime foundation tests (independent of PostgreSQL integration tests)
+  brain-api-ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: apps/brain
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.11
+      - name: Install Brain runtime and development dependencies
+        run: uv sync --group dev
+      - name: Run API tests
+        run: uv run pytest tests -q
+      - name: Lint Brain application
+        run: uv run ruff check brain tests
+      - name: Check formatting
+        run: uv run ruff format --check brain tests
