@@ -25,6 +25,10 @@ public static class ErrorMessages
     public const string ExpiryPolicyViolation = "The operation violates the configured expiry or minimum shelf-life policy.";
     public const string ImmutablePostedTransaction = "Posted inventory transactions and their lines are immutable and cannot be modified or deleted.";
     public const string NegativeCostOrQuantity = "Quantities and unit costs must be strictly positive values.";
+    public const string InvalidLocationSellableFlag = "Location sellable flag does not match the location type.";
+    public const string InvalidBatchDates = "Manufactured date cannot be after the expiration date, or expiration date is missing.";
+    public const string NonLotMisuse = "NON-LOT batch cannot be used for products that require lot tracking.";
+    public const string CloudStockMutationForbidden = "Inventory adjustments cannot be performed on the Cloud environment. They must be done on the local branch.";
 
     // 6. Catalog Specific Rules (HTTP 409 & 422)
     public const string CategorySelfParent = "A product category cannot be set as its own parent.";
