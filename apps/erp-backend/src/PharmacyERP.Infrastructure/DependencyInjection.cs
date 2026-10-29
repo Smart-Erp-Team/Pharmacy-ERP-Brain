@@ -43,6 +43,17 @@ public static class DependencyInjection
         services.AddScoped<IOutboxRepository, OutboxRepository>();
         services.AddScoped<IAuditLogRepository, AuditLogRepository>();
 
+        // Repositories Registration
+        services.AddScoped<IInventoryLocationRepository, InventoryLocationRepository>();
+        services.AddScoped<IInventoryBatchRepository, InventoryBatchRepository>();
+        services.AddScoped<IStockBalanceRepository, StockBalanceRepository>();
+        services.AddScoped<IInventoryTxnRepository, InventoryTxnRepository>();
+
+        // Cross-Module Services Registration
+        services.AddScoped<IBranchDefaultLocationSeeder, BranchDefaultLocationSeeder>();
+        services.AddScoped<INonLotBatchInitializer2, NonLotBatchInitializer>();
+        services.AddScoped<IProductInventoryUsageChecker2, ProductInventoryUsageChecker>();
+
         return services;
     }
 }
