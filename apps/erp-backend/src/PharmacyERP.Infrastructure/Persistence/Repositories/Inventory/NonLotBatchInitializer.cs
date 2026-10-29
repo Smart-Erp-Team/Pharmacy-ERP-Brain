@@ -10,7 +10,7 @@ namespace PharmacyERP.Infrastructure.Persistence.Repositories.Inventory;
 
 public class NonLotBatchInitializer : INonLotBatchInitializer2
 {
-    private readonly IInventoryBatchRepository2 _batchRepository;
+    private readonly IInventoryBatchRepository _batchRepository;
 
     public NonLotBatchInitializer(IInventoryBatchRepository batchRepository)
     {
