@@ -12,6 +12,9 @@ using PharmacyERP.Infrastructure.Persistence.Repositories.Catalog;
 using PharmacyERP.Infrastructure.Persistence.Repositories.Integration;
 using PharmacyERP.Infrastructure.Persistence.UoW;
 using PharmacyERP.Infrastructure.Services.Context;
+using PharmacyERP.Application.Common.Interfaces.CrossModule;
+using PharmacyERP.Application.Features.Inventory.Interfaces;
+using PharmacyERP.Infrastructure.Persistence.Repositories.Inventory;
 
 namespace PharmacyERP.Infrastructure;
 
