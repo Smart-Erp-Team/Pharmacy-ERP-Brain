@@ -12,7 +12,7 @@ public class NonLotBatchInitializer : INonLotBatchInitializer2
 {
     private readonly IInventoryBatchRepository2 _batchRepository;
 
-    public NonLotBatchInitializer(IInventoryBatchRepository2 batchRepository)
+    public NonLotBatchInitializer(IInventoryBatchRepository batchRepository)
     {
         _batchRepository = batchRepository;
     }
