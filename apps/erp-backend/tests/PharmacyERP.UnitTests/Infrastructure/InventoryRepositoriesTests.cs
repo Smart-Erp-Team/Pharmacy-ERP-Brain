@@ -6,6 +6,8 @@ using PharmacyERP.Domain.Enums;
 using PharmacyERP.Infrastructure.Persistence.Database;
 using PharmacyERP.Infrastructure.Persistence.Repositories.Inventory;
 using Xunit;
+using Moq;
+using PharmacyERP.Application.Common.Interfaces.Context;
 
 namespace PharmacyERP.UnitTests.Infrastructure;
 
@@ -19,7 +21,9 @@ public class InventoryRepositoriesTests
             .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
             .Options;
 
-        _context = new PharmacyDbContext(options);
+        var tenantContextMock = new Mock<ITenantContext>();
+
+        _context = new PharmacyDbContext(options, tenantContextMock.Object);
     }
 
     [Fact]
