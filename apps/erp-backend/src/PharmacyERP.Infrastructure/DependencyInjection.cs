@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using PharmacyERP.Application.Common.Interfaces.Context;
 using PharmacyERP.Application.Common.Interfaces.Persistence;
+using PharmacyERP.Application.Features.Identity.Interfaces;
 using PharmacyERP.Application.Features.Catalog.Interfaces;
 using PharmacyERP.Application.Features.Integration.Interfaces;
 using PharmacyERP.Infrastructure.Persistence.Database;
@@ -10,6 +11,8 @@ using PharmacyERP.Infrastructure.Persistence.Interceptors;
 using PharmacyERP.Infrastructure.Persistence.Repositories;
 using PharmacyERP.Infrastructure.Persistence.Repositories.Catalog;
 using PharmacyERP.Infrastructure.Persistence.Repositories.Integration;
+using PharmacyERP.Infrastructure.Persistence.Repositories.Identity;
+using PharmacyERP.Infrastructure.Auth;
 using PharmacyERP.Infrastructure.Persistence.UoW;
 using PharmacyERP.Infrastructure.Services.Context;
 using PharmacyERP.Application.Common.Interfaces.CrossModule;
@@ -48,6 +51,17 @@ public static class DependencyInjection
         services.AddScoped<IOutboxRepository, OutboxRepository>();
         services.AddScoped<IAuditLogRepository, AuditLogRepository>();
 
+        services.AddScoped<IOrganizationRepository, OrganizationRepository>();
+        services.AddScoped<IBranchRepository, BranchRepository>();
+        services.AddScoped<IEmployeeRepository, EmployeeRepository>();
+        services.AddScoped<IUserAccountRepository, UserAccountRepository>();
+        services.AddScoped<IBranchEnrollmentRepository, BranchEnrollmentRepository>();
+        services.AddScoped<IUserRefreshTokenRepository, UserRefreshTokenRepository>();
+        services.AddSingleton<JwksKeyProvider>();
+        services.AddScoped<Microsoft.AspNetCore.Identity.PasswordHasher<PharmacyERP.Domain.Entities.Identity.UserAccount>>();
+        services.AddScoped<IPasswordHasherService, PasswordHasherService>();
+        services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
+        services.AddScoped<TenantUserStore>();
         // Repositories Registration
         services.AddScoped<IInventoryLocationRepository, InventoryLocationRepository>();
         services.AddScoped<IInventoryBatchRepository, InventoryBatchRepository>();
