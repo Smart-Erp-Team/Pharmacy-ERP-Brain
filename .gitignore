@@ -1,4 +1,24 @@
 # Ignore environment variables files
 .env
 
+<<<<<<< HEAD
 .vs/
+=======
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+>>>>>>> 82e95143054448d8cadace83e118e72ea553c5f1

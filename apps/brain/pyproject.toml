@@ -1,0 +1,54 @@
+[project]
+name = "pharmacy-erp-brain"
+version = "0.1.0"
+description = "AI intelligence service for Pharmacy ERP"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "alembic==1.20.0",
+  "fastapi>=0.115,<1.0",
+  "psycopg[binary]==3.3.6",
+  "pydantic-settings>=2.7,<3.0",
+  "sqlalchemy==2.1.6",
+  "sqlmodel==0.0.48",
+  "uvicorn[standard]>=0.34,<1.0",
+]
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28,<1.0",
+  "mypy>=1.14,<2.0",
+  "pytest>=9.1,<10.0",
+  "ruff>=0.9,<1.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests", "brain_db/tests"]
+addopts = "-ra --strict-markers"
+pythonpath = [".", "brain_db/python"]
+
+[tool.ruff]
+force-exclude = true
+line-length = 100
+target-version = "py311"
+extend-exclude = ["brain_db/alembic/versions", "brain_db/tools/schema_gen"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501", "UP042"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+no_implicit_optional = true
+check_untyped_defs = true
+exclude = ["brain_db/alembic/versions/", "brain_db/tools/schema_gen/"]
+
+
+[tool.ruff.format]
+exclude = ["brain/ports.py"]
