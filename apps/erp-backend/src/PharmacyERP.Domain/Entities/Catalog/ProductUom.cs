@@ -129,6 +129,15 @@ public class ProductUom
         UpdatedAt = DateTimeOffset.UtcNow;
     }
 
+    public void Activate()
+    {
+        if (IsActive)
+            return;
+
+        IsActive = true;
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
     internal void SetAsBase()
     {
         if (!IsActive)

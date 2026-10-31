@@ -74,6 +74,15 @@ public class ProductReorderRule
         UpdatedAt = DateTimeOffset.UtcNow;
     }
 
+    public void SetActiveState(bool isActive)
+    {
+        if (IsActive == isActive)
+            return;
+
+        IsActive = isActive;
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
     private static void ValidateThresholds(decimal reorderPointBase, decimal reorderQuantityBase, decimal? maxQuantityBase)
     {
         if (reorderPointBase < 0m || reorderQuantityBase < 0m)
