@@ -191,4 +191,27 @@ public class InventoryLocation
 				nameof(name));
 		}
 	}
+    public void UpdateDetails(
+    string name,
+    bool isSellable,
+    bool isActive,
+    DateTimeOffset now)
+    {
+        ValidateSellableFlag(LocationType, isSellable);
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ArgumentException("Name is required.", nameof(name));
+        }
+
+        if (name.Length > 100)
+        {
+            throw new ArgumentException("Name cannot exceed 100 characters.", nameof(name));
+        }
+
+        Name = name;
+        IsSellable = isSellable;
+        IsActive = isActive;
+        UpdatedAt = now;
+    }
 }

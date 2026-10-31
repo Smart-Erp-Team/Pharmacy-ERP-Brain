@@ -30,8 +30,16 @@ public static class ErrorMessages
     public const string NonLotMisuse = "NON-LOT batch cannot be used for products that require lot tracking.";
     public const string CloudStockMutationForbidden = "Inventory adjustments cannot be performed on the Cloud environment. They must be done on the local branch.";
 
+    // The same constant values as ErrorCode enum for easier mapping in service responses
+    public const string ForbiddenBranchAccess = ForbiddenBranch;
+    public const string DuplicateLocationCode = "A location with this code already exists in this branch.";
+    public const string LocationNotFound = "The specified inventory location was not found.";
+    public const string CloudMutationForbidden = CloudStockMutationForbidden;
+    public const string InsufficientStock = OutOfStock;
+
     // 6. Catalog Specific Rules (HTTP 409 & 422)
     public const string CategorySelfParent = "A product category cannot be set as its own parent.";
     public const string HistoricalUomModificationForbidden = "Cannot modify base UOM or tracking policy for a product that has existing stock balances or posted transaction history.";
     public const string InvalidBaseUomInvariant = "The product must have exactly one active base UOM with a conversion factor of 1 matching its base UOM code.";
+    
 }
