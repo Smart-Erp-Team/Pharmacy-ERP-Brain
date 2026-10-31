@@ -1,4 +1,4 @@
-﻿namespace PharmacyERP.Application.Common.Constants;
+namespace PharmacyERP.Application.Common.Constants;
 
 public static class ErrorMessages
 {
@@ -30,6 +30,17 @@ public static class ErrorMessages
     public const string CategorySelfParent = "A product category cannot be set as its own parent.";
     public const string HistoricalUomModificationForbidden = "Cannot modify base UOM or tracking policy for a product that has existing stock balances or posted transaction history.";
     public const string InvalidBaseUomInvariant = "The product must have exactly one active base UOM with a conversion factor of 1 matching its base UOM code.";
+    public const string DuplicateSku = "A product with the specified SKU already exists in this organization.";
+    public const string DuplicateBarcode = "A product with the specified barcode already exists in this organization.";
+    public const string DuplicateCategoryCode = "A product category with the specified code already exists in this organization.";
+    public const string DuplicateUomCode = "A unit of measure with the specified code already exists for this product.";
+    public const string CategoryNotFoundOrInactive = "The specified product category does not exist or is inactive.";
+    public const string ProductNotFound = "The specified product could not be found.";
+    public const string ProductCategoryNotFound = "The specified product category could not be found.";
+    public const string ProductUomNotFound = "The specified unit of measure could not be found for this product.";
+    public const string ReorderRuleNotFound = "The specified reorder rule could not be found for this branch and product.";
+    public const string StockOrHistoryExistsForProduct = "Cannot modify tracking policy or base UOM because stock balances or transaction history exist for this product.";
+    public const string StockOrHistoryExistsForUom = "Cannot modify conversion factor because stock balances or document references exist for this unit of measure.";
 
     // 7. Identity & Authentication
     public const string InvalidCredentials = "The organization code, username, or password is invalid.";
