@@ -168,7 +168,16 @@ public sealed class BranchService : IBranchService
         var hash = HashToken(request.Token);
         _tenant.AllowSystemBypass();
         await _unitOfWork.BeginTransactionAsync(ct);
-        var discovered = await _enrollments.GetByTokenHashAsync(hash, ct);
+        BranchEnrollment? discovered;
+        try
+        {
+            discovered = await _enrollments.GetByTokenHashAsync(hash, ct);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+            throw;
+        }
         await _unitOfWork.RollbackTransactionAsync(ct);
         if (discovered is null) return IdentityResults.Failure<RedeemBranchEnrollmentResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidEnrollmentToken);
 

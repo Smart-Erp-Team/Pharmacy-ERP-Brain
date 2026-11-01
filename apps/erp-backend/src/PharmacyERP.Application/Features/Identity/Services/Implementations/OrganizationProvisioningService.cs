@@ -69,7 +69,16 @@ public sealed class OrganizationProvisioningService : IOrganizationProvisioningS
             // Probe globally under the database's explicit system-bypass setting, then use tenant RLS for writes.
             _tenant.AllowSystemBypass();
             await _unitOfWork.BeginTransactionAsync(ct);
-            var exists = await _organizations.ExistsByCodeAsync(request.OrganizationCode, ct);
+            bool exists;
+            try
+            {
+                exists = await _organizations.ExistsByCodeAsync(request.OrganizationCode, ct);
+            }
+            catch
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                throw;
+            }
             await _unitOfWork.RollbackTransactionAsync(ct);
             if (exists)
                 return IdentityResults.Failure<OrganizationDto>(ErrorCode.CONFLICT, ErrorMessages.DuplicateOrganizationCode);
