@@ -40,7 +40,16 @@ public sealed class AuthService : IAuthService
     {
         _tenant.AllowSystemBypass();
         await _unitOfWork.BeginTransactionAsync(ct);
-        var organization = await _organizations.GetActiveByCodeAsync(request.OrganizationCode, ct);
+        Organization? organization;
+        try
+        {
+            organization = await _organizations.GetActiveByCodeAsync(request.OrganizationCode, ct);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+            throw;
+        }
         await _unitOfWork.RollbackTransactionAsync(ct);
         if (organization is null)
             return IdentityResults.Failure<LoginResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidCredentials);
@@ -100,7 +109,16 @@ public sealed class AuthService : IAuthService
         var hash = HashToken(request.RefreshToken);
         _tenant.AllowSystemBypass();
         await _unitOfWork.BeginTransactionAsync(ct);
-        var discovered = await _tokens.GetByTokenHashAsync(hash, ct);
+        UserRefreshToken? discovered;
+        try
+        {
+            discovered = await _tokens.GetByTokenHashAsync(hash, ct);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+            throw;
+        }
         await _unitOfWork.RollbackTransactionAsync(ct);
         if (discovered is null)
             return IdentityResults.Failure<LoginResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidRefreshToken);

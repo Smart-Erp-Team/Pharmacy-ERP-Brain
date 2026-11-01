@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Identity;
 using PharmacyERP.Application.Common.Interfaces.Context;
 using PharmacyERP.Application.Common.Interfaces.Persistence;
 using PharmacyERP.Application.Features.Identity.Interfaces;
@@ -18,6 +19,7 @@ using PharmacyERP.Infrastructure.Services.Context;
 using PharmacyERP.Application.Common.Interfaces.CrossModule;
 using PharmacyERP.Application.Features.Inventory.Interfaces;
 using PharmacyERP.Infrastructure.Persistence.Repositories.Inventory;
+using PharmacyERP.Domain.Entities.Identity;
 
 namespace PharmacyERP.Infrastructure;
 
@@ -61,7 +63,7 @@ public static class DependencyInjection
         services.AddScoped<Microsoft.AspNetCore.Identity.PasswordHasher<PharmacyERP.Domain.Entities.Identity.UserAccount>>();
         services.AddScoped<IPasswordHasherService, PasswordHasherService>();
         services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
-        services.AddScoped<TenantUserStore>();
+        services.AddScoped<IUserPasswordStore<UserAccount>, TenantUserStore>();
         // Repositories Registration
         services.AddScoped<IInventoryLocationRepository, InventoryLocationRepository>();
         services.AddScoped<IInventoryBatchRepository, InventoryBatchRepository>();
