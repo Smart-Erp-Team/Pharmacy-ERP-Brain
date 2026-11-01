@@ -20,6 +20,7 @@ public static class DependencyInjection
         services.AddScoped<IInventoryLocationService, InventoryLocationService>();
         services.AddScoped<IInventoryQueryService, InventoryQueryService>();
         services.AddScoped<IInventoryAdjustmentService, InventoryAdjustmentService>();
+        services.AddScoped<ICanonicalInventoryService, CanonicalInventoryService>();
 
         return services;
     }
