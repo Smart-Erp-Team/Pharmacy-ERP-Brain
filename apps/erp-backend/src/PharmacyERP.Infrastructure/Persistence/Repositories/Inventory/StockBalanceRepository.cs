@@ -1,4 +1,4 @@
-using System;
+  using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -42,6 +42,8 @@ public class StockBalanceRepository : IStockBalanceRepository
         var query = _context.StockBalances
             .Include(sb => sb.Location)
             .Include(sb => sb.Batch)
+                .ThenInclude(batch => batch.Product)
+                    .ThenInclude(product => product.ReorderRules)
             .Where(sb => sb.OrganizationId == organizationId && sb.Location.BranchId == branchId);
 
         if (productId.HasValue)

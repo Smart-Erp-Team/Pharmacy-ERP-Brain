@@ -49,7 +49,7 @@ public class CanonicalInventoryService : ICanonicalInventoryService
                 ErrorMessages.ForbiddenBranchAccess);
         }
 
-        var businessDate = _dateTimeProvider.GetOrganizationBusinessDate(_tenantContext.TimeZoneId);
+        var businessDate = _dateTimeProvider.GetOrganizationBusinessDate("UTC");
 
         
         var balances = await _stockBalanceRepository.GetBalancesWithDetailsAsync(
@@ -62,7 +62,7 @@ public class CanonicalInventoryService : ICanonicalInventoryService
         }
 
      
-        var items = balances
+        var allItems = balances
             .GroupBy(b => new { b.OrganizationId, b.Location.BranchId, b.Batch.ProductId, b.LocationId })
             .Select(g =>
             {
@@ -99,22 +99,26 @@ public class CanonicalInventoryService : ICanonicalInventoryService
                     QuantityOnHandBase: totalOnHand,
                     AvailableQuantityBase: totalAvailable,
                     AverageUnitCostBase: averageUnitCostBase,
-                    ReorderPointBase: firstBalance.Batch.Product.ReorderPointBase,
+                    ReorderPointBase: firstBalance.Batch.Product.ReorderRules
+                        .FirstOrDefault(r => r.BranchId == branchId && r.IsActive)?.ReorderPointBase,
                     Lots: lots,
                     UpdatedAt: g.Max(b => b.UpdatedAt)
                 );
             })
             .OrderBy(x => x.ProductId).ThenBy(x => x.LocationId)
-           
+            .ToList();
+
+        var page = cursor.HasValue ? ((int)cursor.Value / pageSize) + 1 : 1;
+        var items = allItems
             .Skip(cursor.HasValue ? (int)cursor.Value : 0)
             .Take(pageSize)
             .ToList();
 
         var pagedResult = new PagedResult<CanonicalInventoryItemDto>(
             items,
-            totalCount: items.Count, 
-            page: cursor.HasValue ? ((int)cursor.Value / pageSize) + 1 : 1,
-            pageSize: pageSize
+            page,
+            pageSize,
+            allItems.Count
         );
 
         return Result<PagedResult<CanonicalInventoryItemDto>>.Success(pagedResult);
