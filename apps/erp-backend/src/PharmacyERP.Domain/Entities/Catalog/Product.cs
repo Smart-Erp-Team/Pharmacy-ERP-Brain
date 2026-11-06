@@ -255,4 +255,123 @@ public class Product
 
         EnsureSingleActiveBaseUomInvariant();
     }
+
+    public void UpdateDetails(
+        Guid? categoryId,
+        string? sku,
+        string? barcode,
+        string? name,
+        string? genericName,
+        string? brandName,
+        decimal? taxRate,
+        string? imageUrl,
+        int? expiryAlertDays)
+    {
+        if (categoryId.HasValue && categoryId.Value == Guid.Empty)
+            throw new ArgumentException("CategoryId cannot be empty.", nameof(categoryId));
+
+        if (sku != null)
+        {
+            if (string.IsNullOrWhiteSpace(sku))
+                throw new ArgumentException("Sku is required.", nameof(sku));
+            if (sku.Length > 40)
+                throw new ArgumentException("Sku cannot exceed 40 characters.", nameof(sku));
+        }
+
+        if (barcode != null && barcode.Length > 80)
+            throw new ArgumentException("Barcode cannot exceed 80 characters.", nameof(barcode));
+
+        if (name != null)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("Name is required.", nameof(name));
+            if (name.Length > 180)
+                throw new ArgumentException("Name cannot exceed 180 characters.", nameof(name));
+        }
+
+        if (genericName != null && genericName.Length > 180)
+            throw new ArgumentException("GenericName cannot exceed 180 characters.", nameof(genericName));
+
+        if (brandName != null && brandName.Length > 180)
+            throw new ArgumentException("BrandName cannot exceed 180 characters.", nameof(brandName));
+
+        if (taxRate.HasValue && (taxRate.Value < 0m || taxRate.Value > 1m))
+            throw new InvalidProductTaxRateException();
+
+        if (imageUrl != null && imageUrl.Length > 300)
+            throw new ArgumentException("ImageUrl cannot exceed 300 characters.", nameof(imageUrl));
+
+        if (expiryAlertDays.HasValue && expiryAlertDays.Value < 0)
+            throw new InvalidExpiryAlertDaysException();
+
+        bool changed = false;
+
+        if (categoryId.HasValue && categoryId.Value != CategoryId)
+        {
+            CategoryId = categoryId.Value;
+            changed = true;
+        }
+
+        if (sku != null && !string.Equals(Sku, sku, StringComparison.Ordinal))
+        {
+            Sku = sku;
+            changed = true;
+        }
+
+        if (barcode != null && !string.Equals(Barcode, barcode, StringComparison.Ordinal))
+        {
+            Barcode = barcode;
+            changed = true;
+        }
+
+        if (name != null && !string.Equals(Name, name, StringComparison.Ordinal))
+        {
+            Name = name;
+            changed = true;
+        }
+
+        if (genericName != null && !string.Equals(GenericName, genericName, StringComparison.Ordinal))
+        {
+            GenericName = genericName;
+            changed = true;
+        }
+
+        if (brandName != null && !string.Equals(BrandName, brandName, StringComparison.Ordinal))
+        {
+            BrandName = brandName;
+            changed = true;
+        }
+
+        if (taxRate.HasValue && taxRate.Value != TaxRate)
+        {
+            TaxRate = taxRate.Value;
+            changed = true;
+        }
+
+        if (imageUrl != null && !string.Equals(ImageUrl, imageUrl, StringComparison.Ordinal))
+        {
+            ImageUrl = imageUrl;
+            changed = true;
+        }
+
+        if (expiryAlertDays.HasValue && expiryAlertDays.Value != ExpiryAlertDays)
+        {
+            ExpiryAlertDays = expiryAlertDays.Value;
+            changed = true;
+        }
+
+        if (changed)
+        {
+            UpdatedAt = DateTimeOffset.UtcNow;
+        }
+    }
+
+    public void SetActiveState(bool isActive)
+    {
+        if (IsActive == isActive)
+            return;
+
+        IsActive = isActive;
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
 }

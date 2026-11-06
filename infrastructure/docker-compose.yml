@@ -22,7 +22,7 @@ services:
 
   # AI Brain Derived Intelligence Database (PostgreSQL)
   brain_db:
-    image: postgres:15
+    image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -35,3 +35,20 @@ services:
     image: redis:alpine
     ports:
       - "6379:6379"
+
+  # AI Brain HTTP service
+  brain_api:
+    build:
+      context: ../apps/brain
+      dockerfile: Dockerfile
+    environment:
+      APP_ENV: development
+      LOG_LEVEL: INFO
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=2)"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s

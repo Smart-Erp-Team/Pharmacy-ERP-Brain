@@ -1,4 +1,4 @@
-﻿namespace PharmacyERP.Application.Common.Constants;
+namespace PharmacyERP.Application.Common.Constants;
 
 public static class ErrorMessages
 {
