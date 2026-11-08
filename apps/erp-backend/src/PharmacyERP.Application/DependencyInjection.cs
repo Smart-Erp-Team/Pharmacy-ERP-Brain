@@ -30,6 +30,7 @@ public static class DependencyInjection
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IProductUomService, ProductUomService>();
         services.AddScoped<IReorderRuleService, ReorderRuleService>();
+        services.AddScoped<ICanonicalCatalogService, CanonicalCatalogService>();
 
         // Temporary Cross-Module Initializers / Checkers (fallback until Inventory module is implemented)
         services.TryAddScoped<INonLotBatchInitializer, TemporaryNonLotBatchInitializer>();
