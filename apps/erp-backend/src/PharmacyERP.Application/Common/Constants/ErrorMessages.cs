@@ -55,4 +55,12 @@ public static class ErrorMessages
     public const string InvalidEnrollmentToken = "The enrollment token is invalid, expired, or has already been used.";
     public const string InvalidOrganizationTimeZone = "The specified time zone is invalid.";
     public const string InvalidBranchSelection = "One or more selected branches do not belong to this organization or are inactive.";
+
+    // 8. Canonical & AI Configuration Writes (Stage 1)
+    public const string InvalidRequestId = "The request ID must be a non-empty GUID.";
+    public const string InvalidSourcePromptId = "The source prompt ID is required and must not exceed 100 characters.";
+    public const string InvalidIdempotencyKey = "The idempotency key is required.";
+    public const string InvalidConfigurationAction = "The specified catalog configuration action is invalid or unsupported.";
+    public const string InvalidBranchId = "A valid branch ID is required for reorder rule configuration.";
+    public const string CannotDeactivateBaseUom = "Cannot deactivate the base unit of measure for this product.";
 }
