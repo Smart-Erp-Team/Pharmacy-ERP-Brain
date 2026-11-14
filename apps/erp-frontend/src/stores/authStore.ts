@@ -8,6 +8,8 @@
 import { create } from 'zustand';
 import { authService } from '../features/auth/api/authService';
 import { tokenStorage } from '../lib/auth/tokenStorage';
+import { notifySessionEnd } from '../lib/auth/sessionEvents';
+import { queryClient } from '../lib/queryClient';
 import type { CurrentUserContext, LoginRequest } from '../types/api';
 
 export interface AuthState {
@@ -17,9 +19,10 @@ export interface AuthState {
   login: (credentials: LoginRequest) => Promise<void>;
   logout: () => Promise<void>;
   initialize: () => Promise<void>;
+  resetSession: () => void;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   currentUser: null,
   isAuthenticated: false,
   isInitializing: true,
@@ -47,18 +50,10 @@ export const useAuthStore = create<AuthState>((set) => ({
         error
       );
     } finally {
-      tokenStorage.clearTokens();
-      set({
-        currentUser: null,
-        isAuthenticated: false,
-        isInitializing: false,
-      });
-      if (
-        typeof window !== 'undefined' &&
-        window.location.pathname !== '/login'
-      ) {
-        window.location.href = '/login';
-      }
+      // Drops the tokens, the cached server data and the session flags, so the
+      // next user never sees the previous user's data.
+      get().resetSession();
+      notifySessionEnd('logout');
     }
   },
 
@@ -90,5 +85,19 @@ export const useAuthStore = create<AuthState>((set) => ({
         isInitializing: false,
       });
     }
+  },
+
+  /**
+   * Ends the local session: clears the tokens, empties the TanStack Query cache
+   * and resets the session flags. It performs no API call.
+   */
+  resetSession: () => {
+    tokenStorage.clearTokens();
+    queryClient.clear();
+    set({
+      currentUser: null,
+      isAuthenticated: false,
+      isInitializing: false,
+    });
   },
 }));
