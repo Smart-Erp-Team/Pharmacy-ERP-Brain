@@ -25,6 +25,7 @@ import type {
 
 export interface UseAuthResult {
   currentUser: CurrentUserContext | null;
+  activeBranchId: string | null;
   isAuthenticated: boolean;
   isInitializing: boolean;
   runtime: RuntimeMode | null;
@@ -33,6 +34,7 @@ export interface UseAuthResult {
   roles: readonly Role[];
   scopes: readonly PermissionScope[];
   logout: () => Promise<void>;
+  setActiveBranch: (branchId: string | null) => void;
   hasRole: (role: Role) => boolean;
   hasAnyRole: (requiredRoles: readonly Role[]) => boolean;
   can: (scope: PermissionScope) => boolean;
@@ -42,9 +44,11 @@ export interface UseAuthResult {
 
 export function useAuth(): UseAuthResult {
   const currentUser = useAuthStore((state) => state.currentUser);
+  const activeBranchId = useAuthStore((state) => state.activeBranchId);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const isInitializing = useAuthStore((state) => state.isInitializing);
   const logout = useAuthStore((state) => state.logout);
+  const setActiveBranch = useAuthStore((state) => state.setActiveBranch);
 
   return useMemo<UseAuthResult>(() => {
     const roles = currentUser?.roles ?? [];
@@ -55,6 +59,7 @@ export function useAuth(): UseAuthResult {
 
     return {
       currentUser,
+      activeBranchId,
       isAuthenticated,
       isInitializing,
       runtime,
@@ -63,6 +68,7 @@ export function useAuth(): UseAuthResult {
       roles,
       scopes,
       logout,
+      setActiveBranch,
       hasRole: (role: Role) => hasRole(roles, role),
       hasAnyRole: (requiredRoles: readonly Role[]) =>
         hasAnyRole(roles, requiredRoles),
@@ -72,5 +78,12 @@ export function useAuth(): UseAuthResult {
       canAccessBranch: (branchId: string) =>
         isAllowedBranch(currentUser, branchId),
     };
-  }, [currentUser, isAuthenticated, isInitializing, logout]);
+  }, [
+    currentUser,
+    activeBranchId,
+    isAuthenticated,
+    isInitializing,
+    logout,
+    setActiveBranch,
+  ]);
 }

@@ -125,5 +125,36 @@ describe('useAuth', () => {
     });
 
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(useAuthStore.getState().activeBranchId).toBeNull();
+  });
+
+  it('updates activeBranchId only for permitted branches', () => {
+    useAuthStore.setState({
+      currentUser: {
+        ...adminUser,
+        branch_scope: 'ASSIGNED',
+        branch_ids: ['branch-1', 'branch-2'],
+      },
+      activeBranchId: 'branch-1',
+      isAuthenticated: true,
+      isInitializing: false,
+    });
+
+    const { result } = renderHook(() => useAuth());
+
+    act(() => {
+      result.current.setActiveBranch('branch-2');
+    });
+    expect(result.current.activeBranchId).toBe('branch-2');
+
+    act(() => {
+      result.current.setActiveBranch('branch-999');
+    });
+    expect(result.current.activeBranchId).toBe('branch-2');
+
+    act(() => {
+      result.current.setActiveBranch(null);
+    });
+    expect(result.current.activeBranchId).toBe('branch-2');
   });
 });

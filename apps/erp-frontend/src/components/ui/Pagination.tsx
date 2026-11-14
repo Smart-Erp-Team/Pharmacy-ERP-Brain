@@ -24,19 +24,24 @@ export function Pagination({
 }: PaginationProps) {
   const isFirst = page <= 1;
   const from = (page - 1) * pageSize + 1;
-  const to = page * pageSize;
-  const totalLabel = typeof itemCount === 'number' ? ` of ${itemCount}` : '';
+  const to =
+    typeof itemCount === 'number'
+      ? Math.min(page * pageSize, itemCount)
+      : page * pageSize;
+
+  let summaryText = 'Showing results · Total unavailable';
+  if (itemCount === 0) {
+    summaryText = 'Showing 0 of 0';
+  } else if (typeof itemCount === 'number') {
+    summaryText = `Showing ${from}–${to} of ${itemCount}`;
+  }
 
   return (
     <nav
       aria-label="Pagination"
       className={`flex items-center justify-between gap-3 ${className}`.trim()}
     >
-      <p className="text-body-sm text-text-muted">
-        {typeof itemCount === 'number'
-          ? `Showing ${from}–${to}${totalLabel}`
-          : 'Showing results · Total unavailable'}
-      </p>
+      <p className="text-body-sm text-text-muted">{summaryText}</p>
 
       <div className="flex items-center gap-2">
         <span className="text-body-sm text-text-secondary">Page {page}</span>

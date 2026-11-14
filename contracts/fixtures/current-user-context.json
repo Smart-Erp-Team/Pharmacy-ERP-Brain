@@ -12,12 +12,12 @@
   },
   "organization_id": "b1c2d3e4-2222-4b33-8c44-aabbccddeeff",
   "organization_code": "PHARMAPLUS",
-  "branch_scope": "ASSIGNED",
+  "branch_scope": "ALL",
   "branch_ids": [
     "d4e5f6a7-3333-4c44-9d55-bbccddeeffaa"
   ],
   "roles": [
-    "Pharmacist"
+    "Admin"
   ],
   "scopes": [
     "inventory:read",
@@ -29,9 +29,10 @@
     "purchase-order:receive",
     "supplier-payment:write",
     "return:read",
-    "return:write"
+    "return:write",
+    "user:admin"
   ],
-  "runtime": "BranchLocal",
+  "runtime": "Cloud",
   "issuance_context": {
     "terminal_id": "POS-TERM-01",
     "branch_code": "BR-CAI-01"

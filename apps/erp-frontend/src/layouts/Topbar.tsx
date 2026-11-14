@@ -1,6 +1,7 @@
 import { useLocation } from 'react-router-dom';
 import { Badge } from '../components/ui/Badge';
 import { useAuth } from '../hooks/useAuth';
+import { BranchContextControl } from './BranchContextControl';
 import { NAV_GROUPS } from './navItems';
 
 /**
@@ -21,6 +22,7 @@ export function Topbar() {
       <span className="text-title text-text">{currentLabel}</span>
 
       <div className="flex items-center gap-3">
+        <BranchContextControl />
         <span className="text-body-sm text-text-secondary">
           {currentUser?.organization_code ?? 'Organization unavailable'}
         </span>

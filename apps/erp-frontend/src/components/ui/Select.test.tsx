@@ -16,6 +16,24 @@ describe('Select', () => {
     expect(select.options[0].textContent).toBe('Cairo');
   });
 
+  it('renders value/label option objects', () => {
+    render(
+      <Select
+        label="Branch"
+        options={[
+          { value: 'b1', label: 'Cairo Main (CAI-01)' },
+          { value: 'b2', label: 'Alexandria (ALX-01)' },
+        ]}
+      />
+    );
+
+    const select = screen.getByLabelText('Branch') as HTMLSelectElement;
+    expect(select.options).toHaveLength(2);
+    expect(select.options[0].value).toBe('b1');
+    expect(select.options[0].textContent).toBe('Cairo Main (CAI-01)');
+    expect(select.options[1].value).toBe('b2');
+  });
+
   it('links the error message to the control', () => {
     render(
       <Select

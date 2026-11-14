@@ -9,8 +9,10 @@ import {
   afterAll,
 } from 'vitest';
 import { setupServer } from 'msw/node';
-import { cleanup, render, screen } from '@testing-library/react';
+import { http, HttpResponse } from 'msw';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { handlers } from '../mocks/handlers';
 import { useAuthStore } from '../stores/authStore';
@@ -41,16 +43,23 @@ const buildUser = (
     ...overrides,
   }) as CurrentUserContext;
 
-const renderShell = () =>
-  render(
-    <MemoryRouter initialEntries={['/']}>
-      <Routes>
-        <Route element={<AppShell />}>
-          <Route path="/" element={<div>Overview Content</div>} />
-        </Route>
-      </Routes>
-    </MemoryRouter>
+const renderShell = () => {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route element={<AppShell />}>
+            <Route path="/" element={<div>Overview Content</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
+};
 
 beforeAll(() => server.listen());
 afterEach(() => {
@@ -164,5 +173,145 @@ describe('AppShell', () => {
 
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
     expect(useAuthStore.getState().currentUser).toBeNull();
+  });
+
+  it('lets an Admin switch the active branch from the Topbar selector', async () => {
+    const user = userEvent.setup();
+    useAuthStore.setState({
+      currentUser: buildUser(),
+      activeBranchId: null,
+      isAuthenticated: true,
+      isInitializing: false,
+    });
+
+    renderShell();
+
+    const selector = (await screen.findByLabelText(
+      'Active branch'
+    )) as HTMLSelectElement;
+    expect(selector.value).toBe('');
+
+    await user.selectOptions(selector, 'e5f6a7b8-4444-4d55-9e66-ccddeeff0011');
+    expect(useAuthStore.getState().activeBranchId).toBe(
+      'e5f6a7b8-4444-4d55-9e66-ccddeeff0011'
+    );
+  });
+
+  it('shows a fixed branch badge when a non-Admin has one assigned branch', () => {
+    useAuthStore.setState({
+      currentUser: buildUser({
+        roles: ['Pharmacist'],
+        branch_scope: 'ASSIGNED',
+        branch_ids: ['d4e5f6a7-3333-4c44-9d55-bbccddeeffaa'],
+      }),
+      activeBranchId: 'd4e5f6a7-3333-4c44-9d55-bbccddeeffaa',
+      isAuthenticated: true,
+      isInitializing: false,
+    });
+
+    renderShell();
+
+    expect(screen.queryByLabelText('Active branch')).toBeNull();
+    expect(screen.getByText('Branch d4e5f6a7')).toBeDefined();
+  });
+
+  it('lets a non-Admin with multiple assigned branches switch among them', async () => {
+    const user = userEvent.setup();
+    useAuthStore.setState({
+      currentUser: buildUser({
+        roles: ['Pharmacist'],
+        branch_scope: 'ASSIGNED',
+        branch_ids: [
+          'd4e5f6a7-3333-4c44-9d55-bbccddeeffaa',
+          'e5f6a7b8-4444-4d55-9e66-ccddeeff0011',
+        ],
+      }),
+      activeBranchId: 'd4e5f6a7-3333-4c44-9d55-bbccddeeffaa',
+      isAuthenticated: true,
+      isInitializing: false,
+    });
+
+    renderShell();
+
+    const selector = screen.getByLabelText(
+      'Active branch'
+    ) as HTMLSelectElement;
+    expect(selector.options).toHaveLength(2);
+
+    await user.selectOptions(selector, 'e5f6a7b8-4444-4d55-9e66-ccddeeff0011');
+    expect(useAuthStore.getState().activeBranchId).toBe(
+      'e5f6a7b8-4444-4d55-9e66-ccddeeff0011'
+    );
+  });
+
+  it('restricts an Admin with ASSIGNED scope to their assigned branch_ids', async () => {
+    useAuthStore.setState({
+      currentUser: buildUser({
+        roles: ['Admin'],
+        branch_scope: 'ASSIGNED',
+        branch_ids: [
+          'd4e5f6a7-3333-4c44-9d55-bbccddeeffaa',
+          'e5f6a7b8-4444-4d55-9e66-ccddeeff0011',
+        ],
+      }),
+      activeBranchId: 'd4e5f6a7-3333-4c44-9d55-bbccddeeffaa',
+      isAuthenticated: true,
+      isInitializing: false,
+    });
+
+    renderShell();
+
+    const selector = (await screen.findByLabelText(
+      'Active branch'
+    )) as HTMLSelectElement;
+    const optionValues = Array.from(selector.options).map((opt) => opt.value);
+
+    expect(optionValues).toEqual([
+      'd4e5f6a7-3333-4c44-9d55-bbccddeeffaa',
+      'e5f6a7b8-4444-4d55-9e66-ccddeeff0011',
+    ]);
+  });
+
+  it('shows Branches unavailable when GET /branches fails for an ALL-scope Admin', async () => {
+    server.use(
+      http.get('*/api/v1/branches', () =>
+        HttpResponse.json(
+          { error: { code: 'INTERNAL_ERROR', message: 'Boom' } },
+          { status: 500 }
+        )
+      )
+    );
+
+    useAuthStore.setState({
+      currentUser: buildUser(),
+      activeBranchId: null,
+      isAuthenticated: true,
+      isInitializing: false,
+    });
+
+    renderShell();
+
+    expect(await screen.findByText('Branches unavailable')).toBeDefined();
+    expect(
+      within(screen.getByRole('banner')).queryByText('All branches')
+    ).toBeNull();
+    expect(screen.queryByLabelText('Active branch')).toBeNull();
+  });
+
+  it('clears a stale activeBranchId if it is no longer returned as active', async () => {
+    useAuthStore.setState({
+      currentUser: buildUser(),
+      activeBranchId: '99999999-9999-4999-8999-999999999999',
+      isAuthenticated: true,
+      isInitializing: false,
+    });
+
+    renderShell();
+
+    const selector = (await screen.findByLabelText(
+      'Active branch'
+    )) as HTMLSelectElement;
+    expect(selector.value).toBe('');
+    expect(useAuthStore.getState().activeBranchId).toBeNull();
   });
 });

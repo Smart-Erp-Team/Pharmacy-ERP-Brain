@@ -8,6 +8,7 @@
 import { http, HttpResponse } from 'msw';
 import authTokenPair from '@contracts/fixtures/auth-token-pair.json';
 import currentUserContext from '@contracts/fixtures/current-user-context.json';
+import { branchHandlers } from './branchHandlers';
 
 const INVALID_CREDENTIALS_PASSWORD = 'invalid';
 const CONSUMED_REFRESH_TOKENS = ['invalid', 'expired', 'consumed'];
@@ -78,4 +79,6 @@ export const handlers = [
   http.post('*/api/v1/auth/logout', () => {
     return new HttpResponse(null, { status: 204 });
   }),
+
+  ...branchHandlers,
 ];

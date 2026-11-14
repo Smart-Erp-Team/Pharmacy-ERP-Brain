@@ -100,6 +100,14 @@ const isAuthTokenPath = (url: string | undefined): boolean => {
 };
 
 /**
+ * Unauthenticated device-enrollment redemption returns 401 when the single-use
+ * token is invalid or unrecognized. That 401 must surface as an inline form
+ * error instead of triggering session-refresh / session-expired redirect.
+ */
+const isBranchEnrollmentPath = (url: string | undefined): boolean =>
+  normalizeApiPath(url).endsWith('/branch-enrollment');
+
+/**
  * One refresh at a time. Refresh tokens rotate on every use, so two parallel
  * refreshes would consume the same token twice and revoke the whole token family.
  */
@@ -186,7 +194,8 @@ apiClient.interceptors.response.use(
     if (
       isUnauthorized &&
       originalRequest &&
-      !isAuthTokenPath(originalRequest.url)
+      !isAuthTokenPath(originalRequest.url) &&
+      !isBranchEnrollmentPath(originalRequest.url)
     ) {
       if (!originalRequest._retry) {
         originalRequest._retry = true;

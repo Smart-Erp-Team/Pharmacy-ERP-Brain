@@ -248,4 +248,46 @@ describe('401 refresh interceptor', () => {
     expect(receivedKeys[0]).not.toBeNull();
     expect(receivedKeys[0]).toBe(receivedKeys[1]);
   });
+
+  it('does not trigger refresh or endExpiredSession on 401 from POST /branch-enrollment', async () => {
+    let refreshCalls = 0;
+    let receivedIdempotencyKey: string | null = null;
+    const sessionEndHandler = vi.fn();
+    registerSessionEndHandler(sessionEndHandler);
+
+    server.use(
+      http.post('*/api/v1/branch-enrollment', ({ request }) => {
+        receivedIdempotencyKey = request.headers.get('Idempotency-Key');
+        return HttpResponse.json(
+          {
+            error: {
+              code: 'UNAUTHORIZED',
+              message: 'Enrollment token is invalid or unrecognized.',
+            },
+          },
+          { status: 401 }
+        );
+      }),
+      http.post('*/api/v1/auth/refresh', () => {
+        refreshCalls += 1;
+        return HttpResponse.json(authTokenPair);
+      })
+    );
+
+    tokenStorage.clearTokens();
+
+    await expect(
+      apiClient.post('/branch-enrollment', {
+        enrollment_token: 'bad-token',
+        device_fingerprint: 'pos-01',
+      })
+    ).rejects.toMatchObject({
+      status: 401,
+      code: 'UNAUTHORIZED',
+    });
+
+    expect(receivedIdempotencyKey).not.toBeNull();
+    expect(refreshCalls).toBe(0);
+    expect(sessionEndHandler).not.toHaveBeenCalled();
+  });
 });

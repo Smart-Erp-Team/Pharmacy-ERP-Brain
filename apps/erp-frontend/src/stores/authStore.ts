@@ -7,23 +7,36 @@
 
 import { create } from 'zustand';
 import { authService } from '../features/auth/api/authService';
+import { isAllowedBranch } from '../lib/auth/permissions';
 import { tokenStorage } from '../lib/auth/tokenStorage';
 import { notifySessionEnd } from '../lib/auth/sessionEvents';
 import { queryClient } from '../lib/queryClient';
 import type { CurrentUserContext, LoginRequest } from '../types/api';
 
+function resolveInitialBranchId(
+  userContext: CurrentUserContext
+): string | null {
+  if (userContext.branch_scope === 'ASSIGNED') {
+    return userContext.branch_ids[0] ?? null;
+  }
+  return null;
+}
+
 export interface AuthState {
   currentUser: CurrentUserContext | null;
+  activeBranchId: string | null;
   isAuthenticated: boolean;
   isInitializing: boolean;
   login: (credentials: LoginRequest) => Promise<void>;
   logout: () => Promise<void>;
   initialize: () => Promise<void>;
+  setActiveBranch: (branchId: string | null) => void;
   resetSession: () => void;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   currentUser: null,
+  activeBranchId: null,
   isAuthenticated: false,
   isInitializing: true,
 
@@ -36,6 +49,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     set({
       currentUser: userContext,
+      activeBranchId: resolveInitialBranchId(userContext),
       isAuthenticated: true,
       isInitializing: false,
     });
@@ -63,6 +77,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (!token) {
       set({
         currentUser: null,
+        activeBranchId: null,
         isAuthenticated: false,
         isInitializing: false,
       });
@@ -73,6 +88,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const userContext = await authService.getCurrentUser();
       set({
         currentUser: userContext,
+        activeBranchId: resolveInitialBranchId(userContext),
         isAuthenticated: true,
         isInitializing: false,
       });
@@ -81,9 +97,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       tokenStorage.clearTokens();
       set({
         currentUser: null,
+        activeBranchId: null,
         isAuthenticated: false,
         isInitializing: false,
       });
+    }
+  },
+
+  setActiveBranch: (branchId: string | null) => {
+    const { currentUser } = get();
+    if (!currentUser) {
+      return;
+    }
+    if (branchId === null) {
+      if (currentUser.branch_scope === 'ALL') {
+        set({ activeBranchId: null });
+      }
+      return;
+    }
+    if (isAllowedBranch(currentUser, branchId)) {
+      set({ activeBranchId: branchId });
     }
   },
 
@@ -96,6 +129,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     queryClient.clear();
     set({
       currentUser: null,
+      activeBranchId: null,
       isAuthenticated: false,
       isInitializing: false,
     });

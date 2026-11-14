@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { routes } from '../routes/router';
 import { useAuthStore } from '../stores/authStore';
@@ -21,9 +22,16 @@ const buildUser = (
   }) as CurrentUserContext;
 
 const renderRouter = (path: string) => {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   const memoryRouter = createMemoryRouter(routes, { initialEntries: [path] });
 
-  return render(<RouterProvider router={memoryRouter} />);
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={memoryRouter} />
+    </QueryClientProvider>
+  );
 };
 
 beforeEach(() => {

@@ -1,16 +1,18 @@
 import { useId, type ComponentPropsWithRef } from 'react';
 import { ChevronDown } from 'lucide-react';
 
+export type SelectOption = string | { value: string; label: string };
+
 export interface SelectProps extends ComponentPropsWithRef<'select'> {
   label?: string;
   error?: string;
   hint?: string;
-  options: readonly string[];
+  options: readonly SelectOption[];
 }
 
 /**
  * Native select inside the shared 36px control shell with a custom chevron
- * (DESIGN.md §4). Options are plain strings — no rich option objects.
+ * (DESIGN.md §4). Accepts plain strings or { value, label } option pairs.
  */
 export function Select({
   label,
@@ -55,11 +57,16 @@ export function Select({
           aria-describedby={describedBy}
           {...rest}
         >
-          {options.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
+          {options.map((option) => {
+            const value = typeof option === 'string' ? option : option.value;
+            const optionLabel =
+              typeof option === 'string' ? option : option.label;
+            return (
+              <option key={value} value={value}>
+                {optionLabel}
+              </option>
+            );
+          })}
         </select>
         <ChevronDown
           className="text-text-muted pointer-events-none absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2"
