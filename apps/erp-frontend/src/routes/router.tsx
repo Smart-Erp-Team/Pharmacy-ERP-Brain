@@ -46,7 +46,9 @@ export const routes: RouteObject[] = [
   },
   {
     path: PATHS.BRANCH_ENROLLMENT,
-    element: <BranchEnrollmentPage />,
+    element: (
+      <BranchEnrollmentPage homePath={PATHS.HOME} loginPath={PATHS.LOGIN} />
+    ),
   },
   {
     element: (

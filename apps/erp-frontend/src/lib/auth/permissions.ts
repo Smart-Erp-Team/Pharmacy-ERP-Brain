@@ -94,6 +94,11 @@ export function hasAllPermissions(
   userScopes: readonly PermissionScope[] | undefined,
   requiredScopes: readonly PermissionScope[]
 ): boolean {
+  // Nothing is required: the check passes, even without any scope in the session.
+  if (requiredScopes.length === 0) {
+    return true;
+  }
+
   if (!userScopes || userScopes.length === 0) return false;
   return requiredScopes.every((scope) => userScopes.includes(scope));
 }

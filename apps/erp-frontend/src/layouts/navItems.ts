@@ -107,12 +107,17 @@ export interface NavContext {
 /**
  * A navigation entry is visible when the session may open it: the runtime owns
  * the route, the user holds one of the roles, and the scopes cover it.
+ * An unknown runtime hides the entry, exactly like the RuntimeGate does.
  */
 export const isNavItemVisible = (
   item: NavItem,
   context: NavContext
 ): boolean => {
-  if (context.runtime && !item.runtimes.includes(context.runtime)) {
+  if (!context.runtime) {
+    return false;
+  }
+
+  if (!item.runtimes.includes(context.runtime)) {
     return false;
   }
 

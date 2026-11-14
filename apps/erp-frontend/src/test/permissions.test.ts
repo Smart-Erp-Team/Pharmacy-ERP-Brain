@@ -79,6 +79,13 @@ describe('Roles and Permissions Matrix', () => {
       false
     );
   });
+
+  it('passes the scope check when nothing is required', () => {
+    expect(hasAllPermissions(['inventory:read'], [])).toBe(true);
+    expect(hasAllPermissions([], [])).toBe(true);
+    expect(hasAllPermissions(undefined, [])).toBe(true);
+    expect(hasAllPermissions([], ['inventory:read'])).toBe(false);
+  });
 });
 
 describe('Runtime gating', () => {
