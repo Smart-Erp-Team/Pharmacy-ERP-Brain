@@ -12,24 +12,31 @@ src/
 ├── main.tsx
 ├── App.tsx                        RouterProvider + session initialize (useAuthStore)
 ├── styles/
-│   └── main.css                   the Tailwind entry (Tailwind v4)
+│   └── main.css                   the Tailwind entry (Tailwind v4) + the DESIGN.md tokens as @theme
 │
 ├── routes/                        routing
 │   ├── router.tsx                 ALL routes are defined here
 │   ├── paths.ts                   path constants
 │   ├── ProtectedRoute.tsx
+│   ├── PublicOnlyRoute.tsx        sends an already-authenticated user away from /login
 │   └── RoleGate.tsx
 │
-├── layouts/
+├── layouts/                       (planned)
 │   └── AppShell.tsx               header, sidebar, <Outlet />
 │
 ├── features/                      one folder per domain module
 │   ├── auth/                      login, token refresh lifecycle, user context & branch selection
-│   ├── sales/                     Stage 2: POS cashier checkout, invoices, sales returns & refunds
-│   ├── purchasing/                Stage 3: suppliers, purchase orders, one-step receiving, payments & vendor returns
-│   ├── products/                  Stage 1: catalog, categories, pricing, barcodes, UOMs, reorder rules
-│   ├── inventory/                 Stage 1: inventory ledger, batch tracking (FEFO), balances & adjustments
-│   └── ai/                        pages: insights, assistant, approvals (Brain service)
+│   │   ├── pages/LoginPage.tsx
+│   │   ├── components/LoginForm.tsx
+│   │   ├── schemas/loginSchema.ts
+│   │   └── api/authService.ts
+│   ├── dashboard/                 home / overview after login
+│   │   └── pages/DashboardPage.tsx
+│   ├── sales/                     (planned) Stage 2: POS cashier checkout, invoices, sales returns & refunds
+│   ├── purchasing/                (planned) Stage 3: suppliers, purchase orders, one-step receiving, payments & vendor returns
+│   ├── products/                  (planned) Stage 1: catalog, categories, pricing, barcodes, UOMs, reorder rules
+│   ├── inventory/                 (planned) Stage 1: inventory ledger, batch tracking (FEFO), balances & adjustments
+│   └── ai/                        (planned) pages: insights, assistant, approvals (Brain service)
 │       └── <each feature contains only the subfolders it requires>
 │           ├── pages/
 │           ├── components/
@@ -38,13 +45,14 @@ src/
 │           └── schemas/           Zod validation schemas
 │
 ├── components/                    shared across features
-│   ├── ui/                        design system: Button, Input, Card, Badge, Modal
-│   └── ai/                        InsightCard, ForecastChart, AssistantChatPanel, ApprovalModal
+│   ├── ui/                        design system primitives (DESIGN.md): Button, Input, ToastHost
+│   │                              (Card, Badge, Modal still to come)
+│   └── ai/                        (planned) InsightCard, ForecastChart, AssistantChatPanel, ApprovalModal
 │
 ├── lib/
 │   ├── api/
 │   │   └── client.ts              the single Axios instance and interceptors
-│   ├── queryClient.ts             the single QueryClient and its defaults
+│   ├── queryClient.ts             (planned) the single QueryClient and its defaults
 │   └── auth/
 │       ├── tokenStorage.ts        the only file that touches browser storage
 │       └── permissions.ts         role to permission map
@@ -52,22 +60,24 @@ src/
 ├── test/                          shared tests + Phase 0 fixture conformance
 │   ├── contract-fixtures.test.ts  Phase 0 fixture conformance test (tests @contracts/fixtures)
 │   ├── authService.test.ts, authStore.test.ts
-│   └── routingGuards.test.tsx, permissions.test.ts
+│   ├── routingGuards.test.tsx, permissions.test.ts
+│   └── renderWithProviders.tsx    shared render helper (QueryClientProvider + Router + MSW)
 │
 ├── mocks/                         MSW for dev and tests
 │   ├── handlers.ts                the shared mock handlers
 │   └── browser.ts                 the dev worker started in main.tsx
 │
-├── hooks/                         generic custom hooks, shared by several features
+├── hooks/                         (planned) generic custom hooks, shared by several features
 │   ├── useAuth.ts
 │   └── useDebounce.ts             (example of a generic hook)
 │
-├── stores/                        Zustand: exactly two stores
-│   ├── cartStore.ts
-│   └── authStore.ts
+├── stores/                        Zustand
+│   ├── authStore.ts               the only store today
+│   └── cartStore.ts               (planned) POS cart
 │
 ├── types/
-│   ├── generated/                 mirrors repo-root contracts/schemas (read-only)
+│   ├── generated/                 mirrors the repo-root contracts (read-only)
+│   │   ├── api-paths.ts           openapi-typescript output (`npm run codegen:paths`)
 │   │   ├── auth.ts, catalog.ts, common.ts, identity.ts
 │   │   ├── inventory.ts, purchasing.ts, sales.ts, index.ts
 │   │   └── tsconfig.json
@@ -77,7 +87,11 @@ src/
 └── assets/
 ```
 
+Anything marked **(planned)** does not exist yet — do not assume the file is there, and create it only when you have the code for it.
 Create subfolders only when you have a file to put in them. No empty folders.
+
+**Regenerating the API types:** run `npm run codegen:paths` (writes `types/generated/api-paths.ts` from `../../contracts/openapi.erp.yaml`) **and then `npm run format`** — the generator emits its own formatting, and Prettier is what keeps the committed file stable. Skip the format step and the diff will be full of noise.
+`types/generated/` is never hand-edited; if a shape is wrong, fix the contract and regenerate (skill `contracts-types`).
 
 Playwright E2E lives outside `src/`: `tests/e2e/` at the app root (`apps/erp-frontend/tests/e2e/`).
 
@@ -105,8 +119,9 @@ Playwright E2E lives outside `src/`: `tests/e2e/` at the app root (`apps/erp-fro
 | A frontend-only type                                             | `types/ui.ts`, or next to the component that uses it                       |
 | Contracts & OpenAPI spec (read-only; frontend slice = ask first) | `../../contracts/` at repo root (accessed in app via `@contracts/*` alias) |
 | Generated API domain types (read-only)                           | `types/generated/` (mirroring repo-root contracts/schemas)                 |
+| Generated path/operation types (read-only)                      | `types/generated/api-paths.ts` — regenerate with `npm run codegen:paths`, then `npm run format` |
 | A component or hook unit test                                    | Next to the file it tests: `Name.test.tsx`                                 |
-| Shared test harness (custom render helper)                       | `src/test/renderWithProviders.tsx` — create it only when a test first needs it |
+| Shared test harness (custom render helper)                       | `src/test/renderWithProviders.tsx` (exists — wraps QueryClientProvider + Router) |
 | Shared mock handlers (MSW)                              | `src/mocks/handlers.ts`, `src/mocks/browser.ts`                         |
 | A Playwright E2E test                                            | `tests/e2e/` inside the frontend app: `apps/erp-frontend/tests/e2e/`        |
 
