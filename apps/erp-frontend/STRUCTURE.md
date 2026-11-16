@@ -20,7 +20,8 @@ src/
 │   ├── ProtectedRoute.tsx
 │   ├── PublicOnlyRoute.tsx        sends an already-authenticated user away from /login
 │   ├── RoleGate.tsx               role gate → renders the 403 screen
-│   └── RuntimeGate.tsx            runtime gate (Cloud / BranchLocal) → renders the 403 screen
+│   ├── RuntimeGate.tsx            runtime gate (Cloud / BranchLocal) → renders the 403 screen
+│   └── ScopeGate.tsx              permission scope gate → renders the 403 screen
 │
 ├── layouts/                       the application shell
 │   ├── AppShell.tsx               sidebar + topbar + <Outlet />
@@ -97,7 +98,7 @@ src/
 ├── test/                          shared tests + Phase 0 fixture conformance
 │   ├── contract-fixtures.test.ts  Phase 0 fixture conformance test (tests @contracts/fixtures)
 │   ├── authService.test.ts, authStore.test.ts
-│   ├── routingGuards.test.tsx, runtimeGate.test.tsx, appRouter.test.tsx
+│   ├── routingGuards.test.tsx, runtimeGate.test.tsx, scopeGate.test.tsx, appRouter.test.tsx
 │   ├── permissions.test.ts, idempotency.test.ts, queryClient.test.ts, apiClientRefresh.test.ts
 │   └── renderWithProviders.tsx    shared render helper (QueryClientProvider + Router + MSW)
 │
@@ -159,7 +160,7 @@ Playwright E2E lives outside `src/`: `tests/e2e/` at the app root (`apps/erp-fro
 | A generic custom hook (shared by several features, no API calls) | `hooks/use<Name>.ts`                                                                                          |
 | A Zustand store                                                  | `stores/<name>Store.ts`                                                                                       |
 | A route, a protected route, a path constant                      | `routes/`                                                                                                     |
-| A route guard (role or runtime)                                  | `routes/RoleGate.tsx`, `routes/RuntimeGate.tsx`                                                               |
+| A route guard (role, runtime, or scope)                          | `routes/RoleGate.tsx`, `routes/RuntimeGate.tsx`, `routes/ScopeGate.tsx`                                       |
 | The 403 and 404 screens                                          | `features/errors/pages/ForbiddenPage.tsx`, `NotFoundPage.tsx`                                                 |
 | A layout                                                         | `layouts/`                                                                                                    |
 | A frontend-only type                                             | `types/ui.ts`, or next to the component that uses it                                                          |

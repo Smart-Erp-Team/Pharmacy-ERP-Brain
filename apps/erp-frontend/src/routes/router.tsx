@@ -16,6 +16,7 @@ import { ProtectedRoute } from './ProtectedRoute';
 import { PublicOnlyRoute } from './PublicOnlyRoute';
 import { RoleGate } from './RoleGate';
 import { RuntimeGate } from './RuntimeGate';
+import { ScopeGate } from './ScopeGate';
 import { PATHS } from './paths';
 import { AppShell } from '../layouts/AppShell';
 import { LoginPage } from '../features/auth/pages/LoginPage';
@@ -28,12 +29,14 @@ import { ProductsPage } from '../features/products/pages/ProductsPage';
 import { InventoryPage } from '../features/inventory/pages/InventoryPage';
 import { ForbiddenPage } from '../features/errors/pages/ForbiddenPage';
 import { NotFoundPage } from '../features/errors/pages/NotFoundPage';
-import type { Role, RuntimeMode } from '../types/api';
+import type { PermissionScope, Role, RuntimeMode } from '../types/api';
 
 const ADMIN_ONLY: readonly Role[] = ['Admin'];
 const ALL_ROLES: readonly Role[] = ['Admin', 'Pharmacist', 'Cashier'];
 const CLOUD_ONLY: readonly RuntimeMode[] = ['Cloud'];
 const BOTH_RUNTIMES: readonly RuntimeMode[] = ['Cloud', 'BranchLocal'];
+const USER_ADMIN_SCOPE: readonly PermissionScope[] = ['user:admin'];
+const INVENTORY_READ_SCOPE: readonly PermissionScope[] = ['inventory:read'];
 
 export const routes: RouteObject[] = [
   {
@@ -66,7 +69,9 @@ export const routes: RouteObject[] = [
         element: (
           <RoleGate allowedRoles={ADMIN_ONLY}>
             <RuntimeGate allowedRuntimes={CLOUD_ONLY}>
-              <BranchesPage />
+              <ScopeGate requiredScopes={USER_ADMIN_SCOPE}>
+                <BranchesPage />
+              </ScopeGate>
             </RuntimeGate>
           </RoleGate>
         ),
@@ -76,7 +81,9 @@ export const routes: RouteObject[] = [
         element: (
           <RoleGate allowedRoles={ADMIN_ONLY}>
             <RuntimeGate allowedRuntimes={CLOUD_ONLY}>
-              <EmployeesPage />
+              <ScopeGate requiredScopes={USER_ADMIN_SCOPE}>
+                <EmployeesPage />
+              </ScopeGate>
             </RuntimeGate>
           </RoleGate>
         ),
@@ -86,7 +93,9 @@ export const routes: RouteObject[] = [
         element: (
           <RoleGate allowedRoles={ADMIN_ONLY}>
             <RuntimeGate allowedRuntimes={CLOUD_ONLY}>
-              <UsersPage />
+              <ScopeGate requiredScopes={USER_ADMIN_SCOPE}>
+                <UsersPage />
+              </ScopeGate>
             </RuntimeGate>
           </RoleGate>
         ),
@@ -106,7 +115,9 @@ export const routes: RouteObject[] = [
         element: (
           <RoleGate allowedRoles={ALL_ROLES}>
             <RuntimeGate allowedRuntimes={BOTH_RUNTIMES}>
-              <InventoryPage />
+              <ScopeGate requiredScopes={INVENTORY_READ_SCOPE}>
+                <InventoryPage />
+              </ScopeGate>
             </RuntimeGate>
           </RoleGate>
         ),

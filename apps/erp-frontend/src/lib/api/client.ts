@@ -12,6 +12,7 @@
 import axios, {
   type AxiosError,
   type AxiosInstance,
+  type AxiosResponse,
   type InternalAxiosRequestConfig,
 } from 'axios';
 import { tokenStorage } from '../auth/tokenStorage';
@@ -27,8 +28,19 @@ import type {
   TokenPairResponse,
 } from '../../types/api';
 
+export type ApiClientErrorCode =
+  ApiError['error']['code'] | 'INVALID_RESPONSE' | 'UNKNOWN_ERROR';
+
+export interface ApiClientErrorPayload {
+  code: ApiClientErrorCode;
+  message: string;
+  details?: ApiError['error']['details'];
+  trace_id?: ApiError['error']['trace_id'];
+}
+
 /**
- * Standard client error normalizing the backend ApiError envelope.
+ * Standard client error normalizing the backend ApiError envelope and
+ * client-side invalid transport responses.
  */
 export class ApiClientError extends Error {
   public readonly code: string;
@@ -36,7 +48,7 @@ export class ApiClientError extends Error {
   public readonly details?: Array<{ field?: string; issue: string }>;
   public readonly trace_id?: string;
 
-  constructor(payload: ApiError['error'], status?: number) {
+  constructor(payload: ApiClientErrorPayload, status?: number) {
     super(payload.message || 'An unexpected API error occurred');
     this.name = 'ApiClientError';
     this.code = payload.code || 'UNKNOWN_ERROR';
@@ -161,6 +173,61 @@ const endExpiredSession = (): void => {
   notifySessionEnd('expired');
 };
 
+const getResponseContentType = (response: AxiosResponse): string => {
+  const headers: unknown = response.headers;
+  if (!headers || typeof headers !== 'object') {
+    return '';
+  }
+
+  if ('get' in headers && typeof headers.get === 'function') {
+    const value: unknown = headers.get('content-type');
+    return typeof value === 'string' ? value.toLowerCase() : '';
+  }
+
+  if ('content-type' in headers) {
+    const value: unknown = headers['content-type'];
+    return typeof value === 'string' ? value.toLowerCase() : '';
+  }
+
+  return '';
+};
+
+/**
+ * Rejects HTML/text SPA-fallback payloads (e.g., Vite serving `index.html` with
+ * HTTP 200 when MSW or a proxy misses `/api/v1/*`) so API callers never coerce
+ * non-JSON strings into empty lists via `data.items ?? []`.
+ */
+const validateJsonApiResponse = (response: AxiosResponse): AxiosResponse => {
+  if (response.status === 204 || response.status === 205) {
+    return response;
+  }
+
+  const responseType = response.config.responseType;
+  if (responseType && responseType !== 'json') {
+    return response;
+  }
+
+  const contentType = getResponseContentType(response);
+  const isHtmlResponse =
+    contentType.includes('text/html') ||
+    contentType.includes('application/xhtml+xml');
+  const isUnexpectedTextPayload =
+    typeof response.data === 'string' && response.data.trim().length > 0;
+
+  if (isHtmlResponse || isUnexpectedTextPayload) {
+    throw new ApiClientError(
+      {
+        code: 'INVALID_RESPONSE',
+        message:
+          'Expected a JSON API response, but received an unexpected HTML or text payload.',
+      },
+      response.status
+    );
+  }
+
+  return response;
+};
+
 // Request Interceptor: Inject JWT token from storage
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
@@ -184,9 +251,9 @@ apiClient.interceptors.request.use(
   (error: unknown) => Promise.reject(error)
 );
 
-// Response Interceptor: Handle 401 refresh flow & ApiError formatting
+// Response Interceptor: Validate JSON payload, handle 401 refresh flow & ApiError formatting
 apiClient.interceptors.response.use(
-  (response) => response,
+  validateJsonApiResponse,
   async (error: AxiosError<ApiError>) => {
     const originalRequest = error.config as RetriableRequestConfig | undefined;
     const isUnauthorized = error.response?.status === 401;

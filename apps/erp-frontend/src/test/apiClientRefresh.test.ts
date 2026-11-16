@@ -291,3 +291,43 @@ describe('401 refresh interceptor', () => {
     expect(sessionEndHandler).not.toHaveBeenCalled();
   });
 });
+
+describe('non-JSON / HTML response protection', () => {
+  it('rejects a 200 OK HTML fallback response instead of returning raw HTML string', async () => {
+    server.use(
+      http.get('*/api/v1/employees', () =>
+        HttpResponse.html('<!doctype html><html><body>SPA</body></html>')
+      )
+    );
+
+    await expect(apiClient.get('/employees')).rejects.toMatchObject({
+      name: 'ApiClientError',
+      code: 'INVALID_RESPONSE',
+      status: 200,
+    });
+  });
+
+  it('rejects a 200 OK non-empty plain text response as INVALID_RESPONSE', async () => {
+    server.use(
+      http.get('*/api/v1/branches', () => HttpResponse.text('unexpected text'))
+    );
+
+    await expect(apiClient.get('/branches')).rejects.toMatchObject({
+      name: 'ApiClientError',
+      code: 'INVALID_RESPONSE',
+      status: 200,
+    });
+  });
+
+  it('allows 204 No Content empty responses without raising INVALID_RESPONSE', async () => {
+    server.use(
+      http.post(
+        '*/api/v1/users/user-1/revoke-sessions',
+        () => new HttpResponse(null, { status: 204 })
+      )
+    );
+
+    const response = await apiClient.post('/users/user-1/revoke-sessions');
+    expect(response.status).toBe(204);
+  });
+});

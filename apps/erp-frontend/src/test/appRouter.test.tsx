@@ -101,6 +101,46 @@ describe('Application router', () => {
     expect(screen.getByTestId('role-gate-forbidden')).toBeDefined();
   });
 
+  it('shows the 403 screen when user:admin scope is missing on organization routes', () => {
+    useAuthStore.setState({
+      currentUser: buildUser({
+        roles: ['Admin'],
+        runtime: 'Cloud',
+        scopes: ['inventory:read'],
+      }),
+      isAuthenticated: true,
+      isInitializing: false,
+    });
+
+    for (const path of ['/branches', '/employees', '/users']) {
+      renderRouter(path);
+      expect(screen.getByTestId('role-gate-forbidden')).toBeDefined();
+      expect(
+        screen.getByText('Required permissions: user:admin')
+      ).toBeDefined();
+      cleanup();
+    }
+  });
+
+  it('shows the 403 screen when inventory:read scope is missing on /inventory', () => {
+    useAuthStore.setState({
+      currentUser: buildUser({
+        roles: ['Cashier'],
+        scopes: ['sales:read'],
+        runtime: 'BranchLocal',
+      }),
+      isAuthenticated: true,
+      isInitializing: false,
+    });
+
+    renderRouter('/inventory');
+
+    expect(screen.getByTestId('role-gate-forbidden')).toBeDefined();
+    expect(
+      screen.getByText('Required permissions: inventory:read')
+    ).toBeDefined();
+  });
+
   it('opens the inventory screen for every role on both runtimes', () => {
     useAuthStore.setState({
       currentUser: buildUser({
