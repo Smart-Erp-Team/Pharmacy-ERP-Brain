@@ -1,6 +1,9 @@
 import { useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createIdempotencyKey } from '../../../lib/api/idempotency';
+import {
+  getStableAttemptKey,
+  type AttemptKeyRecord,
+} from '../../../lib/api/idempotency';
 import {
   createBranch,
   createBranchEnrollmentToken,
@@ -15,27 +18,6 @@ import type {
   BranchPatchRequest,
   BranchRequest,
 } from '../../../types/api';
-
-interface AttemptRecord {
-  signature: string;
-  key: string;
-}
-
-function getStableAttemptKey(
-  attemptRef: { current: AttemptRecord | null },
-  signature: string,
-  explicitKey?: string
-): string {
-  if (explicitKey) {
-    return explicitKey;
-  }
-  if (attemptRef.current?.signature === signature) {
-    return attemptRef.current.key;
-  }
-  const key = createIdempotencyKey();
-  attemptRef.current = { signature, key };
-  return key;
-}
 
 export interface UseBranchesQueryOptions {
   enabled?: boolean;
@@ -59,7 +41,7 @@ export interface CreateBranchVariables {
 
 export function useCreateBranchMutation() {
   const queryClient = useQueryClient();
-  const attemptRef = useRef<AttemptRecord | null>(null);
+  const attemptRef = useRef<AttemptKeyRecord | null>(null);
 
   return useMutation({
     mutationFn: ({ payload, idempotencyKey }: CreateBranchVariables) =>
@@ -85,7 +67,7 @@ export interface PatchBranchVariables {
 
 export function usePatchBranchMutation() {
   const queryClient = useQueryClient();
-  const attemptRef = useRef<AttemptRecord | null>(null);
+  const attemptRef = useRef<AttemptKeyRecord | null>(null);
 
   return useMutation({
     mutationFn: ({ branchId, payload, idempotencyKey }: PatchBranchVariables) =>
@@ -114,7 +96,7 @@ export interface CreateEnrollmentTokenVariables {
 }
 
 export function useCreateEnrollmentTokenMutation() {
-  const attemptRef = useRef<AttemptRecord | null>(null);
+  const attemptRef = useRef<AttemptKeyRecord | null>(null);
 
   return useMutation({
     mutationFn: ({
@@ -140,7 +122,7 @@ export interface RedeemBranchEnrollmentVariables {
 }
 
 export function useRedeemBranchEnrollmentMutation() {
-  const attemptRef = useRef<AttemptRecord | null>(null);
+  const attemptRef = useRef<AttemptKeyRecord | null>(null);
 
   return useMutation({
     mutationFn: ({

@@ -74,3 +74,38 @@ export const isMutationMethod = (method: string | undefined): boolean => {
   const normalized = method.toLowerCase();
   return MUTATION_METHODS.some((candidate) => candidate === normalized);
 };
+
+export interface AttemptKeyRecord {
+  signature: string;
+  key: string;
+}
+
+export interface MutationRequestOptions {
+  idempotencyKey?: string;
+}
+
+/**
+ * Reuses the active attempt's Idempotency-Key when retrying an identical payload,
+ * and rotates to a fresh key whenever the payload signature changes.
+ */
+export function getStableAttemptKey(
+  attemptRef: { current: AttemptKeyRecord | null },
+  signature: string,
+  explicitKey?: string
+): string {
+  if (explicitKey) {
+    return explicitKey;
+  }
+  if (attemptRef.current?.signature === signature) {
+    return attemptRef.current.key;
+  }
+  const key = createIdempotencyKey();
+  attemptRef.current = { signature, key };
+  return key;
+}
+
+export function buildMutationConfig(options?: MutationRequestOptions) {
+  return options?.idempotencyKey
+    ? { headers: { [IDEMPOTENCY_KEY_HEADER]: options.idempotencyKey } }
+    : undefined;
+}

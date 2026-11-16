@@ -26,6 +26,7 @@ src/
 │   ├── AppShell.tsx               sidebar + topbar + <Outlet />
 │   ├── Sidebar.tsx                fixed dark navigation rail + user card
 │   ├── Topbar.tsx                 66px bar: current screen and workspace context
+│   ├── BranchContextControl.tsx   active-branch selector/badge in topbar
 │   └── navItems.ts                the navigation model + the role/scope/runtime rules
 │
 ├── features/                      one folder per domain module
@@ -37,17 +38,33 @@ src/
 │   ├── dashboard/                 home / overview after login
 │   │   └── pages/DashboardPage.tsx
 │   ├── branches/                  Stage 1: branch directory + branch device enrollment
+│   │   ├── index.ts               public read-only barrel (`useBranchesQuery`)
+│   │   ├── api/branchesApi.ts
+│   │   ├── hooks/                 `branchesKeys.ts`, `useBranches.ts`, `useBranchesPageState.ts`
+│   │   ├── schemas/               `branchSchema.ts`, `branchErrorMapper.ts`
+│   │   ├── components/            `BranchesFilterBar`, `BranchesTable`, `BranchTableRow`, `BranchFormFields`, `BranchFormModal`, `EnrollmentTokenModal`, `BranchEnrollmentForm`
 │   │   ├── pages/BranchesPage.tsx
 │   │   └── pages/BranchEnrollmentPage.tsx
 │   ├── employees/                 Stage 1: employee register
+│   │   ├── index.ts               public read-only barrel (`useEmployeesQuery`, `EmployeeDto`)
+│   │   ├── api/employeesApi.ts
+│   │   ├── hooks/                 `employeesKeys.ts`, `useEmployees.ts`, `useEmployeeForm.ts`, `useEmployeesPageState.ts`
+│   │   ├── schemas/               `employeeSchema.ts`, `employeeErrorMapper.ts`
+│   │   ├── components/            `EmployeesFilterBar`, `EmployeesTable`, `EmployeesTableEmptyState`, `EmployeeTableRow`, `EmployeeFormFields`, `EmployeeFormModal`
 │   │   └── pages/EmployeesPage.tsx
 │   ├── users/                     Stage 1: user accounts, roles, branch scope
+│   │   ├── api/usersApi.ts
+│   │   ├── hooks/                 `usersKeys.ts`, `useUsers.ts`, `useUsersPageState.ts`
+│   │   ├── schemas/               `userSchema.ts`, `userErrorMapper.ts`
+│   │   ├── components/            `UsersFilterBar`, `UsersTable`, `UsersTableEmptyState`, `UserTableRow`, `BranchAccessSelector`, `UserFormFields`, `UserDirectoryAlerts`, `UserFormModalShell`, `CreateUserIdentityFields`, `CreateUserFormModal`, `EditUserIdentityFields`, `EditUserStatusField`, `EditUserFormFields`, `EditUserFormModal`, `UserFormModal`, `ResetPasswordModal`, `RevokeSessionsModal`
 │   │   └── pages/UsersPage.tsx
 │   ├── errors/                    the 403 and 404 screens
 │   │   └── pages/ForbiddenPage.tsx, NotFoundPage.tsx
 │   ├── sales/                     (planned) Stage 2: POS cashier checkout, invoices, sales returns & refunds
 │   ├── purchasing/                (planned) Stage 3: suppliers, purchase orders, one-step receiving, payments & vendor returns
 │   ├── products/                  Stage 1: catalog, categories, pricing, barcodes, UOMs, reorder rules
+│   │   ├── index.ts               (planned) public read-only barrel (products, categories, UOMs)
+│   │   ├── api/, hooks/, schemas/, components/   (planned) Slice 3 catalog & reorder modules
 │   │   └── pages/ProductsPage.tsx
 │   ├── inventory/                 Stage 1: inventory ledger, batch tracking (FEFO), balances & adjustments
 │   │   └── pages/InventoryPage.tsx
@@ -62,14 +79,16 @@ src/
 ├── components/                    shared across features
 │   ├── ui/                        design system primitives (DESIGN.md): Button, Input, Textarea,
 │   │                              Select, Toggle, Card, Badge, Alert, Table, Tabs, Modal, Pagination,
-│   │                              PageHeading, EmptyState, Skeleton, ToastHost
+│   │                              PageHeading, EmptyState, Skeleton, AddressFields, ToastHost
 │   └── ai/                        (planned) InsightCard, ForecastChart, AssistantChatPanel, ApprovalModal
 │
 ├── lib/
 │   ├── api/
 │   │   ├── client.ts              the single Axios instance and interceptors
-│   │   └── idempotency.ts         the Idempotency-Key generator and the mutation rules
+│   │   └── idempotency.ts         the Idempotency-Key generator, attempt-key tracking, and mutation rules
 │   ├── queryClient.ts             the single QueryClient and its defaults
+│   ├── schemas/
+│   │   └── addressSchema.ts       shared 6-field AddressDto Zod schema and DTO normalizers
 │   └── auth/
 │       ├── tokenStorage.ts        the only file that touches browser storage
 │       ├── permissions.ts         role/scope map, runtime gating, branch gating
@@ -84,6 +103,10 @@ src/
 │
 ├── mocks/                         MSW for dev and tests
 │   ├── handlers.ts                the shared mock handlers
+│   ├── branchHandlers.ts          Stage 1 mock handlers for branches & enrollment
+│   ├── employeeHandlers.ts        Stage 1 mock handlers for employees
+│   ├── userHandlers.ts            Stage 1 mock handlers for user accounts & security actions
+│   ├── productHandlers.ts         (planned) Stage 1 Slice 3 mock handlers for categories, products, UOMs & reorder rules
 │   └── browser.ts                 the dev worker started in main.tsx
 │
 ├── hooks/                         generic custom hooks, shared by several features
@@ -185,17 +208,17 @@ One component per file. Use named exports unless a file already follows a differ
 
 A folder may import only from the folders listed next to it. No circular imports.
 
-| Folder          | May import from                                                                                                                 |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `features/<x>`  | `components/ui`, `components/ai`, `hooks`, `lib`, `stores`, `types`. **Never** from another feature, except the exception below |
-| `components/ui` | `types`, `lib` (helpers only). **Never** from `features`, `components/ai`, or `stores`                                          |
-| `components/ai` | `components/ui`, `types`                                                                                                        |
-| `lib`           | `types`                                                                                                                         |
-| `stores`        | `types`, `lib`, `features/auth/api` (auth session actions — documented exception)                                               |
-| `hooks`         | `lib`, `stores`, `types`. **Never** from `features` or `components`                                                             |
-| `routes`        | `features/*/pages`, `layouts`, `hooks`, `lib/auth`, `stores`                                                                    |
-| `layouts`       | `components`, `hooks`, `lib/auth`, `routes/paths` (the path constants only — never `routes/router.tsx`, which would be a cycle) |
-| `types`         | Nothing                                                                                                                         |
+| Folder          | May import from                                                                                                                                                                                                                  |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `features/<x>`  | `components/ui`, `components/ai`, `hooks`, `lib`, `stores`, `types`. **Never** from another feature, except the exception below                                                                                                  |
+| `components/ui` | `types`, `lib` (helpers only). **Never** from `features`, `components/ai`, or `stores`                                                                                                                                           |
+| `components/ai` | `components/ui`, `types`                                                                                                                                                                                                         |
+| `lib`           | `types`                                                                                                                                                                                                                          |
+| `stores`        | `types`, `lib`, `features/auth/api` (auth session actions — documented exception)                                                                                                                                                |
+| `hooks`         | `lib`, `stores`, `types`. **Never** from `features` or `components`                                                                                                                                                              |
+| `routes`        | `features/*/pages`, `layouts`, `hooks`, `lib/auth`, `stores`                                                                                                                                                                     |
+| `layouts`       | `components`, `hooks`, `lib/auth`, `routes/paths` (the path constants only — never `routes/router.tsx`, which would be a cycle), and read-only `features/branches` barrel (`useBranchesQuery` + types for Topbar branch context) |
+| `types`         | Nothing                                                                                                                                                                                                                          |
 
 **Paths inside a feature page:** a page never imports `routes/paths` — that would close the cycle `features → routes → features`. The router passes the paths a page needs as props (`homePath`, `loginPath`), and the page renders them as links.
 
@@ -208,6 +231,10 @@ A feature may import from another feature ONLY through that feature's public bar
 
 | Importing feature | May import from |
 | ----------------- | --------------- |
+| `employees`       | `branches`      |
+| `users`           | `employees`     |
+| `users`           | `branches`      |
+| `products`        | `branches`      |
 | `sales`           | `products`      |
 | `purchasing`      | `products`      |
 

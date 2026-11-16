@@ -59,6 +59,23 @@ describe('Application router', () => {
     expect(screen.getByRole('heading', { name: 'Branches' })).toBeDefined();
   });
 
+  it('opens employees and user accounts for an admin on the cloud runtime', () => {
+    useAuthStore.setState({
+      currentUser: buildUser({ runtime: 'Cloud' }),
+      isAuthenticated: true,
+      isInitializing: false,
+    });
+
+    renderRouter('/employees');
+    expect(screen.getByRole('heading', { name: 'Employees' })).toBeDefined();
+
+    cleanup();
+    renderRouter('/users');
+    expect(
+      screen.getByRole('heading', { name: 'User Accounts' })
+    ).toBeDefined();
+  });
+
   it('shows the 403 screen when the role does not allow the screen', () => {
     useAuthStore.setState({
       currentUser: buildUser({ roles: ['Pharmacist'], runtime: 'Cloud' }),

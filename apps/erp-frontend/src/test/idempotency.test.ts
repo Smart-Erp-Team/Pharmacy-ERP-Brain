@@ -8,7 +8,10 @@ import { apiClient } from '../lib/api/client';
 import {
   IDEMPOTENCY_KEY_MAX_LENGTH,
   IDEMPOTENCY_KEY_MIN_LENGTH,
+  type AttemptKeyRecord,
+  buildMutationConfig,
   createIdempotencyKey,
+  getStableAttemptKey,
   isMutationMethod,
 } from '../lib/api/idempotency';
 
@@ -112,5 +115,30 @@ describe('Idempotency-Key on the wire', () => {
 
     expect(receivedKeys).toHaveLength(1);
     expect(receivedKeys[0]).toBeNull();
+  });
+});
+
+describe('getStableAttemptKey and buildMutationConfig', () => {
+  it('reuses the same key for identical payloads and rotates on signature change', () => {
+    const attemptRef: { current: AttemptKeyRecord | null } = { current: null };
+
+    const firstKey = getStableAttemptKey(attemptRef, '{"name":"A"}');
+    const retryKey = getStableAttemptKey(attemptRef, '{"name":"A"}');
+    const changedKey = getStableAttemptKey(attemptRef, '{"name":"B"}');
+
+    expect(retryKey).toBe(firstKey);
+    expect(changedKey).not.toBe(firstKey);
+    expect(
+      getStableAttemptKey(attemptRef, '{"name":"B"}', 'explicit-key')
+    ).toBe('explicit-key');
+  });
+
+  it('builds a header config only when an idempotency key is provided', () => {
+    expect(buildMutationConfig()).toBeUndefined();
+    expect(
+      buildMutationConfig({ idempotencyKey: 'abc-123-456-789-0' })
+    ).toEqual({
+      headers: { 'Idempotency-Key': 'abc-123-456-789-0' },
+    });
   });
 });

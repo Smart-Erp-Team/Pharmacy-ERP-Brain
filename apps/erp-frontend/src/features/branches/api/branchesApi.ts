@@ -1,5 +1,8 @@
 import { apiClient } from '../../../lib/api/client';
-import { IDEMPOTENCY_KEY_HEADER } from '../../../lib/api/idempotency';
+import {
+  buildMutationConfig,
+  type MutationRequestOptions,
+} from '../../../lib/api/idempotency';
 import type {
   ApiComponents,
   BranchDto,
@@ -13,20 +16,13 @@ import type {
 
 type PagedBranchDto = ApiComponents['schemas']['PagedBranchDto'];
 
+export type { MutationRequestOptions };
+
 export interface ListBranchesParams {
   cursor?: string;
   limit?: number;
   includeInactive?: boolean;
 }
-
-export interface MutationRequestOptions {
-  idempotencyKey?: string;
-}
-
-const buildMutationConfig = (options?: MutationRequestOptions) =>
-  options?.idempotencyKey
-    ? { headers: { [IDEMPOTENCY_KEY_HEADER]: options.idempotencyKey } }
-    : undefined;
 
 export async function listBranches(
   params: ListBranchesParams = {}
