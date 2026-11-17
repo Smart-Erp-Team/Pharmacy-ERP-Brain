@@ -64,8 +64,11 @@ src/
 │   ├── sales/                     (planned) Stage 2: POS cashier checkout, invoices, sales returns & refunds
 │   ├── purchasing/                (planned) Stage 3: suppliers, purchase orders, one-step receiving, payments & vendor returns
 │   ├── products/                  Stage 1: catalog, categories, pricing, barcodes, UOMs, reorder rules
-│   │   ├── index.ts               (planned) public read-only barrel (products, categories, UOMs)
-│   │   ├── api/, hooks/, schemas/, components/   (planned) Slice 3 catalog & reorder modules
+│   │   ├── index.ts               public read-only barrel (`useProductCategoriesQuery`, `useProductsQuery`, `useProductQuery`, `useProductUomsQuery`)
+│   │   ├── api/catalogApi.ts
+│   │   ├── hooks/                 `productsKeys.ts`, `useCatalogQueries.ts`, `useCatalogMutations.ts`, `useProductsPageState.ts`, `useProductUomsTab.ts`, `useProductUomForm.ts`, `useReorderRuleForm.ts`
+│   │   ├── schemas/               `categorySchema.ts`, `productSchema.ts`, `uomReorderSchema.ts`, `catalogErrorMapper.ts`
+│   │   ├── components/            `ProductsCatalogView`, `ProductsFilterBar`, `ProductsTable`, `ProductsTableEmptyState`, `ProductTableRow`, `CategoryTreePanel`, `CategoryTreeNode`, `CategoryFormModal`, `CreateProductModal`, `CreateProductFormFields`, `ProductBaseUomFields`, `EditProductModal`, `EditProductFormFields`, `ProductDetailsView`, `ProductDetailsHeader`, `ProductInfoTab`, `ProductUomsTab`, `ProductUomTableRow`, `ProductUomFormModal`, `ProductUomFormBody`, `ProductUomFormFields`, `BranchReorderTab`, `ReorderRuleForm`, `ProductForecastTab`
 │   │   └── pages/ProductsPage.tsx
 │   ├── inventory/                 Stage 1: inventory ledger, batch tracking (FEFO), balances & adjustments
 │   │   └── pages/InventoryPage.tsx
@@ -107,7 +110,7 @@ src/
 │   ├── branchHandlers.ts          Stage 1 mock handlers for branches & enrollment
 │   ├── employeeHandlers.ts        Stage 1 mock handlers for employees
 │   ├── userHandlers.ts            Stage 1 mock handlers for user accounts & security actions
-│   ├── productHandlers.ts         (planned) Stage 1 Slice 3 mock handlers for categories, products, UOMs & reorder rules
+│   ├── productHandlers.ts         Stage 1 Slice 3 mock handlers for categories, products, UOMs & reorder rules
 │   └── browser.ts                 the dev worker started in main.tsx
 │
 ├── hooks/                         generic custom hooks, shared by several features

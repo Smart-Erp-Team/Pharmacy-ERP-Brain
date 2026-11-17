@@ -122,7 +122,7 @@ describe('Application router', () => {
     }
   });
 
-  it('shows the 403 screen when inventory:read scope is missing on /inventory', () => {
+  it('shows the 403 screen when inventory:read scope is missing on /inventory or /products', () => {
     useAuthStore.setState({
       currentUser: buildUser({
         roles: ['Cashier'],
@@ -133,12 +133,30 @@ describe('Application router', () => {
       isInitializing: false,
     });
 
-    renderRouter('/inventory');
+    for (const path of ['/inventory', '/products']) {
+      renderRouter(path);
+      expect(screen.getByTestId('role-gate-forbidden')).toBeDefined();
+      expect(
+        screen.getByText('Required permissions: inventory:read')
+      ).toBeDefined();
+      cleanup();
+    }
+  });
 
-    expect(screen.getByTestId('role-gate-forbidden')).toBeDefined();
-    expect(
-      screen.getByText('Required permissions: inventory:read')
-    ).toBeDefined();
+  it('opens /products when inventory:read scope is present for any role on either runtime', () => {
+    useAuthStore.setState({
+      currentUser: buildUser({
+        roles: ['Cashier'],
+        scopes: ['inventory:read'],
+        runtime: 'BranchLocal',
+      }),
+      isAuthenticated: true,
+      isInitializing: false,
+    });
+
+    renderRouter('/products');
+
+    expect(screen.getByRole('heading', { name: 'Products' })).toBeDefined();
   });
 
   it('opens the inventory screen for every role on both runtimes', () => {

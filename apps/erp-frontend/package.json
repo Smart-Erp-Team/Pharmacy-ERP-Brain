@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "format": "prettier --write .",
     "preview": "vite preview",
     "codegen:paths": "openapi-typescript ../../contracts/openapi.erp.yaml -o src/types/generated/api-paths.ts"
@@ -30,6 +31,7 @@
   "devDependencies": {
     "@babel/core": "^7.29.7",
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.65.1",
     "@rolldown/plugin-babel": "^0.2.4",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",

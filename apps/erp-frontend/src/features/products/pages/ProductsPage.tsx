@@ -1,48 +1,65 @@
-import { Alert } from '../../../components/ui/Alert';
-import { Card, CardHeader } from '../../../components/ui/Card';
-import { PageHeading } from '../../../components/ui/PageHeading';
+import { CategoryFormModal } from '../components/CategoryFormModal';
+import { CreateProductModal } from '../components/CreateProductModal';
+import { EditProductModal } from '../components/EditProductModal';
+import { ProductDetailsView } from '../components/ProductDetailsView';
+import { ProductsCatalogView } from '../components/ProductsCatalogView';
+import { useProductsPageState } from '../hooks/useProductsPageState';
 
 /**
- * Product catalog (DESIGN.md §5.2 and §5.4): a master-detail layout with the
- * product list on the left and the categories tree on the right.
+ * Product catalog screen: master-detail catalog list + category tree,
+ * switching into the 4-tab Product Details view while keeping catalog modals available.
  */
 export function ProductsPage() {
+  const state = useProductsPageState();
+  const selectedProduct = state.selectedProductId
+    ? (state.products.find(
+        (item) => item.product_id === state.selectedProductId
+      ) ?? null)
+    : null;
+
   return (
-    <div className="flex flex-col gap-6">
-      <PageHeading
-        eyebrow="Operations"
-        title="Products"
-        description="Product catalog, units of measure, prices and the category tree."
+    <>
+      {state.selectedProductId ? (
+        <ProductDetailsView
+          productId={state.selectedProductId}
+          initialProduct={selectedProduct}
+          categories={state.categories}
+          onBack={() => state.setSelectedProductId(null)}
+          onEditProduct={state.openEditProductModal}
+        />
+      ) : (
+        <ProductsCatalogView state={state} />
+      )}
+
+      <CategoryFormModal
+        open={state.categoryModalState.open}
+        category={state.categoryModalState.category}
+        categories={state.categories}
+        onClose={state.closeCategoryModal}
       />
 
-      <div className="grid grid-cols-[minmax(0,1.65fr)_minmax(350px,1fr)] gap-4">
-        <Card>
-          <CardHeader
-            title="Product list"
-            description="Search by product, SKU or barcode, with the category and stock filters."
-          />
-          <div className="p-4">
-            <Alert variant="info" title="Awaiting connected data">
-              Products are not connected yet. The toolbar, the sortable table
-              and the pagination arrive with the catalog API — no product is
-              listed until the server answers.
-            </Alert>
-          </div>
-        </Card>
+      <CreateProductModal
+        open={state.productModalState.mode === 'create'}
+        categories={state.categories}
+        isCategoriesError={state.categoriesQuery.isError}
+        isRetryingCategories={state.categoriesQuery.isFetching}
+        onRetryCategories={() => {
+          void state.categoriesQuery.refetch();
+        }}
+        onClose={state.closeProductModal}
+      />
 
-        <Card>
-          <CardHeader
-            title="Categories"
-            description="The category tree with its add and edit actions."
-          />
-          <div className="p-4">
-            <Alert variant="info" title="Awaiting connected data">
-              Categories are not connected yet — the tree stays empty until the
-              server answers.
-            </Alert>
-          </div>
-        </Card>
-      </div>
-    </div>
+      <EditProductModal
+        open={state.productModalState.mode === 'edit'}
+        product={state.productModalState.product}
+        categories={state.categories}
+        isCategoriesError={state.categoriesQuery.isError}
+        isRetryingCategories={state.categoriesQuery.isFetching}
+        onRetryCategories={() => {
+          void state.categoriesQuery.refetch();
+        }}
+        onClose={state.closeProductModal}
+      />
+    </>
   );
 }

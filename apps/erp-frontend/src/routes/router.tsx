@@ -105,7 +105,9 @@ export const routes: RouteObject[] = [
         element: (
           <RoleGate allowedRoles={ALL_ROLES}>
             <RuntimeGate allowedRuntimes={BOTH_RUNTIMES}>
-              <ProductsPage />
+              <ScopeGate requiredScopes={INVENTORY_READ_SCOPE}>
+                <ProductsPage />
+              </ScopeGate>
             </RuntimeGate>
           </RoleGate>
         ),

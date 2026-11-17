@@ -10,6 +10,7 @@ import authTokenPair from '@contracts/fixtures/auth-token-pair.json';
 import currentUserContext from '@contracts/fixtures/current-user-context.json';
 import { branchHandlers } from './branchHandlers';
 import { employeeHandlers } from './employeeHandlers';
+import { productHandlers } from './productHandlers';
 import { userHandlers } from './userHandlers';
 
 const INVALID_CREDENTIALS_PASSWORD = 'invalid';
@@ -84,5 +85,6 @@ export const handlers = [
 
   ...branchHandlers,
   ...employeeHandlers,
+  ...productHandlers,
   ...userHandlers,
 ];

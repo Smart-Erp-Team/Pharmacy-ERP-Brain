@@ -52,7 +52,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         path: PATHS.PRODUCTS,
         roles: ALL_ROLES,
         runtimes: BOTH_RUNTIMES,
-        scopes: [],
+        scopes: ['inventory:read'],
       },
       {
         label: 'Inventory',
