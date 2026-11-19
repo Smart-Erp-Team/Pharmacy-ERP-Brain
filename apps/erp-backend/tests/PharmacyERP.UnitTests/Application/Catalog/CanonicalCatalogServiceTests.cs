@@ -1697,4 +1697,146 @@ public class CanonicalCatalogServiceTests
         Assert.False(result.IsSuccess);
         Assert.Equal(ErrorCode.CONFLICT, result.ErrorCode);
     }
+
+    // ==========================================
+    // Read Transaction Lifecycle Tests (Batch 3 - T7-ARC-001)
+    // ==========================================
+
+    [Fact]
+    public async Task GetCanonicalProductsFeedAsync_StandaloneRead_OwnsAndRollsBackTransaction()
+    {
+        var uowMock = new Mock<IUnitOfWork>();
+        var hasActive = false;
+        uowMock.Setup(u => u.HasActiveTransaction).Returns(() => hasActive);
+        uowMock.Setup(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = true)
+            .Returns(Task.CompletedTask);
+        uowMock.Setup(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = false)
+            .Returns(Task.CompletedTask);
+
+        _productRepoMock.Setup(r => r.GetCanonicalFeedKeysetPageAsync(
+            _orgId, null, null, null, 50, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new List<Product>(), false));
+
+        var service = new CanonicalCatalogService(
+            _productRepoMock.Object, _categoryRepoMock.Object, _uomRepoMock.Object, _reorderRuleRepoMock.Object,
+            _branchRepoMock.Object, uowMock.Object, _tenantContextMock.Object, _currentUserMock.Object,
+            _runtimeModeMock.Object, _dateTimeProviderMock.Object, _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object, _outboxServiceMock.Object, _nonLotBatchInitializerMock.Object, _usageCheckerMock.Object);
+
+        var result = await service.GetCanonicalProductsFeedAsync(null, null, 50);
+
+        Assert.True(result.IsSuccess);
+        uowMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+        uowMock.Verify(u => u.RollbackTransactionAsync(CancellationToken.None), Times.Once);
+        uowMock.Verify(u => u.CommitTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetCanonicalProductsFeedAsync_AmbientTransaction_DoesNotOwnOrRollbackTransaction()
+    {
+        var uowMock = new Mock<IUnitOfWork>();
+        uowMock.Setup(u => u.HasActiveTransaction).Returns(true);
+
+        _productRepoMock.Setup(r => r.GetCanonicalFeedKeysetPageAsync(
+            _orgId, null, null, null, 50, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new List<Product>(), false));
+
+        var service = new CanonicalCatalogService(
+            _productRepoMock.Object, _categoryRepoMock.Object, _uomRepoMock.Object, _reorderRuleRepoMock.Object,
+            _branchRepoMock.Object, uowMock.Object, _tenantContextMock.Object, _currentUserMock.Object,
+            _runtimeModeMock.Object, _dateTimeProviderMock.Object, _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object, _outboxServiceMock.Object, _nonLotBatchInitializerMock.Object, _usageCheckerMock.Object);
+
+        var result = await service.GetCanonicalProductsFeedAsync(null, null, 50);
+
+        Assert.True(result.IsSuccess);
+        uowMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+        uowMock.Verify(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetCanonicalProductsFeedAsync_FastFailValidation_NeverStartsTransaction()
+    {
+        var uowMock = new Mock<IUnitOfWork>();
+
+        var service = new CanonicalCatalogService(
+            _productRepoMock.Object, _categoryRepoMock.Object, _uomRepoMock.Object, _reorderRuleRepoMock.Object,
+            _branchRepoMock.Object, uowMock.Object, _tenantContextMock.Object, _currentUserMock.Object,
+            _runtimeModeMock.Object, _dateTimeProviderMock.Object, _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object, _outboxServiceMock.Object, _nonLotBatchInitializerMock.Object, _usageCheckerMock.Object);
+
+        // Invalid cursor triggers in-memory validation failure
+        var result = await service.GetCanonicalProductsFeedAsync(null, "invalid-cursor-not-base64", 50);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ErrorCode.VALIDATION_ERROR, result.ErrorCode);
+        uowMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+        uowMock.Verify(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetCanonicalProductsFeedAsync_RepositoryException_RollsBackTransaction()
+    {
+        var uowMock = new Mock<IUnitOfWork>();
+        var hasActive = false;
+        uowMock.Setup(u => u.HasActiveTransaction).Returns(() => hasActive);
+        uowMock.Setup(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = true)
+            .Returns(Task.CompletedTask);
+        uowMock.Setup(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = false)
+            .Returns(Task.CompletedTask);
+
+        _productRepoMock.Setup(r => r.GetCanonicalFeedKeysetPageAsync(
+            _orgId, null, null, null, 50, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("Keyset query error"));
+
+        var service = new CanonicalCatalogService(
+            _productRepoMock.Object, _categoryRepoMock.Object, _uomRepoMock.Object, _reorderRuleRepoMock.Object,
+            _branchRepoMock.Object, uowMock.Object, _tenantContextMock.Object, _currentUserMock.Object,
+            _runtimeModeMock.Object, _dateTimeProviderMock.Object, _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object, _outboxServiceMock.Object, _nonLotBatchInitializerMock.Object, _usageCheckerMock.Object);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.GetCanonicalProductsFeedAsync(null, null, 50));
+
+        uowMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+        uowMock.Verify(u => u.RollbackTransactionAsync(CancellationToken.None), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetCanonicalProductsFeedAsync_CancellationTokenCancelled_RollbackUsesCancellationTokenNone()
+    {
+        var uowMock = new Mock<IUnitOfWork>();
+        var hasActive = false;
+        using var cts = new CancellationTokenSource();
+
+        uowMock.Setup(u => u.HasActiveTransaction).Returns(() => hasActive);
+        uowMock.Setup(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() =>
+            {
+                hasActive = true;
+                cts.Cancel();
+            })
+            .Returns(Task.CompletedTask);
+        uowMock.Setup(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = false)
+            .Returns(Task.CompletedTask);
+
+        _productRepoMock.Setup(r => r.GetCanonicalFeedKeysetPageAsync(
+            _orgId, null, null, null, 50, cts.Token))
+            .ThrowsAsync(new OperationCanceledException(cts.Token));
+
+        var service = new CanonicalCatalogService(
+            _productRepoMock.Object, _categoryRepoMock.Object, _uomRepoMock.Object, _reorderRuleRepoMock.Object,
+            _branchRepoMock.Object, uowMock.Object, _tenantContextMock.Object, _currentUserMock.Object,
+            _runtimeModeMock.Object, _dateTimeProviderMock.Object, _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object, _outboxServiceMock.Object, _nonLotBatchInitializerMock.Object, _usageCheckerMock.Object);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.GetCanonicalProductsFeedAsync(null, null, 50, cts.Token));
+
+        uowMock.Verify(u => u.BeginTransactionAsync(cts.Token), Times.Once);
+        uowMock.Verify(u => u.RollbackTransactionAsync(CancellationToken.None), Times.Once);
+    }
 }

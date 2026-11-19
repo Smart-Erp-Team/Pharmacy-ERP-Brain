@@ -7,6 +7,7 @@ using PharmacyERP.Application.Features.Catalog.DTOs;
 using PharmacyERP.Application.Features.Catalog.Interfaces;
 using PharmacyERP.Application.Features.Catalog.Services.Interfaces;
 using PharmacyERP.Application.Features.Catalog.Validators;
+using PharmacyERP.Application.Features.Identity.Interfaces;
 using PharmacyERP.Domain.Entities.Catalog;
 using PharmacyERP.Domain.Enums;
 using PharmacyERP.Domain.Exceptions;
@@ -17,6 +18,7 @@ public class ReorderRuleService : IReorderRuleService
 {
     private readonly IProductReorderRuleRepository _reorderRuleRepository;
     private readonly IProductRepository _productRepository;
+    private readonly IBranchRepository _branchRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ITenantContext _tenantContext;
     private readonly ICurrentUser _currentUser;
@@ -28,6 +30,7 @@ public class ReorderRuleService : IReorderRuleService
     public ReorderRuleService(
         IProductReorderRuleRepository reorderRuleRepository,
         IProductRepository productRepository,
+        IBranchRepository branchRepository,
         IUnitOfWork unitOfWork,
         ITenantContext tenantContext,
         ICurrentUser currentUser,
@@ -38,6 +41,7 @@ public class ReorderRuleService : IReorderRuleService
     {
         _reorderRuleRepository = reorderRuleRepository;
         _productRepository = productRepository;
+        _branchRepository = branchRepository;
         _unitOfWork = unitOfWork;
         _tenantContext = tenantContext;
         _currentUser = currentUser;
@@ -59,11 +63,28 @@ public class ReorderRuleService : IReorderRuleService
             return Result<ReorderRuleDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
 
         var orgId = _tenantContext.OrganizationId.Value;
-        var rule = await _reorderRuleRepository.GetByBranchAndProductAsync(orgId, branchId, productId, ct);
-        if (rule == null)
-            return Result<ReorderRuleDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ReorderRuleNotFound);
+        var ownsTransaction = !_unitOfWork.HasActiveTransaction;
 
-        return Result<ReorderRuleDto>.Success(MapToDto(rule));
+        try
+        {
+            if (ownsTransaction)
+            {
+                await _unitOfWork.BeginTransactionAsync(ct);
+            }
+
+            var rule = await _reorderRuleRepository.GetByBranchAndProductAsync(orgId, branchId, productId, ct);
+            if (rule == null)
+                return Result<ReorderRuleDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ReorderRuleNotFound);
+
+            return Result<ReorderRuleDto>.Success(MapToDto(rule));
+        }
+        finally
+        {
+            if (ownsTransaction && _unitOfWork.HasActiveTransaction)
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+            }
+        }
     }
 
     public async Task<Result<ReorderRuleDto>> UpsertReorderRuleAsync(Guid branchId, Guid productId, UpsertReorderRuleRequest request, CancellationToken ct = default)
@@ -104,6 +125,13 @@ public class ReorderRuleService : IReorderRuleService
             {
                 await _unitOfWork.RollbackTransactionAsync(ct);
                 return Result<ReorderRuleDto>.Failure(ErrorCode.IDEMPOTENCY_MISMATCH, ErrorMessages.IdempotencyMismatch);
+            }
+
+            var branch = await _branchRepository.GetByIdAsync(orgId, branchId, ct);
+            if (branch == null)
+            {
+                await _unitOfWork.RollbackTransactionAsync(ct);
+                return Result<ReorderRuleDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.NotFound);
             }
 
             var product = await _productRepository.GetByIdAsync(orgId, productId, ct);

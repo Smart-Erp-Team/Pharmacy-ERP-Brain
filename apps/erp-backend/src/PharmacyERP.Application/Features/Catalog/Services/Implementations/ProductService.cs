@@ -69,12 +69,29 @@ public class ProductService : IProductService
             return Result<PagedResult<ProductDto>>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
 
         var orgId = _tenantContext.OrganizationId.Value;
-        var pagedResult = await _productRepository.GetPagedAsync(orgId, categoryId, includeInactive, search, page, pageSize, ct);
+        var ownsTransaction = !_unitOfWork.HasActiveTransaction;
 
-        var dtos = pagedResult.Items.Select(MapToDto).ToList();
-        var result = new PagedResult<ProductDto>(dtos, pagedResult.Page, pagedResult.PageSize, pagedResult.TotalCount, pagedResult.NextCursor);
+        try
+        {
+            if (ownsTransaction)
+            {
+                await _unitOfWork.BeginTransactionAsync(ct);
+            }
 
-        return Result<PagedResult<ProductDto>>.Success(result);
+            var pagedResult = await _productRepository.GetPagedAsync(orgId, categoryId, includeInactive, search, page, pageSize, ct);
+
+            var dtos = pagedResult.Items.Select(MapToDto).ToList();
+            var result = new PagedResult<ProductDto>(dtos, pagedResult.Page, pagedResult.PageSize, pagedResult.TotalCount, pagedResult.NextCursor);
+
+            return Result<PagedResult<ProductDto>>.Success(result);
+        }
+        finally
+        {
+            if (ownsTransaction && _unitOfWork.HasActiveTransaction)
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+            }
+        }
     }
 
     public async Task<Result<ProductDto>> GetProductByIdAsync(Guid productId, CancellationToken ct = default)
@@ -86,11 +103,28 @@ public class ProductService : IProductService
             return Result<ProductDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
 
         var orgId = _tenantContext.OrganizationId.Value;
-        var product = await _productRepository.GetByIdWithUomsAsync(orgId, productId, ct);
-        if (product == null)
-            return Result<ProductDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductNotFound);
+        var ownsTransaction = !_unitOfWork.HasActiveTransaction;
 
-        return Result<ProductDto>.Success(MapToDto(product));
+        try
+        {
+            if (ownsTransaction)
+            {
+                await _unitOfWork.BeginTransactionAsync(ct);
+            }
+
+            var product = await _productRepository.GetByIdWithUomsAsync(orgId, productId, ct);
+            if (product == null)
+                return Result<ProductDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductNotFound);
+
+            return Result<ProductDto>.Success(MapToDto(product));
+        }
+        finally
+        {
+            if (ownsTransaction && _unitOfWork.HasActiveTransaction)
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+            }
+        }
     }
 
     public async Task<Result<ProductDto>> CreateProductAsync(CreateProductRequest request, CancellationToken ct = default)
