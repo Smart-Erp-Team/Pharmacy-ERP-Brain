@@ -10,6 +10,7 @@ import authTokenPair from '@contracts/fixtures/auth-token-pair.json';
 import currentUserContext from '@contracts/fixtures/current-user-context.json';
 import { branchHandlers } from './branchHandlers';
 import { employeeHandlers } from './employeeHandlers';
+import { inventoryHandlers } from './inventoryHandlers';
 import { productHandlers } from './productHandlers';
 import { userHandlers } from './userHandlers';
 
@@ -85,6 +86,7 @@ export const handlers = [
 
   ...branchHandlers,
   ...employeeHandlers,
+  ...inventoryHandlers,
   ...productHandlers,
   ...userHandlers,
 ];

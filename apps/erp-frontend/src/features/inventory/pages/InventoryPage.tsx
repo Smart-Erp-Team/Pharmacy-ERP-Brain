@@ -1,52 +1,95 @@
 import { useState } from 'react';
-import { Alert } from '../../../components/ui/Alert';
-import { Card, CardHeader } from '../../../components/ui/Card';
 import { PageHeading } from '../../../components/ui/PageHeading';
 import { Tabs } from '../../../components/ui/Tabs';
-
-const INVENTORY_TABS = [
-  'Stock Overview',
-  'Stock Balances & Batches',
-  'Stock Adjustments & Opening Balance',
-  'Inventory Ledger History',
-] as const;
+import type { InventoryTxnDto } from '../../../types/api';
+import { InventoryBranchBar } from '../components/InventoryBranchBar';
+import { LedgerHistoryTab } from '../components/LedgerHistoryTab';
+import { StockAdjustmentsTab } from '../components/StockAdjustmentsTab';
+import { StockBalancesTab } from '../components/StockBalancesTab';
+import { StockOverviewTab } from '../components/StockOverviewTab';
+import { StorageLocationsTab } from '../components/StorageLocationsTab';
+import { useInventoryBranchState } from '../hooks/useInventoryBranchState';
 
 /**
- * Inventory (DESIGN.md §5.6): balances and batches, stock adjustments and the
+ * Inventory (Stage 1 Slice 4, Contract-First): balances & FEFO batches,
+ * storage locations, branch-local adjustments & opening balances, and
  * append-only ledger history.
  */
 export function InventoryPage() {
+  const branchState = useInventoryBranchState();
   const [activeTab, setActiveTab] = useState<string>(
     'Stock Balances & Batches'
   );
+  const [pendingReversalTxn, setPendingReversalTxn] =
+    useState<InventoryTxnDto | null>(null);
+
+  const visibleTabs: string[] = [
+    'Stock Overview',
+    'Stock Balances & Batches',
+    'Storage Locations',
+    ...(branchState.canReadLedger
+      ? ['Stock Adjustments & Opening Balance', 'Inventory Ledger History']
+      : []),
+  ];
+
+  const currentTab = visibleTabs.includes(activeTab)
+    ? activeTab
+    : 'Stock Balances & Batches';
+
+  const handleSelectBranch = (nextBranchId: string) => {
+    setPendingReversalTxn(null);
+    branchState.onSelectBranch(nextBranchId);
+  };
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeading
         eyebrow="Operations"
         title="Inventory"
-        description="Stock balances, batches, adjustments and the ledger history for the active branch."
+        description="Stock balances, FEFO batches, storage locations, adjustments, and ledger history for the selected branch."
+      />
+
+      <InventoryBranchBar
+        branchId={branchState.branchId}
+        branchOptions={branchState.branchOptions}
+        isLoading={branchState.isBranchesLoading}
+        error={branchState.branchesError}
+        onSelectBranch={handleSelectBranch}
+        onRetry={branchState.onRetryBranches}
       />
 
       <Tabs
-        labels={INVENTORY_TABS}
-        activeLabel={activeTab}
+        labels={visibleTabs}
+        activeLabel={currentTab}
         onChange={setActiveTab}
       />
 
-      <Card>
-        <CardHeader
-          title={activeTab}
-          description="Balances, quantities and costs come from the inventory API."
+      {currentTab === 'Stock Overview' ? (
+        <StockOverviewTab
+          branchId={branchState.branchId}
+          branchName={branchState.branchName}
         />
-        <div className="p-4">
-          <Alert variant="info" title="Awaiting connected data">
-            Inventory data is not connected yet. Quantities and costs stay
-            &ldquo;Unavailable&rdquo; until the server answers — they are never
-            shown as zero.
-          </Alert>
-        </div>
-      </Card>
+      ) : currentTab === 'Stock Balances & Batches' ? (
+        <StockBalancesTab branchId={branchState.branchId} />
+      ) : currentTab === 'Storage Locations' ? (
+        <StorageLocationsTab branchId={branchState.branchId} />
+      ) : currentTab === 'Stock Adjustments & Opening Balance' &&
+        branchState.canReadLedger ? (
+        <StockAdjustmentsTab
+          branchId={branchState.branchId}
+          initialReversalTxn={pendingReversalTxn}
+          onClearReversal={() => setPendingReversalTxn(null)}
+        />
+      ) : currentTab === 'Inventory Ledger History' &&
+        branchState.canReadLedger ? (
+        <LedgerHistoryTab
+          branchId={branchState.branchId}
+          onRequestReversal={(txn) => {
+            setPendingReversalTxn(txn);
+            setActiveTab('Stock Adjustments & Opening Balance');
+          }}
+        />
+      ) : null}
     </div>
   );
 }

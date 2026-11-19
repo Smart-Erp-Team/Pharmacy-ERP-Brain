@@ -70,7 +70,11 @@ src/
 │   │   ├── schemas/               `categorySchema.ts`, `productSchema.ts`, `uomReorderSchema.ts`, `catalogErrorMapper.ts`
 │   │   ├── components/            `ProductsCatalogView`, `ProductsFilterBar`, `ProductsTable`, `ProductsTableEmptyState`, `ProductTableRow`, `CategoryTreePanel`, `CategoryTreeNode`, `CategoryFormModal`, `CreateProductModal`, `CreateProductFormFields`, `ProductBaseUomFields`, `EditProductModal`, `EditProductFormFields`, `ProductDetailsView`, `ProductDetailsHeader`, `ProductInfoTab`, `ProductUomsTab`, `ProductUomTableRow`, `ProductUomFormModal`, `ProductUomFormBody`, `ProductUomFormFields`, `BranchReorderTab`, `ReorderRuleForm`, `ProductForecastTab`
 │   │   └── pages/ProductsPage.tsx
-│   ├── inventory/                 Stage 1: inventory ledger, batch tracking (FEFO), balances & adjustments
+│   ├── inventory/                 Stage 1: inventory ledger, batch tracking (FEFO), balances, locations & adjustments
+│   │   ├── api/inventoryApi.ts
+│   │   ├── hooks/                 `inventoryKeys.ts`, `useInventoryQueries.ts`, `useInventoryMutations.ts`, `useInventoryBranchState.ts`, `useAdjustmentForm.ts`, `useLedgerHistoryState.ts`
+│   │   ├── schemas/               `inventoryLocationSchema.ts`, `inventoryAdjustmentSchema.ts`, `inventoryErrorMapper.ts`
+│   │   ├── components/            `InventoryBranchBar`, `StockOverviewTab`, `StockOverviewKpiCards`, `StockBalancesTab`, `StockBalanceProductRow`, `StockBalanceBatchTable`, `StorageLocationsTab`, `LocationTableRow`, `LocationFormFields`, `LocationFormModal`, `StockAdjustmentsTab`, `AdjustmentFormHeader`, `AdjustmentLineRow`, `DraftAdjustmentsList`, `LedgerHistoryTab`, `LedgerTxnTableRow`, `LedgerTxnDetailModal`
 │   │   └── pages/InventoryPage.tsx
 │   └── ai/                        (planned) pages: insights, assistant, approvals (Brain service)
 │       └── <each feature contains only the subfolders it requires>
@@ -111,6 +115,7 @@ src/
 │   ├── employeeHandlers.ts        Stage 1 mock handlers for employees
 │   ├── userHandlers.ts            Stage 1 mock handlers for user accounts & security actions
 │   ├── productHandlers.ts         Stage 1 Slice 3 mock handlers for categories, products, UOMs & reorder rules
+│   ├── inventoryHandlers.ts       Stage 1 Slice 4 mock handlers for locations, batches, balances, ledger & adjustments
 │   └── browser.ts                 the dev worker started in main.tsx
 │
 ├── hooks/                         generic custom hooks, shared by several features
@@ -239,6 +244,9 @@ A feature may import from another feature ONLY through that feature's public bar
 | `users`           | `employees`     |
 | `users`           | `branches`      |
 | `products`        | `branches`      |
+| `inventory`       | `branches`      |
+| `inventory`       | `products`      |
+| `inventory`       | `employees`     |
 | `sales`           | `products`      |
 | `purchasing`      | `products`      |
 
