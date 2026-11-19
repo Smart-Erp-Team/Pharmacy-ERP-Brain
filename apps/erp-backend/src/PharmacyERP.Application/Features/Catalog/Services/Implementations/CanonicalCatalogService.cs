@@ -102,25 +102,42 @@ public class CanonicalCatalogService : ICanonicalCatalogService
             cursorProductId = decodedId;
         }
 
-        var resolvedLimit = limit <= 0 ? 50 : Math.Min(limit, 1000);
-        var (products, hasNextPage) = await _productRepository.GetCanonicalFeedKeysetPageAsync(
-            orgId,
-            updatedSince,
-            cursorUpdatedAt,
-            cursorProductId,
-            resolvedLimit,
-            ct);
+        var ownsTransaction = !_unitOfWork.HasActiveTransaction;
 
-        var items = products.Select(MapToCanonicalDto).ToList();
-
-        string? nextCursor = null;
-        if (hasNextPage && items.Count > 0)
+        try
         {
-            var lastItem = items[^1];
-            nextCursor = EncodeCursor(lastItem.UpdatedAt, lastItem.Id);
-        }
+            if (ownsTransaction)
+            {
+                await _unitOfWork.BeginTransactionAsync(ct);
+            }
 
-        return Result<CanonicalProductFeedPageDto>.Success(new CanonicalProductFeedPageDto(items, nextCursor));
+            var resolvedLimit = limit <= 0 ? 50 : Math.Min(limit, 1000);
+            var (products, hasNextPage) = await _productRepository.GetCanonicalFeedKeysetPageAsync(
+                orgId,
+                updatedSince,
+                cursorUpdatedAt,
+                cursorProductId,
+                resolvedLimit,
+                ct);
+
+            var items = products.Select(MapToCanonicalDto).ToList();
+
+            string? nextCursor = null;
+            if (hasNextPage && items.Count > 0)
+            {
+                var lastItem = items[^1];
+                nextCursor = EncodeCursor(lastItem.UpdatedAt, lastItem.Id);
+            }
+
+            return Result<CanonicalProductFeedPageDto>.Success(new CanonicalProductFeedPageDto(items, nextCursor));
+        }
+        finally
+        {
+            if (ownsTransaction && _unitOfWork.HasActiveTransaction)
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+            }
+        }
     }
 
     public async Task<Result<CanonicalWriteResultDto>> ConfigureProductAsync(

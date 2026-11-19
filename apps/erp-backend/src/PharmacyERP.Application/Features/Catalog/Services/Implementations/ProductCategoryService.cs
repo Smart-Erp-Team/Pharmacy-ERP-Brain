@@ -59,12 +59,29 @@ public class ProductCategoryService : IProductCategoryService
             return Result<PagedResult<ProductCategoryDto>>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
 
         var orgId = _tenantContext.OrganizationId.Value;
-        var pagedResult = await _categoryRepository.GetPagedAsync(orgId, parentCategoryId, includeInactive, search, page, pageSize, ct);
+        var ownsTransaction = !_unitOfWork.HasActiveTransaction;
 
-        var dtos = pagedResult.Items.Select(MapToDto).ToList();
-        var result = new PagedResult<ProductCategoryDto>(dtos, pagedResult.Page, pagedResult.PageSize, pagedResult.TotalCount, pagedResult.NextCursor);
+        try
+        {
+            if (ownsTransaction)
+            {
+                await _unitOfWork.BeginTransactionAsync(ct);
+            }
 
-        return Result<PagedResult<ProductCategoryDto>>.Success(result);
+            var pagedResult = await _categoryRepository.GetPagedAsync(orgId, parentCategoryId, includeInactive, search, page, pageSize, ct);
+
+            var dtos = pagedResult.Items.Select(MapToDto).ToList();
+            var result = new PagedResult<ProductCategoryDto>(dtos, pagedResult.Page, pagedResult.PageSize, pagedResult.TotalCount, pagedResult.NextCursor);
+
+            return Result<PagedResult<ProductCategoryDto>>.Success(result);
+        }
+        finally
+        {
+            if (ownsTransaction && _unitOfWork.HasActiveTransaction)
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+            }
+        }
     }
 
     public async Task<Result<ProductCategoryDto>> GetCategoryByIdAsync(Guid categoryId, CancellationToken ct = default)
@@ -76,11 +93,28 @@ public class ProductCategoryService : IProductCategoryService
             return Result<ProductCategoryDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
 
         var orgId = _tenantContext.OrganizationId.Value;
-        var category = await _categoryRepository.GetByIdAsync(orgId, categoryId, ct);
-        if (category == null)
-            return Result<ProductCategoryDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductCategoryNotFound);
+        var ownsTransaction = !_unitOfWork.HasActiveTransaction;
 
-        return Result<ProductCategoryDto>.Success(MapToDto(category));
+        try
+        {
+            if (ownsTransaction)
+            {
+                await _unitOfWork.BeginTransactionAsync(ct);
+            }
+
+            var category = await _categoryRepository.GetByIdAsync(orgId, categoryId, ct);
+            if (category == null)
+                return Result<ProductCategoryDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductCategoryNotFound);
+
+            return Result<ProductCategoryDto>.Success(MapToDto(category));
+        }
+        finally
+        {
+            if (ownsTransaction && _unitOfWork.HasActiveTransaction)
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+            }
+        }
     }
 
     public async Task<Result<ProductCategoryDto>> CreateCategoryAsync(CreateProductCategoryRequest request, CancellationToken ct = default)
