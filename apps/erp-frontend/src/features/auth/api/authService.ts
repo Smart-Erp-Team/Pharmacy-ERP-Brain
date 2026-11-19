@@ -6,6 +6,10 @@
  */
 
 import { apiClient } from '../../../lib/api/client';
+import {
+  IDEMPOTENCY_KEY_HEADER,
+  createIdempotencyKey,
+} from '../../../lib/api/idempotency';
 import { tokenStorage } from '../../../lib/auth/tokenStorage';
 import type {
   LoginRequest,
@@ -41,12 +45,18 @@ export const authService = {
 
   /**
    * Revoke current token family and clear local tokens.
+   *
+   * `POST /auth/logout` is a mutation, so the contract requires an
+   * `Idempotency-Key`. The key is created once here and travels with the request,
+   * so a retry of this exact call replays the same server-side result.
    */
   async logout(): Promise<void> {
     const refreshToken = tokenStorage.getRefreshToken();
     try {
       const payload: LogoutRequest = { refresh_token: refreshToken };
-      await apiClient.post('/auth/logout', payload);
+      await apiClient.post('/auth/logout', payload, {
+        headers: { [IDEMPOTENCY_KEY_HEADER]: createIdempotencyKey() },
+      });
     } finally {
       tokenStorage.clearTokens();
     }

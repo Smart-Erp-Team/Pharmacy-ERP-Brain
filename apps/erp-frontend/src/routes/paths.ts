@@ -5,6 +5,13 @@
 export const PATHS = {
   HOME: '/',
   LOGIN: '/login',
+  BRANCHES: '/branches',
+  BRANCH_ENROLLMENT: '/branch-enrollment',
+  EMPLOYEES: '/employees',
+  USERS: '/users',
+  PRODUCTS: '/products',
+  INVENTORY: '/inventory',
+  FORBIDDEN: '/forbidden',
 } as const;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

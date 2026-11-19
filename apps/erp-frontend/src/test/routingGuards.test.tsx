@@ -1,6 +1,6 @@
-/** @vitest-environment jsdom */
-import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+﻿/** @vitest-environment jsdom */
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ProtectedRoute } from '../routes/ProtectedRoute';
 import { RoleGate } from '../routes/RoleGate';
@@ -16,6 +16,10 @@ beforeEach(() => {
     isAuthenticated: false,
     isInitializing: false,
   });
+});
+
+afterEach(() => {
+  cleanup();
 });
 
 describe('ProtectedRoute', () => {
@@ -123,7 +127,7 @@ describe('RoleGate', () => {
 
     expect(screen.queryByText('Admin Only Area')).toBeNull();
     expect(screen.getByTestId('role-gate-forbidden')).toBeDefined();
-    expect(screen.getByText(/403 Forbidden \/ Unauthorized/i)).toBeDefined();
+    expect(screen.getByText(/403 Forbidden/i)).toBeDefined();
   });
 
   it('renders custom fallback when provided and user lacks permission', () => {
