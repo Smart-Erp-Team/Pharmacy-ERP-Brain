@@ -8,9 +8,12 @@ using PharmacyERP.Application.Common.Interfaces.Persistence;
 using PharmacyERP.Application.Features.Catalog.DTOs;
 using PharmacyERP.Application.Features.Catalog.Interfaces;
 using PharmacyERP.Application.Features.Catalog.Services.Implementations;
+using PharmacyERP.Application.Features.Identity.Interfaces;
 using PharmacyERP.Domain.Entities.Catalog;
+using PharmacyERP.Domain.Entities.Identity;
 using PharmacyERP.Domain.Enums;
 using PharmacyERP.Domain.Exceptions;
+using PharmacyERP.Domain.ValueObjects;
 using Xunit;
 
 namespace PharmacyERP.UnitTests.Application.Catalog;
@@ -27,6 +30,7 @@ public class CatalogServicesTests
     private readonly Mock<IOutboxService> _outboxServiceMock = new();
     private readonly Mock<INonLotBatchInitializer> _nonLotBatchInitializerMock = new();
     private readonly Mock<IProductInventoryUsageChecker> _usageCheckerMock = new();
+    private readonly Mock<IBranchRepository> _branchRepoMock = new();
 
     public CatalogServicesTests()
     {
@@ -34,6 +38,10 @@ public class CatalogServicesTests
         _currentUserMock.Setup(u => u.Role).Returns("Admin");
         _currentUserMock.Setup(u => u.CanAccessBranch(It.IsAny<Guid>())).Returns(true);
         _runtimeModeProviderMock.Setup(r => r.CurrentMode).Returns(ErpRuntimeMode.Cloud);
+
+        _branchRepoMock
+            .Setup(b => b.GetByIdAsync(_orgId, It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Branch.Create(_orgId, "BR01", "Main Branch", new Address("123 Street", null, "Cairo", null, null, "EG")));
 
         // Default idempotency setup: no replay
         _idempotencyServiceMock
@@ -691,6 +699,8 @@ public class CatalogServicesTests
             new List<InitialUomDefinition> { new("BOX", "Box", 1m, 50m, true, true, true) }, productId);
         var uom2 = product.AddUom("STRIP", "Strip", 0.1m, 5m, false, true, true);
 
+        productRepoMock.Setup(r => r.GetByIdAsync(_orgId, productId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(product);
         uomRepoMock.Setup(r => r.GetByProductIdAsync(_orgId, productId, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(product.Uoms.ToList());
 
@@ -715,6 +725,36 @@ public class CatalogServicesTests
         Assert.Contains(result.Value, u => u.UomCode == "STRIP");
     }
 
+    [Fact]
+    public async Task ProductUomService_GetProductUoms_ProductNotFound_ReturnsNotFound()
+    {
+        var uomRepoMock = new Mock<IProductUomRepository>();
+        var productRepoMock = new Mock<IProductRepository>();
+        var productId = Guid.NewGuid();
+
+        productRepoMock.Setup(r => r.GetByIdAsync(_orgId, productId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Product?)null);
+
+        var service = new ProductUomService(
+            uomRepoMock.Object,
+            productRepoMock.Object,
+            _unitOfWorkMock.Object,
+            _tenantContextMock.Object,
+            _currentUserMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object,
+            _usageCheckerMock.Object);
+
+        var result = await service.GetProductUomsAsync(productId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ErrorCode.NOT_FOUND, result.ErrorCode);
+        Assert.Equal(ErrorMessages.ProductNotFound, result.ErrorMessage);
+        uomRepoMock.Verify(r => r.GetByProductIdAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     // ==========================================
     // 4. ReorderRuleService Tests
     // ==========================================
@@ -732,6 +772,7 @@ public class CatalogServicesTests
         var service = new ReorderRuleService(
             reorderRepoMock.Object,
             productRepoMock.Object,
+            _branchRepoMock.Object,
             _unitOfWorkMock.Object,
             _tenantContextMock.Object,
             _currentUserMock.Object,
@@ -745,6 +786,41 @@ public class CatalogServicesTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal(ErrorCode.FORBIDDEN_BRANCH, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ReorderRuleService_UpsertRule_BranchNotFound_ReturnsNotFoundAndRollback()
+    {
+        var reorderRepoMock = new Mock<IProductReorderRuleRepository>();
+        var productRepoMock = new Mock<IProductRepository>();
+        var branchRepoMock = new Mock<IBranchRepository>();
+        var branchId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+
+        _currentUserMock.Setup(u => u.CanAccessBranch(branchId)).Returns(true);
+        branchRepoMock.Setup(b => b.GetByIdAsync(_orgId, branchId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Branch?)null);
+
+        var service = new ReorderRuleService(
+            reorderRepoMock.Object,
+            productRepoMock.Object,
+            branchRepoMock.Object,
+            _unitOfWorkMock.Object,
+            _tenantContextMock.Object,
+            _currentUserMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object);
+
+        var request = new UpsertReorderRuleRequest(10m, 50m, 100m, true, "idemp-rr-bnf");
+        var result = await service.UpsertReorderRuleAsync(branchId, productId, request);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ErrorCode.NOT_FOUND, result.ErrorCode);
+        Assert.Equal(ErrorMessages.NotFound, result.ErrorMessage);
+        _unitOfWorkMock.Verify(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _unitOfWorkMock.Verify(u => u.CommitTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -762,6 +838,7 @@ public class CatalogServicesTests
         var service = new ReorderRuleService(
             reorderRepoMock.Object,
             productRepoMock.Object,
+            _branchRepoMock.Object,
             _unitOfWorkMock.Object,
             _tenantContextMock.Object,
             _currentUserMock.Object,
@@ -798,6 +875,7 @@ public class CatalogServicesTests
         var service = new ReorderRuleService(
             reorderRepoMock.Object,
             productRepoMock.Object,
+            _branchRepoMock.Object,
             _unitOfWorkMock.Object,
             _tenantContextMock.Object,
             _currentUserMock.Object,
@@ -850,6 +928,7 @@ public class CatalogServicesTests
         var service = new ReorderRuleService(
             reorderRepoMock.Object,
             productRepoMock.Object,
+            _branchRepoMock.Object,
             _unitOfWorkMock.Object,
             _tenantContextMock.Object,
             _currentUserMock.Object,
@@ -891,6 +970,7 @@ public class CatalogServicesTests
         var service = new ReorderRuleService(
             reorderRepoMock.Object,
             productRepoMock.Object,
+            _branchRepoMock.Object,
             _unitOfWorkMock.Object,
             _tenantContextMock.Object,
             _currentUserMock.Object,
@@ -922,6 +1002,7 @@ public class CatalogServicesTests
         var service = new ReorderRuleService(
             reorderRepoMock.Object,
             productRepoMock.Object,
+            _branchRepoMock.Object,
             _unitOfWorkMock.Object,
             _tenantContextMock.Object,
             _currentUserMock.Object,
@@ -934,5 +1015,744 @@ public class CatalogServicesTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal(ErrorCode.NOT_FOUND, result.ErrorCode);
+    }
+
+    // ==========================================
+    // 5. Read Transaction Lifecycle Tests (Batch 3 - T7-ARC-001)
+    // ==========================================
+
+    [Fact]
+    public async Task ProductCategoryService_GetCategories_StandaloneRead_OwnsAndRollsBackTransaction()
+    {
+        var categoryRepoMock = new Mock<IProductCategoryRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+        var hasActive = false;
+        uowMock.Setup(u => u.HasActiveTransaction).Returns(() => hasActive);
+        uowMock.Setup(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = true)
+            .Returns(Task.CompletedTask);
+        uowMock.Setup(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = false)
+            .Returns(Task.CompletedTask);
+
+        categoryRepoMock.Setup(r => r.GetPagedAsync(_orgId, null, false, null, 1, 25, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PagedResult<ProductCategory>(new List<ProductCategory>(), 1, 25, 0, null));
+
+        var service = new ProductCategoryService(
+            categoryRepoMock.Object,
+            uowMock.Object,
+            _tenantContextMock.Object,
+            _currentUserMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object);
+
+        var result = await service.GetCategoriesAsync(null, false, null, 1, 25);
+
+        Assert.True(result.IsSuccess);
+        uowMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+        uowMock.Verify(u => u.RollbackTransactionAsync(CancellationToken.None), Times.Once);
+        uowMock.Verify(u => u.CommitTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ProductCategoryService_GetCategoryById_AmbientTransaction_DoesNotOwnOrRollbackTransaction()
+    {
+        var categoryRepoMock = new Mock<IProductCategoryRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+        uowMock.Setup(u => u.HasActiveTransaction).Returns(true);
+
+        var categoryId = Guid.NewGuid();
+        var category = ProductCategory.Create(_orgId, "CAT01", "Analgesics", null, null, categoryId);
+        categoryRepoMock.Setup(r => r.GetByIdAsync(_orgId, categoryId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(category);
+
+        var service = new ProductCategoryService(
+            categoryRepoMock.Object,
+            uowMock.Object,
+            _tenantContextMock.Object,
+            _currentUserMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object);
+
+        var result = await service.GetCategoryByIdAsync(categoryId);
+
+        Assert.True(result.IsSuccess);
+        uowMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+        uowMock.Verify(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ProductCategoryService_GetCategories_FastFailValidation_NeverStartsTransaction()
+    {
+        var categoryRepoMock = new Mock<IProductCategoryRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+        var tenantMock = new Mock<ITenantContext>();
+        tenantMock.Setup(t => t.OrganizationId).Returns((Guid?)null);
+
+        var service = new ProductCategoryService(
+            categoryRepoMock.Object,
+            uowMock.Object,
+            tenantMock.Object,
+            _currentUserMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object);
+
+        var result = await service.GetCategoriesAsync(null, false, null, 1, 25);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ErrorCode.UNAUTHORIZED, result.ErrorCode);
+        uowMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+        uowMock.Verify(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ProductCategoryService_GetCategoryById_RepositoryException_RollsBackTransaction()
+    {
+        var categoryRepoMock = new Mock<IProductCategoryRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+        var hasActive = false;
+        uowMock.Setup(u => u.HasActiveTransaction).Returns(() => hasActive);
+        uowMock.Setup(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = true)
+            .Returns(Task.CompletedTask);
+        uowMock.Setup(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = false)
+            .Returns(Task.CompletedTask);
+
+        var categoryId = Guid.NewGuid();
+        categoryRepoMock.Setup(r => r.GetByIdAsync(_orgId, categoryId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("PostgreSQL connection error"));
+
+        var service = new ProductCategoryService(
+            categoryRepoMock.Object,
+            uowMock.Object,
+            _tenantContextMock.Object,
+            _currentUserMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.GetCategoryByIdAsync(categoryId));
+
+        uowMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+        uowMock.Verify(u => u.RollbackTransactionAsync(CancellationToken.None), Times.Once);
+    }
+
+    [Fact]
+    public async Task ProductCategoryService_GetCategories_CancellationTokenCancelled_RollbackUsesCancellationTokenNone()
+    {
+        var categoryRepoMock = new Mock<IProductCategoryRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+        var hasActive = false;
+        using var cts = new CancellationTokenSource();
+
+        uowMock.Setup(u => u.HasActiveTransaction).Returns(() => hasActive);
+        uowMock.Setup(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() =>
+            {
+                hasActive = true;
+                cts.Cancel();
+            })
+            .Returns(Task.CompletedTask);
+        uowMock.Setup(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = false)
+            .Returns(Task.CompletedTask);
+
+        categoryRepoMock.Setup(r => r.GetPagedAsync(_orgId, null, false, null, 1, 25, cts.Token))
+            .ThrowsAsync(new OperationCanceledException(cts.Token));
+
+        var service = new ProductCategoryService(
+            categoryRepoMock.Object,
+            uowMock.Object,
+            _tenantContextMock.Object,
+            _currentUserMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.GetCategoriesAsync(null, false, null, 1, 25, cts.Token));
+
+        uowMock.Verify(u => u.BeginTransactionAsync(cts.Token), Times.Once);
+        uowMock.Verify(u => u.RollbackTransactionAsync(CancellationToken.None), Times.Once);
+    }
+
+    [Fact]
+    public async Task ProductService_GetProducts_StandaloneRead_OwnsAndRollsBackTransaction()
+    {
+        var productRepoMock = new Mock<IProductRepository>();
+        var categoryRepoMock = new Mock<IProductCategoryRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+        var hasActive = false;
+        uowMock.Setup(u => u.HasActiveTransaction).Returns(() => hasActive);
+        uowMock.Setup(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = true)
+            .Returns(Task.CompletedTask);
+        uowMock.Setup(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = false)
+            .Returns(Task.CompletedTask);
+
+        productRepoMock.Setup(r => r.GetPagedAsync(_orgId, null, false, null, 1, 25, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PagedResult<Product>(new List<Product>(), 1, 25, 0, null));
+
+        var service = new ProductService(
+            productRepoMock.Object,
+            categoryRepoMock.Object,
+            uowMock.Object,
+            _tenantContextMock.Object,
+            _currentUserMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object,
+            _nonLotBatchInitializerMock.Object,
+            _usageCheckerMock.Object);
+
+        var result = await service.GetProductsAsync(null, false, null, 1, 25);
+
+        Assert.True(result.IsSuccess);
+        uowMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+        uowMock.Verify(u => u.RollbackTransactionAsync(CancellationToken.None), Times.Once);
+        uowMock.Verify(u => u.CommitTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ProductService_GetProductById_AmbientTransaction_DoesNotOwnOrRollbackTransaction()
+    {
+        var productRepoMock = new Mock<IProductRepository>();
+        var categoryRepoMock = new Mock<IProductCategoryRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+        uowMock.Setup(u => u.HasActiveTransaction).Returns(true);
+
+        var productId = Guid.NewGuid();
+        var product = Product.Create(
+            _orgId, Guid.NewGuid(), "PAN-001", null, "Panadol", null, null, "BOX", 0.14m, null, false, 0,
+            new List<InitialUomDefinition> { new("BOX", "Box", 1m, 50m, true, true, true) }, productId);
+
+        productRepoMock.Setup(r => r.GetByIdWithUomsAsync(_orgId, productId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(product);
+
+        var service = new ProductService(
+            productRepoMock.Object,
+            categoryRepoMock.Object,
+            uowMock.Object,
+            _tenantContextMock.Object,
+            _currentUserMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object,
+            _nonLotBatchInitializerMock.Object,
+            _usageCheckerMock.Object);
+
+        var result = await service.GetProductByIdAsync(productId);
+
+        Assert.True(result.IsSuccess);
+        uowMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+        uowMock.Verify(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ProductService_GetProducts_FastFailValidation_NeverStartsTransaction()
+    {
+        var productRepoMock = new Mock<IProductRepository>();
+        var categoryRepoMock = new Mock<IProductCategoryRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+        var userMock = new Mock<ICurrentUser>();
+        userMock.Setup(u => u.Role).Returns("InventoryClerk"); // Unauthorized for read
+
+        var service = new ProductService(
+            productRepoMock.Object,
+            categoryRepoMock.Object,
+            uowMock.Object,
+            _tenantContextMock.Object,
+            userMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object,
+            _nonLotBatchInitializerMock.Object,
+            _usageCheckerMock.Object);
+
+        var result = await service.GetProductsAsync(null, false, null, 1, 25);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ErrorCode.FORBIDDEN, result.ErrorCode);
+        uowMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+        uowMock.Verify(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ProductService_GetProductById_RepositoryException_RollsBackTransaction()
+    {
+        var productRepoMock = new Mock<IProductRepository>();
+        var categoryRepoMock = new Mock<IProductCategoryRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+        var hasActive = false;
+        uowMock.Setup(u => u.HasActiveTransaction).Returns(() => hasActive);
+        uowMock.Setup(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = true)
+            .Returns(Task.CompletedTask);
+        uowMock.Setup(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = false)
+            .Returns(Task.CompletedTask);
+
+        var productId = Guid.NewGuid();
+        productRepoMock.Setup(r => r.GetByIdWithUomsAsync(_orgId, productId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("Database read failure"));
+
+        var service = new ProductService(
+            productRepoMock.Object,
+            categoryRepoMock.Object,
+            uowMock.Object,
+            _tenantContextMock.Object,
+            _currentUserMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object,
+            _nonLotBatchInitializerMock.Object,
+            _usageCheckerMock.Object);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.GetProductByIdAsync(productId));
+
+        uowMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+        uowMock.Verify(u => u.RollbackTransactionAsync(CancellationToken.None), Times.Once);
+    }
+
+    [Fact]
+    public async Task ProductService_GetProductById_CancellationTokenCancelled_RollbackUsesCancellationTokenNone()
+    {
+        var productRepoMock = new Mock<IProductRepository>();
+        var categoryRepoMock = new Mock<IProductCategoryRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+        var hasActive = false;
+        using var cts = new CancellationTokenSource();
+
+        uowMock.Setup(u => u.HasActiveTransaction).Returns(() => hasActive);
+        uowMock.Setup(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() =>
+            {
+                hasActive = true;
+                cts.Cancel();
+            })
+            .Returns(Task.CompletedTask);
+        uowMock.Setup(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = false)
+            .Returns(Task.CompletedTask);
+
+        var productId = Guid.NewGuid();
+
+        productRepoMock.Setup(r => r.GetByIdWithUomsAsync(_orgId, productId, cts.Token))
+            .ThrowsAsync(new OperationCanceledException(cts.Token));
+
+        var service = new ProductService(
+            productRepoMock.Object,
+            categoryRepoMock.Object,
+            uowMock.Object,
+            _tenantContextMock.Object,
+            _currentUserMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object,
+            _nonLotBatchInitializerMock.Object,
+            _usageCheckerMock.Object);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.GetProductByIdAsync(productId, cts.Token));
+
+        uowMock.Verify(u => u.BeginTransactionAsync(cts.Token), Times.Once);
+        uowMock.Verify(u => u.RollbackTransactionAsync(CancellationToken.None), Times.Once);
+    }
+
+    [Fact]
+    public async Task ProductUomService_GetProductUoms_StandaloneRead_OwnsAndRollsBackTransaction()
+    {
+        var uomRepoMock = new Mock<IProductUomRepository>();
+        var productRepoMock = new Mock<IProductRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+        var hasActive = false;
+        uowMock.Setup(u => u.HasActiveTransaction).Returns(() => hasActive);
+        uowMock.Setup(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = true)
+            .Returns(Task.CompletedTask);
+        uowMock.Setup(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = false)
+            .Returns(Task.CompletedTask);
+
+        var productId = Guid.NewGuid();
+        var product = Product.Create(
+            _orgId, Guid.NewGuid(), "PAN-001", null, "Panadol", null, null, "BOX", 0.14m, null, false, 0,
+            new List<InitialUomDefinition> { new("BOX", "Box", 1m, 50m, true, true, true) }, productId);
+
+        productRepoMock.Setup(r => r.GetByIdAsync(_orgId, productId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(product);
+        uomRepoMock.Setup(r => r.GetByProductIdAsync(_orgId, productId, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(product.Uoms.ToList());
+
+        var service = new ProductUomService(
+            uomRepoMock.Object,
+            productRepoMock.Object,
+            uowMock.Object,
+            _tenantContextMock.Object,
+            _currentUserMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object,
+            _usageCheckerMock.Object);
+
+        var result = await service.GetProductUomsAsync(productId);
+
+        Assert.True(result.IsSuccess);
+        uowMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+        uowMock.Verify(u => u.RollbackTransactionAsync(CancellationToken.None), Times.Once);
+        uowMock.Verify(u => u.CommitTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ProductUomService_GetProductUoms_AmbientTransaction_DoesNotOwnOrRollbackTransaction()
+    {
+        var uomRepoMock = new Mock<IProductUomRepository>();
+        var productRepoMock = new Mock<IProductRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+        uowMock.Setup(u => u.HasActiveTransaction).Returns(true);
+
+        var productId = Guid.NewGuid();
+        var product = Product.Create(
+            _orgId, Guid.NewGuid(), "PAN-001", null, "Panadol", null, null, "BOX", 0.14m, null, false, 0,
+            new List<InitialUomDefinition> { new("BOX", "Box", 1m, 50m, true, true, true) }, productId);
+
+        productRepoMock.Setup(r => r.GetByIdAsync(_orgId, productId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(product);
+        uomRepoMock.Setup(r => r.GetByProductIdAsync(_orgId, productId, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(product.Uoms.ToList());
+
+        var service = new ProductUomService(
+            uomRepoMock.Object,
+            productRepoMock.Object,
+            uowMock.Object,
+            _tenantContextMock.Object,
+            _currentUserMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object,
+            _usageCheckerMock.Object);
+
+        var result = await service.GetProductUomsAsync(productId);
+
+        Assert.True(result.IsSuccess);
+        uowMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+        uowMock.Verify(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ProductUomService_GetProductUoms_FastFailValidation_NeverStartsTransaction()
+    {
+        var uomRepoMock = new Mock<IProductUomRepository>();
+        var productRepoMock = new Mock<IProductRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+        var userMock = new Mock<ICurrentUser>();
+        userMock.Setup(u => u.Role).Returns("Nurse");
+
+        var service = new ProductUomService(
+            uomRepoMock.Object,
+            productRepoMock.Object,
+            uowMock.Object,
+            _tenantContextMock.Object,
+            userMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object,
+            _usageCheckerMock.Object);
+
+        var result = await service.GetProductUomsAsync(Guid.NewGuid());
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ErrorCode.FORBIDDEN, result.ErrorCode);
+        uowMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+        uowMock.Verify(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ProductUomService_GetProductUoms_RepositoryException_RollsBackTransaction()
+    {
+        var uomRepoMock = new Mock<IProductUomRepository>();
+        var productRepoMock = new Mock<IProductRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+        var hasActive = false;
+        uowMock.Setup(u => u.HasActiveTransaction).Returns(() => hasActive);
+        uowMock.Setup(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = true)
+            .Returns(Task.CompletedTask);
+        uowMock.Setup(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = false)
+            .Returns(Task.CompletedTask);
+
+        var productId = Guid.NewGuid();
+        productRepoMock.Setup(r => r.GetByIdAsync(_orgId, productId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("Failed to read product"));
+
+        var service = new ProductUomService(
+            uomRepoMock.Object,
+            productRepoMock.Object,
+            uowMock.Object,
+            _tenantContextMock.Object,
+            _currentUserMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object,
+            _usageCheckerMock.Object);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.GetProductUomsAsync(productId));
+
+        uowMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+        uowMock.Verify(u => u.RollbackTransactionAsync(CancellationToken.None), Times.Once);
+    }
+
+    [Fact]
+    public async Task ProductUomService_GetProductUoms_CancellationTokenCancelled_RollbackUsesCancellationTokenNone()
+    {
+        var uomRepoMock = new Mock<IProductUomRepository>();
+        var productRepoMock = new Mock<IProductRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+        var hasActive = false;
+        using var cts = new CancellationTokenSource();
+
+        uowMock.Setup(u => u.HasActiveTransaction).Returns(() => hasActive);
+        uowMock.Setup(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() =>
+            {
+                hasActive = true;
+                cts.Cancel();
+            })
+            .Returns(Task.CompletedTask);
+        uowMock.Setup(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = false)
+            .Returns(Task.CompletedTask);
+
+        var productId = Guid.NewGuid();
+
+        productRepoMock.Setup(r => r.GetByIdAsync(_orgId, productId, cts.Token))
+            .ThrowsAsync(new OperationCanceledException(cts.Token));
+
+        var service = new ProductUomService(
+            uomRepoMock.Object,
+            productRepoMock.Object,
+            uowMock.Object,
+            _tenantContextMock.Object,
+            _currentUserMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object,
+            _usageCheckerMock.Object);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.GetProductUomsAsync(productId, cts.Token));
+
+        uowMock.Verify(u => u.BeginTransactionAsync(cts.Token), Times.Once);
+        uowMock.Verify(u => u.RollbackTransactionAsync(CancellationToken.None), Times.Once);
+    }
+
+    [Fact]
+    public async Task ReorderRuleService_GetReorderRule_StandaloneRead_OwnsAndRollsBackTransaction()
+    {
+        var reorderRepoMock = new Mock<IProductReorderRuleRepository>();
+        var productRepoMock = new Mock<IProductRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+        var hasActive = false;
+        uowMock.Setup(u => u.HasActiveTransaction).Returns(() => hasActive);
+        uowMock.Setup(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = true)
+            .Returns(Task.CompletedTask);
+        uowMock.Setup(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = false)
+            .Returns(Task.CompletedTask);
+
+        var branchId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var existingRule = ProductReorderRule.Create(_orgId, productId, branchId, 10m, 50m, 100m);
+
+        reorderRepoMock.Setup(r => r.GetByBranchAndProductAsync(_orgId, branchId, productId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existingRule);
+
+        var service = new ReorderRuleService(
+            reorderRepoMock.Object,
+            productRepoMock.Object,
+            _branchRepoMock.Object,
+            uowMock.Object,
+            _tenantContextMock.Object,
+            _currentUserMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object);
+
+        var result = await service.GetReorderRuleAsync(branchId, productId);
+
+        Assert.True(result.IsSuccess);
+        uowMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+        uowMock.Verify(u => u.RollbackTransactionAsync(CancellationToken.None), Times.Once);
+        uowMock.Verify(u => u.CommitTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ReorderRuleService_GetReorderRule_AmbientTransaction_DoesNotOwnOrRollbackTransaction()
+    {
+        var reorderRepoMock = new Mock<IProductReorderRuleRepository>();
+        var productRepoMock = new Mock<IProductRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+        uowMock.Setup(u => u.HasActiveTransaction).Returns(true);
+
+        var branchId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var existingRule = ProductReorderRule.Create(_orgId, productId, branchId, 10m, 50m, 100m);
+
+        reorderRepoMock.Setup(r => r.GetByBranchAndProductAsync(_orgId, branchId, productId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existingRule);
+
+        var service = new ReorderRuleService(
+            reorderRepoMock.Object,
+            productRepoMock.Object,
+            _branchRepoMock.Object,
+            uowMock.Object,
+            _tenantContextMock.Object,
+            _currentUserMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object);
+
+        var result = await service.GetReorderRuleAsync(branchId, productId);
+
+        Assert.True(result.IsSuccess);
+        uowMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+        uowMock.Verify(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ReorderRuleService_GetReorderRule_FastFailValidation_NeverStartsTransaction()
+    {
+        var reorderRepoMock = new Mock<IProductReorderRuleRepository>();
+        var productRepoMock = new Mock<IProductRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+        var branchId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+
+        var userMock = new Mock<ICurrentUser>();
+        userMock.Setup(u => u.CanAccessBranch(branchId)).Returns(false); // Forbidden branch
+
+        var service = new ReorderRuleService(
+            reorderRepoMock.Object,
+            productRepoMock.Object,
+            _branchRepoMock.Object,
+            uowMock.Object,
+            _tenantContextMock.Object,
+            userMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object);
+
+        var result = await service.GetReorderRuleAsync(branchId, productId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ErrorCode.FORBIDDEN_BRANCH, result.ErrorCode);
+        uowMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+        uowMock.Verify(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ReorderRuleService_GetReorderRule_RepositoryException_RollsBackTransaction()
+    {
+        var reorderRepoMock = new Mock<IProductReorderRuleRepository>();
+        var productRepoMock = new Mock<IProductRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+        var hasActive = false;
+        uowMock.Setup(u => u.HasActiveTransaction).Returns(() => hasActive);
+        uowMock.Setup(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = true)
+            .Returns(Task.CompletedTask);
+        uowMock.Setup(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = false)
+            .Returns(Task.CompletedTask);
+
+        var branchId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+
+        reorderRepoMock.Setup(r => r.GetByBranchAndProductAsync(_orgId, branchId, productId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("DB timeout"));
+
+        var service = new ReorderRuleService(
+            reorderRepoMock.Object,
+            productRepoMock.Object,
+            _branchRepoMock.Object,
+            uowMock.Object,
+            _tenantContextMock.Object,
+            _currentUserMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.GetReorderRuleAsync(branchId, productId));
+
+        uowMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+        uowMock.Verify(u => u.RollbackTransactionAsync(CancellationToken.None), Times.Once);
+    }
+
+    [Fact]
+    public async Task ReorderRuleService_GetReorderRule_CancellationTokenCancelled_RollbackUsesCancellationTokenNone()
+    {
+        var reorderRepoMock = new Mock<IProductReorderRuleRepository>();
+        var productRepoMock = new Mock<IProductRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+        var hasActive = false;
+        using var cts = new CancellationTokenSource();
+
+        uowMock.Setup(u => u.HasActiveTransaction).Returns(() => hasActive);
+        uowMock.Setup(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() =>
+            {
+                hasActive = true;
+                cts.Cancel();
+            })
+            .Returns(Task.CompletedTask);
+        uowMock.Setup(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => hasActive = false)
+            .Returns(Task.CompletedTask);
+
+        var branchId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+
+        reorderRepoMock.Setup(r => r.GetByBranchAndProductAsync(_orgId, branchId, productId, cts.Token))
+            .ThrowsAsync(new OperationCanceledException(cts.Token));
+
+        var service = new ReorderRuleService(
+            reorderRepoMock.Object,
+            productRepoMock.Object,
+            _branchRepoMock.Object,
+            uowMock.Object,
+            _tenantContextMock.Object,
+            _currentUserMock.Object,
+            _runtimeModeProviderMock.Object,
+            _idempotencyServiceMock.Object,
+            _auditLoggerMock.Object,
+            _outboxServiceMock.Object);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.GetReorderRuleAsync(branchId, productId, cts.Token));
+
+        uowMock.Verify(u => u.BeginTransactionAsync(cts.Token), Times.Once);
+        uowMock.Verify(u => u.RollbackTransactionAsync(CancellationToken.None), Times.Once);
     }
 }

@@ -21,9 +21,8 @@ export function Input({
   const inputId = id ?? generatedId;
   const errorId = `${inputId}-error`;
   const hintId = `${inputId}-hint`;
-  const describedBy =
-    [error ? errorId : null, hint ? hintId : null].filter(Boolean).join(' ') ||
-    undefined;
+  // Only the message that is actually rendered is referenced.
+  const describedBy = error ? errorId : hint ? hintId : undefined;
 
   const inputClasses = [
     'h-9 w-full rounded-sm border bg-surface px-3 text-body text-text placeholder:text-text-muted',

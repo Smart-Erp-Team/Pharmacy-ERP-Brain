@@ -55,15 +55,20 @@ public static class ErrorMessages
 
     // Identity resource and authentication messages
     public const string DuplicateOrganizationCode = "An organization with this code already exists.";
-    public const string DuplicateBranchCode = "A branch with this code already exists.";
-    public const string DuplicateEmployeeNo = "An employee with this number already exists.";
-    public const string DuplicateUsername = "A user with this username already exists.";
-    public const string EmployeeAlreadyHasAccount = "The employee already has a user account.";
-    public const string InvalidBranchSelection = "The selected branch is invalid or unavailable.";
-    public const string InvalidCredentials = "The username or password is invalid.";
-    public const string AccountInactive = "The user account is inactive.";
-    public const string AccountLocked = "The user account is locked.";
-    public const string InvalidRefreshToken = "The refresh token is invalid or expired.";
-    public const string InvalidEnrollmentToken = "The branch enrollment token is invalid or expired.";
-    
+    public const string DuplicateBranchCode = "A branch with this code already exists in this organization.";
+    public const string DuplicateEmployeeNo = "An employee with this number already exists in this branch.";
+    public const string DuplicateUsername = "A user with this username already exists in this organization.";
+    public const string EmployeeAlreadyHasAccount = "This employee already has a user account.";
+    public const string InvalidRefreshToken = "The refresh token is invalid, expired, revoked, or has already been used.";
+    public const string InvalidEnrollmentToken = "The enrollment token is invalid, expired, or has already been used.";
+    public const string InvalidOrganizationTimeZone = "The specified time zone is invalid.";
+    public const string InvalidBranchSelection = "One or more selected branches do not belong to this organization or are inactive.";
+
+    // 8. Canonical & AI Configuration Writes (Stage 1)
+    public const string InvalidRequestId = "The request ID must be a non-empty GUID.";
+    public const string InvalidSourcePromptId = "The source prompt ID is required and must not exceed 100 characters.";
+    public const string InvalidIdempotencyKey = "The idempotency key is required.";
+    public const string InvalidConfigurationAction = "The specified catalog configuration action is invalid or unsupported.";
+    public const string InvalidBranchId = "A valid branch ID is required for reorder rule configuration.";
+    public const string CannotDeactivateBaseUom = "Cannot deactivate the base unit of measure for this product.";
 }

@@ -1,0 +1,175 @@
+import { useRef } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  getStableAttemptKey,
+  type AttemptKeyRecord,
+} from '../../../lib/api/idempotency';
+import {
+  createUser,
+  getUser,
+  listUsers,
+  patchUser,
+  resetUserPassword,
+  revokeUserSessions,
+  type ListUsersParams,
+} from '../api/usersApi';
+import { usersKeys } from './usersKeys';
+import type {
+  CreateUserRequest,
+  PasswordResetRequest,
+  UserPatchRequest,
+} from '../../../types/api';
+
+export interface UseUsersQueryOptions {
+  enabled?: boolean;
+}
+
+export function useUsersQuery(
+  params: ListUsersParams = {},
+  options: UseUsersQueryOptions = {}
+) {
+  return useQuery({
+    queryKey: usersKeys.list(params),
+    queryFn: () => listUsers(params),
+    enabled: options.enabled ?? true,
+  });
+}
+
+export interface UseUserQueryOptions {
+  enabled?: boolean;
+}
+
+export function useUserQuery(
+  userId: string | undefined,
+  options: UseUserQueryOptions = {}
+) {
+  const normalizedUserId = userId?.trim() ?? '';
+
+  return useQuery({
+    queryKey: usersKeys.detail(normalizedUserId),
+    queryFn: () => {
+      if (!normalizedUserId) {
+        return Promise.reject(new Error('User ID is required.'));
+      }
+      return getUser(normalizedUserId);
+    },
+    enabled: normalizedUserId.length > 0 && (options.enabled ?? true),
+  });
+}
+
+export interface CreateUserVariables {
+  payload: CreateUserRequest;
+  idempotencyKey?: string;
+}
+
+export function useCreateUserMutation() {
+  const queryClient = useQueryClient();
+  const attemptRef = useRef<AttemptKeyRecord | null>(null);
+
+  return useMutation({
+    mutationFn: ({ payload, idempotencyKey }: CreateUserVariables) =>
+      createUser(payload, {
+        idempotencyKey: getStableAttemptKey(
+          attemptRef,
+          JSON.stringify(payload),
+          idempotencyKey
+        ),
+      }),
+    onSuccess: async () => {
+      attemptRef.current = null;
+      await queryClient.invalidateQueries({ queryKey: usersKeys.lists() });
+    },
+  });
+}
+
+export interface PatchUserVariables {
+  userId: string;
+  payload: UserPatchRequest;
+  idempotencyKey?: string;
+}
+
+export function usePatchUserMutation() {
+  const queryClient = useQueryClient();
+  const attemptRef = useRef<AttemptKeyRecord | null>(null);
+
+  return useMutation({
+    mutationFn: ({ userId, payload, idempotencyKey }: PatchUserVariables) =>
+      patchUser(userId, payload, {
+        idempotencyKey: getStableAttemptKey(
+          attemptRef,
+          JSON.stringify({ userId, payload }),
+          idempotencyKey
+        ),
+      }),
+    onSuccess: async (_user, variables) => {
+      attemptRef.current = null;
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: usersKeys.lists() }),
+        queryClient.invalidateQueries({
+          queryKey: usersKeys.detail(variables.userId.trim()),
+        }),
+      ]);
+    },
+  });
+}
+
+export interface ResetUserPasswordVariables {
+  userId: string;
+  payload: PasswordResetRequest;
+  idempotencyKey?: string;
+}
+
+export function useResetUserPasswordMutation() {
+  const queryClient = useQueryClient();
+  const attemptRef = useRef<AttemptKeyRecord | null>(null);
+
+  return useMutation({
+    mutationFn: ({
+      userId,
+      payload,
+      idempotencyKey,
+    }: ResetUserPasswordVariables) =>
+      resetUserPassword(userId, payload, {
+        idempotencyKey: getStableAttemptKey(
+          attemptRef,
+          JSON.stringify({ userId, payload }),
+          idempotencyKey
+        ),
+      }),
+    onSuccess: async (_data, variables) => {
+      attemptRef.current = null;
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: usersKeys.lists() }),
+        queryClient.invalidateQueries({
+          queryKey: usersKeys.detail(variables.userId.trim()),
+        }),
+      ]);
+    },
+  });
+}
+
+export interface RevokeUserSessionsVariables {
+  userId: string;
+  idempotencyKey?: string;
+}
+
+export function useRevokeUserSessionsMutation() {
+  const queryClient = useQueryClient();
+  const attemptRef = useRef<AttemptKeyRecord | null>(null);
+
+  return useMutation({
+    mutationFn: ({ userId, idempotencyKey }: RevokeUserSessionsVariables) =>
+      revokeUserSessions(userId, {
+        idempotencyKey: getStableAttemptKey(attemptRef, userId, idempotencyKey),
+      }),
+    onSuccess: async (_data, variables) => {
+      attemptRef.current = null;
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: usersKeys.lists() }),
+        queryClient.invalidateQueries({
+          queryKey: usersKeys.detail(variables.userId.trim()),
+        }),
+      ]);
+    },
+  });
+}

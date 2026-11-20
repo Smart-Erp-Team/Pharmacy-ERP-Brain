@@ -60,10 +60,31 @@ public class ProductUomService : IProductUomService
             return Result<IReadOnlyList<ProductUomDto>>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
 
         var orgId = _tenantContext.OrganizationId.Value;
-        var uoms = await _uomRepository.GetByProductIdAsync(orgId, productId, includeInactive: true, ct);
-        var dtos = uoms.Select(MapToDto).ToList();
+        var ownsTransaction = !_unitOfWork.HasActiveTransaction;
 
-        return Result<IReadOnlyList<ProductUomDto>>.Success(dtos);
+        try
+        {
+            if (ownsTransaction)
+            {
+                await _unitOfWork.BeginTransactionAsync(ct);
+            }
+
+            var product = await _productRepository.GetByIdAsync(orgId, productId, ct);
+            if (product == null)
+                return Result<IReadOnlyList<ProductUomDto>>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductNotFound);
+
+            var uoms = await _uomRepository.GetByProductIdAsync(orgId, productId, includeInactive: true, ct);
+            var dtos = uoms.Select(MapToDto).ToList();
+
+            return Result<IReadOnlyList<ProductUomDto>>.Success(dtos);
+        }
+        finally
+        {
+            if (ownsTransaction && _unitOfWork.HasActiveTransaction)
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+            }
+        }
     }
 
     public async Task<Result<ProductUomDto>> CreateProductUomAsync(Guid productId, CreateProductUomRequest request, CancellationToken ct = default)

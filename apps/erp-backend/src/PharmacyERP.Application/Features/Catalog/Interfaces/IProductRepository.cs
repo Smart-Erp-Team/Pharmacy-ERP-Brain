@@ -22,10 +22,28 @@ public interface IProductRepository : IGenericRepository<Product>
         int page,
         int pageSize,
         CancellationToken ct = default);
+    /// <summary>
+    /// Legacy canonical feed query method matching specification signature.
+    /// </summary>
+    /// <remarks>
+    /// The <paramref name="afterEventSequence"/> parameter is not applied here because Product does not store
+    /// an outbox/event sequence number. For cursor-based pagination, use <see cref="GetCanonicalFeedKeysetPageAsync"/>.
+    /// </remarks>
     Task<IReadOnlyList<Product>> GetCanonicalFeedPageAsync(
         Guid organizationId,
         DateTimeOffset? updatedSince,
         long? afterEventSequence,
+        int limit,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Retrieves a keyset-paginated page of products for canonical synchronization feeds.
+    /// </summary>
+    Task<(IReadOnlyList<Product> Items, bool HasNextPage)> GetCanonicalFeedKeysetPageAsync(
+        Guid organizationId,
+        DateTimeOffset? updatedSince,
+        DateTimeOffset? afterUpdatedAt,
+        Guid? afterProductId,
         int limit,
         CancellationToken ct = default);
 }

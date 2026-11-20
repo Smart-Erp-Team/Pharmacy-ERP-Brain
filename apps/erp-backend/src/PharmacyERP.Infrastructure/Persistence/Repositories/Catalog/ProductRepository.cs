@@ -103,6 +103,13 @@ public class ProductRepository : GenericRepository<Product>, IProductRepository
         return new PagedResult<Product>(items, resolvedPage, resolvedPageSize, totalCount);
     }
 
+    /// <summary>
+    /// Legacy canonical feed query method matching specification signature.
+    /// </summary>
+    /// <remarks>
+    /// The <paramref name="afterEventSequence"/> parameter is not applied here because Product does not store
+    /// an outbox/event sequence number. For cursor-based pagination, use <see cref="GetCanonicalFeedKeysetPageAsync"/>.
+    /// </remarks>
     public async Task<IReadOnlyList<Product>> GetCanonicalFeedPageAsync(
         Guid organizationId,
         DateTimeOffset? updatedSince,
@@ -128,5 +135,47 @@ public class ProductRepository : GenericRepository<Product>, IProductRepository
             .Take(take);
 
         return await query.ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// Retrieves a keyset-paginated page of products for canonical synchronization feeds.
+    /// </summary>
+    public async Task<(IReadOnlyList<Product> Items, bool HasNextPage)> GetCanonicalFeedKeysetPageAsync(
+        Guid organizationId,
+        DateTimeOffset? updatedSince,
+        DateTimeOffset? afterUpdatedAt,
+        Guid? afterProductId,
+        int limit,
+        CancellationToken ct = default)
+    {
+        var take = limit <= 0 ? 50 : Math.Min(limit, 1000);
+
+        var query = _dbSet
+            .Include(p => p.Uoms)
+            .Include(p => p.Category)
+            .Where(p => p.OrganizationId == organizationId);
+
+        if (updatedSince.HasValue)
+        {
+            query = query.Where(p => p.UpdatedAt >= updatedSince.Value);
+        }
+
+        if (afterUpdatedAt.HasValue && afterProductId.HasValue)
+        {
+            var cursorTime = afterUpdatedAt.Value;
+            var cursorId = afterProductId.Value;
+            query = query.Where(p => p.UpdatedAt > cursorTime || (p.UpdatedAt == cursorTime && p.ProductId.CompareTo(cursorId) > 0));
+        }
+
+        var results = await query
+            .OrderBy(p => p.UpdatedAt)
+            .ThenBy(p => p.ProductId)
+            .Take(take + 1)
+            .ToListAsync(ct);
+
+        var hasNextPage = results.Count > take;
+        var items = hasNextPage ? results.Take(take).ToList() : results;
+
+        return (items, hasNextPage);
     }
 }

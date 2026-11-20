@@ -7,8 +7,33 @@ import {
   hasAnyRole,
   hasPermission,
   hasAllPermissions,
+  isAllowedRuntime,
+  isAllowedBranch,
+  describeBranchScope,
 } from '../lib/auth/permissions';
-import type { Role } from '../types/api';
+import type { CurrentUserContext, Role } from '../types/api';
+
+const buildUser = (
+  overrides: Partial<CurrentUserContext> = {}
+): CurrentUserContext =>
+  ({
+    user: {
+      user_id: '550e8400-e29b-41d4-a716-446655440000',
+      employee_id: 'fa567890-1234-4def-9fbe-fa12345678de',
+      username: 'fa.pharmacist',
+      role: 'Pharmacist',
+      branch_scope: 'ASSIGNED',
+      is_active: true,
+    },
+    organization_id: 'b1c2d3e4-2222-4b33-8c44-aabbccddeeff',
+    organization_code: 'PHARMAPLUS',
+    branch_scope: 'ASSIGNED',
+    branch_ids: ['branch-1'],
+    roles: ['Pharmacist'],
+    scopes: ['inventory:read'],
+    runtime: 'BranchLocal',
+    ...overrides,
+  }) as CurrentUserContext;
 
 describe('Roles and Permissions Matrix', () => {
   it('strictly contains only the three canonical contract roles', () => {
@@ -53,5 +78,58 @@ describe('Roles and Permissions Matrix', () => {
     expect(hasAllPermissions(scopes, ['inventory:read', 'sales:write'])).toBe(
       false
     );
+  });
+
+  it('passes the scope check when nothing is required', () => {
+    expect(hasAllPermissions(['inventory:read'], [])).toBe(true);
+    expect(hasAllPermissions([], [])).toBe(true);
+    expect(hasAllPermissions(undefined, [])).toBe(true);
+    expect(hasAllPermissions([], ['inventory:read'])).toBe(false);
+  });
+});
+
+describe('Runtime gating', () => {
+  it('allows a runtime that owns the route', () => {
+    expect(isAllowedRuntime('Cloud', ['Cloud'])).toBe(true);
+    expect(isAllowedRuntime('BranchLocal', ['Cloud', 'BranchLocal'])).toBe(
+      true
+    );
+  });
+
+  it('blocks a runtime that does not own the route', () => {
+    expect(isAllowedRuntime('BranchLocal', ['Cloud'])).toBe(false);
+    expect(isAllowedRuntime('Cloud', ['BranchLocal'])).toBe(false);
+  });
+
+  it('blocks everything when the runtime is unknown', () => {
+    expect(isAllowedRuntime(null, ['Cloud', 'BranchLocal'])).toBe(false);
+    expect(isAllowedRuntime(undefined, ['Cloud'])).toBe(false);
+  });
+});
+
+describe('Branch scope gating', () => {
+  it('allows every branch when the scope is ALL', () => {
+    const user = buildUser({ branch_scope: 'ALL', branch_ids: [] });
+
+    expect(isAllowedBranch(user, 'branch-1')).toBe(true);
+    expect(isAllowedBranch(user, 'any-other-branch')).toBe(true);
+  });
+
+  it('allows only the assigned branches when the scope is ASSIGNED', () => {
+    const user = buildUser({ branch_ids: ['branch-1', 'branch-2'] });
+
+    expect(isAllowedBranch(user, 'branch-1')).toBe(true);
+    expect(isAllowedBranch(user, 'branch-2')).toBe(true);
+    expect(isAllowedBranch(user, 'branch-9')).toBe(false);
+  });
+
+  it('blocks everything without a session', () => {
+    expect(isAllowedBranch(null, 'branch-1')).toBe(false);
+  });
+
+  it('describes the branch scope without inventing a value', () => {
+    expect(describeBranchScope('ALL')).toBe('All branches');
+    expect(describeBranchScope('ASSIGNED')).toBe('Assigned branches');
+    expect(describeBranchScope(null)).toBe('Unavailable');
   });
 });

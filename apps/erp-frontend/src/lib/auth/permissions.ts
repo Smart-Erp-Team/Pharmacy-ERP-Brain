@@ -1,17 +1,30 @@
 /**
- * Pharmacy ERP — Roles & Permissions Matrix
+ * Pharmacy ERP — Roles, Scopes, Runtime and Branch Permissions
  *
- * Strictly aligned with contracts/schemas/common.json:
- * Closed enum Role = 'Admin' | 'Pharmacist' | 'Cashier'.
- * No 'Staff' or ad-hoc role strings permitted.
+ * The single place where every permission decision is made (skill `routing-auth`).
+ * Two authoritative sources come from the session (`/auth/me`):
+ * - `roles`  → who the user is (Admin | Pharmacist | Cashier)
+ * - `scopes` → what the user may do (the contract's PermissionScope vocabulary)
+ * Plus the deployment context: `runtime` (Cloud | BranchLocal) and the branch scope.
  */
 
-import type { Role, PermissionScope } from '../../types/api';
+import type {
+  BranchScope,
+  CurrentUserContext,
+  PermissionScope,
+  Role,
+  RuntimeMode,
+} from '../../types/api';
 
 export const VALID_ROLES: readonly Role[] = [
   'Admin',
   'Pharmacist',
   'Cashier',
+] as const;
+
+export const VALID_RUNTIMES: readonly RuntimeMode[] = [
+  'Cloud',
+  'BranchLocal',
 ] as const;
 
 export const ROLE_PERMISSIONS: Record<Role, readonly PermissionScope[]> = {
@@ -81,6 +94,48 @@ export function hasAllPermissions(
   userScopes: readonly PermissionScope[] | undefined,
   requiredScopes: readonly PermissionScope[]
 ): boolean {
+  // Nothing is required: the check passes, even without any scope in the session.
+  if (requiredScopes.length === 0) {
+    return true;
+  }
+
   if (!userScopes || userScopes.length === 0) return false;
   return requiredScopes.every((scope) => userScopes.includes(scope));
+}
+
+/**
+ * Runtime gate (contracts/FRONTEND.md §1): a route the current runtime does not
+ * own answers 404/405 on the server, so the UI must not offer it.
+ */
+export function isAllowedRuntime(
+  runtime: RuntimeMode | null | undefined,
+  allowedRuntimes: readonly RuntimeMode[]
+): boolean {
+  if (!runtime) return false;
+  return allowedRuntimes.includes(runtime);
+}
+
+/**
+ * Branch gate: `branch_scope = ALL` covers every branch of the organization,
+ * `ASSIGNED` covers only the branches listed in `branch_ids`.
+ */
+export function isAllowedBranch(
+  currentUser: CurrentUserContext | null | undefined,
+  branchId: string
+): boolean {
+  if (!currentUser) return false;
+  if (currentUser.branch_scope === 'ALL') return true;
+  return currentUser.branch_ids.includes(branchId);
+}
+
+/**
+ * Human readable branch scope. Never invents a value: an unknown scope is
+ * reported as "Unavailable" (DESIGN.md §8).
+ */
+export function describeBranchScope(
+  branchScope: BranchScope | null | undefined
+): string {
+  if (branchScope === 'ALL') return 'All branches';
+  if (branchScope === 'ASSIGNED') return 'Assigned branches';
+  return 'Unavailable';
 }
