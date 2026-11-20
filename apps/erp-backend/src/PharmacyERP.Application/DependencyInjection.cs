@@ -8,6 +8,8 @@ using PharmacyERP.Application.Features.Identity.Services.Implementations;
 using PharmacyERP.Application.Features.Identity.Services.Interfaces;
 using PharmacyERP.Application.Features.Integration.Services.Implementations;
 using PharmacyERP.Application.Features.Integration.Services.Interfaces;
+using PharmacyERP.Application.Features.Inventory.Services.Implementations;
+using PharmacyERP.Application.Features.Inventory.Services.Interfaces;
 
 namespace PharmacyERP.Application;
 
@@ -35,6 +37,12 @@ public static class DependencyInjection
         // Temporary Cross-Module Initializers / Checkers (fallback until Inventory module is implemented)
         services.TryAddScoped<INonLotBatchInitializer, TemporaryNonLotBatchInitializer>();
         services.TryAddScoped<IProductInventoryUsageChecker, TemporaryProductInventoryUsageChecker>();
+
+        // Inventory Application Services
+        services.AddScoped<IInventoryLocationService, InventoryLocationService>();
+        services.AddScoped<IInventoryQueryService, InventoryQueryService>();
+        services.AddScoped<IInventoryAdjustmentService, InventoryAdjustmentService>();
+        services.AddScoped<ICanonicalInventoryService, CanonicalInventoryService>();
 
         return services;
     }

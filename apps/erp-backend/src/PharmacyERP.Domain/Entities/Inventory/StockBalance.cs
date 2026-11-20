@@ -6,22 +6,15 @@ namespace PharmacyERP.Domain.Entities.Inventory;
 public class StockBalance
 {
     public Guid OrganizationId { get; private set; }
-
     public Guid LocationId { get; private set; }
-
     public Guid BatchId { get; private set; }
-
     public decimal OnHandQtyBase { get; private set; }
-
     public decimal AverageUnitCost { get; private set; }
-
     public long RowVersion { get; private set; }
-
     public DateTimeOffset UpdatedAt { get; private set; }
 
     // Navigation Properties
     public virtual InventoryLocation Location { get; private set; } = null!;
-
     public virtual InventoryBatch Batch { get; private set; } = null!;
 
     private StockBalance()
@@ -49,6 +42,14 @@ public class StockBalance
             RowVersion = 1,
             UpdatedAt = now
         };
+    }
+
+    public static StockBalance CreateInitial(Guid organizationId, Guid locationId, Guid batchId, decimal initialQtyBase = 0m, decimal initialCostBase = 0m, DateTimeOffset? now = null)
+    {
+        var balance = Create(organizationId, locationId, batchId, now ?? DateTimeOffset.UtcNow);
+        balance.OnHandQtyBase = initialQtyBase;
+        balance.AverageUnitCost = initialCostBase;
+        return balance;
     }
 
     public void ApplyIncomingStock(decimal acceptedQtyBase, decimal incomingUnitCostBase, DateTimeOffset now)

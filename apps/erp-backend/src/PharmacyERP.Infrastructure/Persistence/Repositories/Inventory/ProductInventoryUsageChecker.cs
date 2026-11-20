@@ -9,13 +9,23 @@ using PharmacyERP.Infrastructure.Persistence.Database;
 
 namespace PharmacyERP.Infrastructure.Persistence.Repositories.Inventory;
 
-public class ProductInventoryUsageChecker : IProductInventoryUsageChecker2
+public class ProductInventoryUsageChecker : IProductInventoryUsageChecker, IProductInventoryUsageChecker2
 {
     private readonly PharmacyDbContext _context;
 
     public ProductInventoryUsageChecker(PharmacyDbContext context)
     {
         _context = context;
+    }
+
+    public Task<bool> HasAnyStockOrPostedHistoryForProductAsync(Guid organizationId, Guid productId, CancellationToken ct = default)
+    {
+        return HasInventoryUsageAsync(organizationId, productId, null, ct);
+    }
+
+    public Task<bool> HasAnyStockOrDocumentReferenceForUomAsync(Guid organizationId, Guid productId, Guid productUomId, CancellationToken ct = default)
+    {
+        return HasInventoryUsageAsync(organizationId, productId, productUomId, ct);
     }
 
     public async Task<bool> HasInventoryUsageAsync(Guid organizationId, Guid productId, Guid? productUomId = null, CancellationToken ct = default)

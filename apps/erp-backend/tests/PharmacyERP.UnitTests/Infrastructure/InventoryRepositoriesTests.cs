@@ -22,6 +22,7 @@ public class InventoryRepositoriesTests
             .Options;
 
         var tenantContextMock = new Mock<ITenantContext>();
+        tenantContextMock.Setup(t => t.IsSystemBypassEnabled).Returns(true);
 
         _context = new PharmacyDbContext(options, tenantContextMock.Object);
     }

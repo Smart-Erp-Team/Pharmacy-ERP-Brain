@@ -26,6 +26,12 @@ public class InventoryLocationRepository : IInventoryLocationRepository
             .FirstOrDefaultAsync(l => l.OrganizationId == organizationId && l.BranchId == branchId && l.LocationId == locationId, ct);
     }
 
+    public async Task<InventoryLocation?> GetByIdAsync(Guid organizationId, Guid locationId, CancellationToken ct = default)
+    {
+        return await _context.InventoryLocations
+            .FirstOrDefaultAsync(l => l.OrganizationId == organizationId && l.LocationId == locationId, ct);
+    }
+
     public async Task<bool> ExistsByCodeAsync(Guid organizationId, Guid branchId, string locationCode, Guid? excludeLocationId = null, CancellationToken ct = default)
     {
         var query = _context.InventoryLocations
