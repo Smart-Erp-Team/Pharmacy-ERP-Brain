@@ -63,6 +63,9 @@ public static class ErrorMessages
     public const string InvalidEnrollmentToken = "The enrollment token is invalid, expired, or has already been used.";
     public const string InvalidOrganizationTimeZone = "The specified time zone is invalid.";
     public const string InvalidBranchSelection = "One or more selected branches do not belong to this organization or are inactive.";
+    public const string InvalidCredentials = "The username or password is invalid.";
+    public const string AccountInactive = "The user account is inactive.";
+    public const string AccountLocked = "The user account is locked.";
 
     // 8. Canonical & AI Configuration Writes (Stage 1)
     public const string InvalidRequestId = "The request ID must be a non-empty GUID.";
