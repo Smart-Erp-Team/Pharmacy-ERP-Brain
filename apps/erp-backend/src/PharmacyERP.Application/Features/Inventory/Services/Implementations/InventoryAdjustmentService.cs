@@ -13,11 +13,18 @@ using PharmacyERP.Application.Features.Inventory.Services.Interfaces;
 using PharmacyERP.Application.Features.Inventory.Validators;
 using PharmacyERP.Domain.Entities.Inventory;
 using PharmacyERP.Domain.Enums;
+using PharmacyERP.Domain.ValueObjects;
+using PharmacyERP.Application.Features.Catalog.Interfaces;
 
 namespace PharmacyERP.Application.Features.Inventory.Services.Implementations;
 
 public class InventoryAdjustmentService : IInventoryAdjustmentService
 {
+    private const string IdempotencyScope = "inventory.adjustment.post";
+    private const string OutboxTopic = "inventory.adjustment.posted";
+    private const string AuditEntity = "InventoryAdjustment";
+    private const string AuditAction = "POST";
+
     private readonly IInventoryTxnRepository _txnRepo;
     private readonly IStockBalanceRepository _stockRepo;
     private readonly IInventoryBatchRepository _batchRepo;
@@ -30,6 +37,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
     private readonly IIdempotencyService _idempotency;
     private readonly IOutboxService _outbox;
     private readonly IAuditLogger _auditLogger;
+    private readonly IProductUomRepository? _productUomRepo;
 
     public InventoryAdjustmentService(
         IInventoryTxnRepository txnRepo,
@@ -43,7 +51,8 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
         IUnitOfWork unitOfWork,
         IIdempotencyService idempotency,
         IOutboxService outbox,
-        IAuditLogger auditLogger)
+        IAuditLogger auditLogger,
+        IProductUomRepository? productUomRepo = null)
     {
         _txnRepo = txnRepo;
         _stockRepo = stockRepo;
@@ -57,6 +66,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
         _idempotency = idempotency;
         _outbox = outbox;
         _auditLogger = auditLogger;
+        _productUomRepo = productUomRepo;
     }
 
     public async Task<Result<InventoryTxnDto>> PostAdjustmentAsync(CreateInventoryAdjustmentRequest request, CancellationToken ct = default)
@@ -77,7 +87,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
         {
             // محاولة التحقق بطريقة تتفادى قراءة الخصائص الداخلية المجهولة وتستخدم var
             var idempotencyResult = await _idempotency.CheckAsync<CreateInventoryAdjustmentRequest, InventoryTxnDto>(
-                "inventory.adjustment.post", request.IdempotencyKey, request.BranchId, request, ct);
+                IdempotencyScope, request.IdempotencyKey, request.BranchId, request, ct);
 
             if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
             {
@@ -115,7 +125,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                 }
 
                 Guid batchId;
-                if (!string.IsNullOrWhiteSpace(lineReq.BatchNumber) && lineReq.BatchNumber != "NON-LOT")
+                if (!string.IsNullOrWhiteSpace(lineReq.BatchNumber) && lineReq.BatchNumber != DeterministicBatchIdGenerator.NonLotBatchNumber)
                 {
                     var batch = await _batchRepo.GetOrCreateBatchAsync(
                         orgId, lineReq.ProductId, lineReq.BatchNumber, lineReq.ExpiresOn, lineReq.ManufacturedOn, ct);
@@ -124,7 +134,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                 else
                 {
                     var batch = await _batchRepo.GetOrCreateBatchAsync(
-                        orgId, lineReq.ProductId, "NON-LOT", null, null, ct);
+                        orgId, lineReq.ProductId, DeterministicBatchIdGenerator.NonLotBatchNumber, null, null, ct);
                     batchId = batch.BatchId;
                 }
 
@@ -135,13 +145,23 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                     await _stockRepo.AddAsync(stockBalance, ct);
                 }
 
-                decimal qtyBase = Math.Round(lineReq.EnteredQty, 4, MidpointRounding.AwayFromZero);
+                decimal conversionFactor = 1m;
+                if (_productUomRepo != null)
+                {
+                    var uom = await _productUomRepo.GetByIdAsync(orgId, lineReq.ProductId, lineReq.ProductUomId, ct);
+                    if (uom != null && uom.ConversionToBase > 0)
+                    {
+                        conversionFactor = uom.ConversionToBase;
+                    }
+                }
+
+                decimal qtyBase = Math.Round(lineReq.EnteredQty * conversionFactor, 4, MidpointRounding.AwayFromZero);
                 decimal unitCostBase = lineReq.UnitCostEntered.HasValue ? Math.Round(lineReq.UnitCostEntered.Value, 4, MidpointRounding.AwayFromZero) : stockBalance.AverageUnitCost;
 
                 if (request.TransactionType == InventoryTransactionType.OPENING_BALANCE || request.TransactionType == InventoryTransactionType.ADJUSTMENT_IN)
                 {
                     stockBalance.ApplyIncomingStock(qtyBase, unitCostBase, now);
-                    txn.AddLine(lineReq.ProductId, lineReq.LocationId, batchId, lineReq.ProductUomId, qtyBase, 1m, qtyBase, unitCostBase);
+                    txn.AddLine(lineReq.ProductId, lineReq.LocationId, batchId, lineReq.ProductUomId, lineReq.EnteredQty, conversionFactor, qtyBase, unitCostBase);
                 }
                 else if (request.TransactionType == InventoryTransactionType.ADJUSTMENT_OUT)
                 {
@@ -152,7 +172,26 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                     }
 
                     unitCostBase = stockBalance.ApplyOutgoingStock(qtyBase, now);
-                    txn.AddLine(lineReq.ProductId, lineReq.LocationId, batchId, lineReq.ProductUomId, qtyBase, 1m, -qtyBase, unitCostBase);
+                    txn.AddLine(lineReq.ProductId, lineReq.LocationId, batchId, lineReq.ProductUomId, lineReq.EnteredQty, conversionFactor, -qtyBase, unitCostBase);
+                }
+                else if (request.TransactionType == InventoryTransactionType.REVERSAL)
+                {
+                    if (lineReq.UnitCostEntered.HasValue && lineReq.UnitCostEntered.Value > 0)
+                    {
+                        stockBalance.ApplyIncomingStock(qtyBase, unitCostBase, now);
+                        txn.AddLine(lineReq.ProductId, lineReq.LocationId, batchId, lineReq.ProductUomId, lineReq.EnteredQty, conversionFactor, qtyBase, unitCostBase);
+                    }
+                    else
+                    {
+                        if (stockBalance.OnHandQtyBase < qtyBase)
+                        {
+                            await _unitOfWork.RollbackTransactionAsync(ct);
+                            return Result<InventoryTxnDto>.Failure(ErrorCode.OUT_OF_STOCK, ErrorMessages.OutOfStock);
+                        }
+
+                        unitCostBase = stockBalance.ApplyOutgoingStock(qtyBase, now);
+                        txn.AddLine(lineReq.ProductId, lineReq.LocationId, batchId, lineReq.ProductUomId, lineReq.EnteredQty, conversionFactor, -qtyBase, unitCostBase);
+                    }
                 }
             }
 
@@ -161,12 +200,12 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
 
             var responseDto = MapToTxnDto(txn);
 
-            await _outbox.EnqueueAsync("inventory.adjustment.posted", request.BranchId, responseDto, ct: ct);
+            await _outbox.EnqueueAsync(OutboxTopic, request.BranchId, responseDto, ct: ct);
 
-            await _auditLogger.LogAsync("InventoryAdjustment", txn.InventoryTxnId.ToString(), "POST", userId, null, responseDto, request.BranchId, null, null, ct);
+            await _auditLogger.LogAsync(AuditEntity, txn.InventoryTxnId.ToString(), AuditAction, userId, null, responseDto, request.BranchId, null, null, ct);
 
             await _idempotency.PersistResponseAsync(
-                "inventory.adjustment.post", request.IdempotencyKey, request.BranchId, request, responseDto, ct);
+                IdempotencyScope, request.IdempotencyKey, request.BranchId, request, responseDto, ct);
 
             await _unitOfWork.CommitTransactionAsync(ct);
 
@@ -185,6 +224,6 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
             t.ReasonCode, t.Note, t.IdempotencyKey, t.CreatedByEmployeeId, t.ReversesInventoryTxnId, t.PostedAt,
             t.Lines.Select(l => new InventoryTxnLineDto(
                 l.InventoryTxnLineId, l.ProductId, l.LocationId, l.BatchId,
-                l.Batch?.BatchNumber ?? "NON-LOT", l.ProductUomId, l.EnteredQty,
+                l.Batch?.BatchNumber ?? DeterministicBatchIdGenerator.NonLotBatchNumber, l.ProductUomId, l.EnteredQty,
                 l.ConversionSnapshot, l.QuantityDeltaBase, l.UnitCostBase)).ToList());
 }

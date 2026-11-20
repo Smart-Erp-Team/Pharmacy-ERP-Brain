@@ -71,7 +71,7 @@ public class InventoryLocationService : IInventoryLocationService
     {
         Guid orgId = _tenantContext.OrganizationId ?? Guid.Empty;
 
-        var location = await _locationRepo.GetByIdAsync(orgId, Guid.Empty, locationId, ct);
+        var location = await _locationRepo.GetByIdAsync(orgId, locationId, ct);
         if (location == null)
             return Result<InventoryLocationDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.LocationNotFound);
 
@@ -93,7 +93,7 @@ public class InventoryLocationService : IInventoryLocationService
     {
         Guid orgId = _tenantContext.OrganizationId ?? Guid.Empty;
 
-        var location = await _locationRepo.GetByIdAsync(orgId, Guid.Empty, locationId, ct);
+        var location = await _locationRepo.GetByIdAsync(orgId, locationId, ct);
         if (location == null)
             return Result<InventoryLocationDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.LocationNotFound);
 

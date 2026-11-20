@@ -45,6 +45,8 @@ public class CanonicalInventoryServiceTests
         _currentUserMock.Setup(x => x.CanAccessBranch(branchId)).Returns(true);
         _dateTimeProviderMock.Setup(x => x.GetOrganizationBusinessDate(It.IsAny<string>()))
             .Returns(DateOnly.FromDateTime(DateTime.UtcNow));
+        _stockBalanceRepoMock.Setup(x => x.GetBalancesWithDetailsAsync(orgId, branchId, null, null, null, ct))
+            .ReturnsAsync(new List<StockBalance>());
 
         var result = await _sut.GetCanonicalInventoryAsync(orgId, branchId, null, null, null, 10, ct);
 

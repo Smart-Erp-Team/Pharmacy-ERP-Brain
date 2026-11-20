@@ -77,7 +77,9 @@ public static class DependencyInjection
 
         // Cross-Module Services Registration
         services.AddScoped<IBranchDefaultLocationSeeder, BranchDefaultLocationSeeder>();
+        services.AddScoped<INonLotBatchInitializer, NonLotBatchInitializer>();
         services.AddScoped<INonLotBatchInitializer2, NonLotBatchInitializer>();
+        services.AddScoped<IProductInventoryUsageChecker, ProductInventoryUsageChecker>();
         services.AddScoped<IProductInventoryUsageChecker2, ProductInventoryUsageChecker>();
 
         return services;
