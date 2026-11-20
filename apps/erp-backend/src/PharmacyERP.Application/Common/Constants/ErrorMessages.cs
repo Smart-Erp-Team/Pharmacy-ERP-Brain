@@ -41,5 +41,29 @@ public static class ErrorMessages
     public const string CategorySelfParent = "A product category cannot be set as its own parent.";
     public const string HistoricalUomModificationForbidden = "Cannot modify base UOM or tracking policy for a product that has existing stock balances or posted transaction history.";
     public const string InvalidBaseUomInvariant = "The product must have exactly one active base UOM with a conversion factor of 1 matching its base UOM code.";
+
+    // Catalog resource and uniqueness messages
+    public const string ReorderRuleNotFound = "The specified reorder rule could not be found.";
+    public const string ProductNotFound = "The specified product could not be found.";
+    public const string ProductCategoryNotFound = "The specified product category could not be found.";
+    public const string CategoryNotFoundOrInactive = "The specified category could not be found or is inactive.";
+    public const string DuplicateCategoryCode = "A product category with this code already exists.";
+    public const string DuplicateUomCode = "A unit of measure with this code already exists for the product.";
+    public const string ProductUomNotFound = "The specified product unit of measure could not be found.";
+    public const string DuplicateSku = "A product with this SKU already exists.";
+    public const string DuplicateBarcode = "A product with this barcode already exists.";
+
+    // Identity resource and authentication messages
+    public const string DuplicateOrganizationCode = "An organization with this code already exists.";
+    public const string DuplicateBranchCode = "A branch with this code already exists.";
+    public const string DuplicateEmployeeNo = "An employee with this number already exists.";
+    public const string DuplicateUsername = "A user with this username already exists.";
+    public const string EmployeeAlreadyHasAccount = "The employee already has a user account.";
+    public const string InvalidBranchSelection = "The selected branch is invalid or unavailable.";
+    public const string InvalidCredentials = "The username or password is invalid.";
+    public const string AccountInactive = "The user account is inactive.";
+    public const string AccountLocked = "The user account is locked.";
+    public const string InvalidRefreshToken = "The refresh token is invalid or expired.";
+    public const string InvalidEnrollmentToken = "The branch enrollment token is invalid or expired.";
     
 }
