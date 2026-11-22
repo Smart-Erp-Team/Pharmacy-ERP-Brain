@@ -1,7 +1,3 @@
-using System.ComponentModel.DataAnnotations;
-using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Domain.Enums;
-
 namespace PharmacyERP.Application.Features.Identity.DTOs;
 
 public sealed record CreateUserRequest

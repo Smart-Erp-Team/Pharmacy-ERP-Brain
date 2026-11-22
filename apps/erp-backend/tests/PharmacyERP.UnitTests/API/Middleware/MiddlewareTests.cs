@@ -1,16 +1,3 @@
-using System.Net;
-using System.Security.Claims;
-using System.Text.Json;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
-using Moq;
-using PharmacyERP.Api.Middleware;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Domain.Exceptions;
-using Xunit;
-
 namespace PharmacyERP.UnitTests.Api.Middleware;
 
 public class MiddlewareTests

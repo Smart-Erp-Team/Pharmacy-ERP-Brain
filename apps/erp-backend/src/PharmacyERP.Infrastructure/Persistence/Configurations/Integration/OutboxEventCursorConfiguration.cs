@@ -1,8 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using PharmacyERP.Domain.Entities.Integration;
-
-namespace PharmacyERP.Infrastructure.Persistence.Configurations.Integration;
+﻿namespace PharmacyERP.Infrastructure.Persistence.Configurations.Integration;
 
 public class OutboxEventCursorConfiguration : IEntityTypeConfiguration<OutboxEventCursor>
 {

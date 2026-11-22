@@ -1,7 +1,3 @@
-using Microsoft.Extensions.Logging;
-using PharmacyERP.Application.Common.Interfaces.Integration;
-using PharmacyERP.Domain.Entities.Integration;
-
 namespace PharmacyERP.Infrastructure.BackgroundServices;
 
 public sealed class LoggingOutboxEventDispatcher : IOutboxEventDispatcher

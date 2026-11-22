@@ -1,7 +1,3 @@
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using PharmacyERP.Domain.Entities.Catalog;
-
 namespace PharmacyERP.Infrastructure.Persistence.Configurations.Catalog;
 
 public sealed class ProductReorderRuleConfiguration : IEntityTypeConfiguration<ProductReorderRule>

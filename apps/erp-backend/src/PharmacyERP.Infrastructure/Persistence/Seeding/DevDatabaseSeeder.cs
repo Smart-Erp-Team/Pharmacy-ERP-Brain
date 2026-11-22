@@ -1,24 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Reflection;
-using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Common.Interfaces.Persistence;
-using PharmacyERP.Application.Features.Identity.Interfaces;
-using PharmacyERP.Domain.Entities.Catalog;
-using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Domain.Entities.Integration;
-using PharmacyERP.Domain.Entities.Inventory;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Domain.ValueObjects;
-using PharmacyERP.Infrastructure.Persistence.Database;
-
 namespace PharmacyERP.Infrastructure.Persistence.Seeding;
 
 /// <summary>

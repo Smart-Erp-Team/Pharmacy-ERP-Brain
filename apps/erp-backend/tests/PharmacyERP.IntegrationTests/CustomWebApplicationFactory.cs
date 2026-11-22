@@ -1,21 +1,4 @@
-using System;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
-using Npgsql;
-using PharmacyERP.Domain.Entities.Catalog;
-using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Domain.Entities.Inventory;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Domain.ValueObjects;
-using PharmacyERP.Infrastructure.Persistence.Database;
-using PharmacyERP.Infrastructure.Persistence.Security;
 using PharmacyERP.Infrastructure.Persistence.Triggers;
-using PharmacyERP.Infrastructure.Services.Context;
-using Xunit;
 
 namespace PharmacyERP.IntegrationTests;
 

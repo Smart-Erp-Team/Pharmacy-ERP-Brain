@@ -1,16 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
-using PharmacyERP.Application.Common.Constants;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Common.Interfaces.Integration;
-using PharmacyERP.Application.Common.Interfaces.Persistence;
-using PharmacyERP.Application.Features.Identity.DTOs;
-using PharmacyERP.Application.Features.Identity.Interfaces;
-using PharmacyERP.Application.Features.Identity.Services.Interfaces;
-using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Domain.Enums;
-
 namespace PharmacyERP.Application.Features.Identity.Services.Implementations;
 
 public sealed class AuthService : IAuthService

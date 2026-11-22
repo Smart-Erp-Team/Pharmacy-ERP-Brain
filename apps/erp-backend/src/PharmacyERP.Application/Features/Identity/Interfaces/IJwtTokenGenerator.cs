@@ -1,5 +1,3 @@
-using PharmacyERP.Domain.Entities.Identity;
-
 namespace PharmacyERP.Application.Features.Identity.Interfaces;
 
 public sealed record GeneratedAccessToken(string Token, DateTimeOffset ExpiresAt);

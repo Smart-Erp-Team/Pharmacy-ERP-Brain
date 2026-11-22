@@ -1,9 +1,4 @@
 using System.IdentityModel.Tokens.Jwt;
-using Microsoft.Extensions.Configuration;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Features.Identity.Interfaces;
-using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Domain.Enums;
 
 namespace PharmacyERP.Infrastructure.Auth;
 

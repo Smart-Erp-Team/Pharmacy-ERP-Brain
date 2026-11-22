@@ -1,5 +1,3 @@
-using PharmacyERP.Domain.Enums;
-
 namespace PharmacyERP.Application.Features.Integration.DTOs;
 
 /// <summary>

@@ -1,6 +1,3 @@
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Features.Catalog.DTOs;
-
 namespace PharmacyERP.Application.Features.Catalog.Services.Interfaces;
 
 public interface IReorderRuleService

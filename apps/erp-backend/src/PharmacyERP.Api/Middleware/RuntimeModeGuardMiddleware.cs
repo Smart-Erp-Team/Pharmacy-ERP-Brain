@@ -1,10 +1,3 @@
-using System.Net;
-using System.Text.Json;
-using Microsoft.AspNetCore.Http;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Domain.Enums;
-
 namespace PharmacyERP.Api.Middleware;
 
 public class RuntimeModeGuardMiddleware

@@ -1,6 +1,4 @@
-﻿using Microsoft.AspNetCore.Http;
-
-namespace PharmacyERP.Api.Middleware;
+﻿namespace PharmacyERP.Api.Middleware;
 
 public class TraceparentMiddleware
 {

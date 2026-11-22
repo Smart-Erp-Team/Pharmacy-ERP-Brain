@@ -1,12 +1,3 @@
-using System;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.EntityFrameworkCore;
-using PharmacyERP.Application.Common.Interfaces.CrossModule;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Infrastructure.Persistence.Database;
-
 namespace PharmacyERP.Infrastructure.Persistence.Repositories.Inventory;
 
 public class ProductInventoryUsageChecker : IProductInventoryUsageChecker, IProductInventoryUsageChecker2

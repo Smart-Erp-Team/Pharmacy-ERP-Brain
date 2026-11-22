@@ -1,7 +1,3 @@
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using PharmacyERP.Domain.Entities.Identity;
-
 namespace PharmacyERP.Infrastructure.Persistence.Configurations.Identity;
 
 public sealed class UserAccountConfiguration : IEntityTypeConfiguration<UserAccount>

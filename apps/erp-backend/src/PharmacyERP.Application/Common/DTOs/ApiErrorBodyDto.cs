@@ -1,6 +1,4 @@
-﻿using System.Text.Json.Serialization;
-
-namespace PharmacyERP.Application.Common.DTOs;
+﻿namespace PharmacyERP.Application.Common.DTOs;
 
 public sealed record ApiErrorBodyDto(
     [property: JsonPropertyName("code")] string Code,

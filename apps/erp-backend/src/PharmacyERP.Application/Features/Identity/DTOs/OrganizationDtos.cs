@@ -1,6 +1,3 @@
-using System.ComponentModel.DataAnnotations;
-using PharmacyERP.Domain.ValueObjects;
-
 namespace PharmacyERP.Application.Features.Identity.DTOs;
 
 public sealed record CreateOrganizationRequest

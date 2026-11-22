@@ -1,9 +1,3 @@
-using Microsoft.EntityFrameworkCore;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Features.Catalog.Interfaces;
-using PharmacyERP.Domain.Entities.Catalog;
-using PharmacyERP.Infrastructure.Persistence.Database;
-
 namespace PharmacyERP.Infrastructure.Persistence.Repositories.Catalog;
 
 public class ProductCategoryRepository : GenericRepository<ProductCategory>, IProductCategoryRepository

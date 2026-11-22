@@ -1,7 +1,3 @@
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Features.Identity.DTOs;
-using PharmacyERP.Domain.Enums;
-
 namespace PharmacyERP.Application.Features.Identity.Services.Interfaces;
 
 public interface IUserService

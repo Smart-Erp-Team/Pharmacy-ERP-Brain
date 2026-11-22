@@ -1,8 +1,4 @@
 using System.Data;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using PharmacyERP.Infrastructure.Persistence.Database;
 using PharmacyERP.Infrastructure.Persistence.Triggers;
 
 namespace PharmacyERP.Infrastructure.Persistence.Security;

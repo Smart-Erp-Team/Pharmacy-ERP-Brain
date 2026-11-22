@@ -1,15 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Cors.Infrastructure;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using Moq;
 using PharmacyERP.Api;
-using PharmacyERP.Api.Middleware;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Domain.Enums;
-using Xunit;
 
 namespace PharmacyERP.UnitTests.Api.Middleware;
 

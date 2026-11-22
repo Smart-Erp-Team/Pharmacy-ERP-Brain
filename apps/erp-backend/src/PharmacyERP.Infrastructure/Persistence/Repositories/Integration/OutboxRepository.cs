@@ -1,8 +1,3 @@
-using Microsoft.EntityFrameworkCore;
-using PharmacyERP.Application.Features.Integration.Interfaces;
-using PharmacyERP.Domain.Entities.Integration;
-using PharmacyERP.Infrastructure.Persistence.Database;
-
 namespace PharmacyERP.Infrastructure.Persistence.Repositories.Integration;
 
 public class OutboxRepository : IOutboxRepository

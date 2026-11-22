@@ -1,12 +1,6 @@
 using System.Data.Common;
-using Microsoft.EntityFrameworkCore;
-using Moq;
 using Moq.Protected;
-using PharmacyERP.Domain.Entities.Integration;
-using PharmacyERP.Infrastructure.Persistence.Database;
 using PharmacyERP.Infrastructure.Persistence.Interceptors;
-using PharmacyERP.Infrastructure.Services.Context;
-using Xunit;
 
 namespace PharmacyERP.UnitTests.Infrastructure;
 

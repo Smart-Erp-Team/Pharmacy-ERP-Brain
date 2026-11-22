@@ -1,12 +1,5 @@
-using System.Text.Json;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
-using Microsoft.Extensions.Configuration;
-using Moq;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Infrastructure.Auth;
 
 namespace PharmacyERP.UnitTests.Infrastructure;
 

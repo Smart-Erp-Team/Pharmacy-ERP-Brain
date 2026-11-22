@@ -1,28 +1,6 @@
-using System.Reflection;
-using System.Text;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Moq;
 using PharmacyERP.Application;
-using PharmacyERP.Application.Common.Constants;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Common.Interfaces.CrossModule;
-using PharmacyERP.Application.Common.Interfaces.Integration;
-using PharmacyERP.Application.Common.Interfaces.Persistence;
-using PharmacyERP.Application.Features.Catalog.DTOs;
-using PharmacyERP.Application.Features.Catalog.Interfaces;
-using PharmacyERP.Application.Features.Catalog.Services.Implementations;
 using PharmacyERP.Application.Features.Catalog.Services.Interfaces;
-using PharmacyERP.Application.Features.Identity.Interfaces;
-using PharmacyERP.Application.Features.Integration.DTOs;
-using PharmacyERP.Domain.Entities.Catalog;
-using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Domain.Exceptions;
-using PharmacyERP.Domain.ValueObjects;
 using PharmacyERP.Infrastructure;
-using Xunit;
 
 namespace PharmacyERP.UnitTests.Application.Catalog;
 

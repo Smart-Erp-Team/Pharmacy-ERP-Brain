@@ -1,8 +1,3 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Hosting;
-
 namespace PharmacyERP.Api.Logging;
 
 public sealed record DevRequestExceptionDetail(

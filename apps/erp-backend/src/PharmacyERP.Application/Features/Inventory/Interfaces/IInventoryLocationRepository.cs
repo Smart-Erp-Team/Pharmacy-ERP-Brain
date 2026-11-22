@@ -1,10 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Domain.Entities.Inventory;
-
 namespace PharmacyERP.Application.Features.Inventory.Interfaces;
 
 public interface IInventoryLocationRepository

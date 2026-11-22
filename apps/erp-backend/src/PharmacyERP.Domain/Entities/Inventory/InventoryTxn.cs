@@ -1,8 +1,3 @@
-using System;
-using System.Collections.Generic;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Domain.Exceptions;
-
 namespace PharmacyERP.Domain.Entities.Inventory;
 
 public class InventoryTxn

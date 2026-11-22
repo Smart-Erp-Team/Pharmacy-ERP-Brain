@@ -1,7 +1,4 @@
-﻿using Microsoft.AspNetCore.Http;
-using PharmacyERP.Application.Common.Interfaces.Context;
-
-namespace PharmacyERP.Api.Middleware;
+﻿namespace PharmacyERP.Api.Middleware;
 
 public class TenantResolutionMiddleware
 {

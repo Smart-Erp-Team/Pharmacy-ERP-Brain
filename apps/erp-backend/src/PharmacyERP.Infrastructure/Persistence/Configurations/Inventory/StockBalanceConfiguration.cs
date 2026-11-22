@@ -1,7 +1,3 @@
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using PharmacyERP.Domain.Entities.Inventory;
-
 namespace PharmacyERP.Infrastructure.Persistence.Configurations.Inventory;
 
 public class StockBalanceConfiguration : IEntityTypeConfiguration<StockBalance>

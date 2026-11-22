@@ -1,10 +1,5 @@
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
-using PharmacyERP.Infrastructure.Persistence.Database;
 using PharmacyERP.Infrastructure.Persistence.Triggers;
 using PharmacyERP.Infrastructure.Persistence.UoW;
-using PharmacyERP.Infrastructure.Services.Context;
-using Xunit;
 
 namespace PharmacyERP.UnitTests.Infrastructure;
 

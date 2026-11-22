@@ -1,12 +1,5 @@
-using System.Net;
-using System.Text.Json;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
-using Npgsql;
-using PharmacyERP.Application.Common.DTOs;
 using PharmacyERP.Application.Common.Exceptions;
-using PharmacyERP.Domain.Enums;
 using PharmacyERP.Domain.Exceptions;
 
 namespace PharmacyERP.Api.Middleware;

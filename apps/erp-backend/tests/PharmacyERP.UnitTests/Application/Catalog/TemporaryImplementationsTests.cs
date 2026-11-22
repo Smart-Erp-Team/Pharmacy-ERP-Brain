@@ -1,8 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
 using PharmacyERP.Application;
-using PharmacyERP.Application.Common.Interfaces.CrossModule;
-using PharmacyERP.Application.Features.Catalog.Services.Implementations;
-using Xunit;
 
 namespace PharmacyERP.UnitTests.Application.Catalog;
 

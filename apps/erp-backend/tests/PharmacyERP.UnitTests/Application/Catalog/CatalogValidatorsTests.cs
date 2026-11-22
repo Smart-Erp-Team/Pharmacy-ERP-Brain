@@ -1,6 +1,4 @@
-using PharmacyERP.Application.Features.Catalog.DTOs;
 using PharmacyERP.Application.Features.Catalog.Validators;
-using Xunit;
 
 namespace PharmacyERP.UnitTests.Application.Catalog;
 

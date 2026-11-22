@@ -1,10 +1,4 @@
-﻿using Moq;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Features.Integration.Services.Implementations;
-using PharmacyERP.Domain.Enums;
-using Xunit;
-
-namespace PharmacyERP.UnitTests.Application.Integration;
+﻿namespace PharmacyERP.UnitTests.Application.Integration;
 
 public class CanonicalCapabilitiesServiceTests
 {

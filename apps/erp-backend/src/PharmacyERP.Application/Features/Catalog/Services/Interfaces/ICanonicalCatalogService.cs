@@ -1,6 +1,3 @@
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Features.Integration.DTOs;
-
 namespace PharmacyERP.Application.Features.Catalog.Services.Interfaces;
 
 /// <summary>

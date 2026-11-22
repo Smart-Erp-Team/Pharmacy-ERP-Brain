@@ -1,9 +1,3 @@
-using System;
-using System.Collections.Generic;
-using Microsoft.AspNetCore.Mvc;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Domain.Enums;
-
 namespace PharmacyERP.Api.Common;
 
 internal static class ApiResultMapper

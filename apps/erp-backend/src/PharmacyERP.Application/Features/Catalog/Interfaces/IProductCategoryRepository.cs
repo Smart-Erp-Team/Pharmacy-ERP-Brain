@@ -1,7 +1,3 @@
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Common.Interfaces.Persistence;
-using PharmacyERP.Domain.Entities.Catalog;
-
 namespace PharmacyERP.Application.Features.Catalog.Interfaces;
 
 /// <summary>

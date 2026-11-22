@@ -1,6 +1,3 @@
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Domain.Exceptions;
-
 namespace PharmacyERP.Domain.Entities.Identity;
 
 public sealed class UserAccount

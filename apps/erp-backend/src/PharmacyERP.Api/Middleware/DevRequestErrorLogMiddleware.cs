@@ -1,11 +1,6 @@
 using System.Diagnostics;
 using System.Security.Claims;
 using System.Text;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
-using Npgsql;
-using PharmacyERP.Api.Logging;
-using PharmacyERP.Application.Common.Interfaces.Context;
 
 namespace PharmacyERP.Api.Middleware;
 

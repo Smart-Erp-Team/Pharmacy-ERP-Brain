@@ -1,5 +1,3 @@
-using PharmacyERP.Domain.Exceptions;
-
 namespace PharmacyERP.Domain.ValueObjects;
 
 /// <summary>

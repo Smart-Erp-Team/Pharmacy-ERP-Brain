@@ -1,10 +1,4 @@
-﻿using System.Security.Claims;
-using Microsoft.AspNetCore.Http;
-using PharmacyERP.Application.Common.Utilities;
-using PharmacyERP.Infrastructure.Services.Context;
-using Xunit;
-
-namespace PharmacyERP.UnitTests.Application.Common;
+﻿namespace PharmacyERP.UnitTests.Application.Common;
 
 public class CanonicalJsonHasherTests
 {

@@ -1,17 +1,3 @@
-using PharmacyERP.Application.Common.Constants;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Common.Interfaces.CrossModule;
-using PharmacyERP.Application.Common.Interfaces.Integration;
-using PharmacyERP.Application.Common.Interfaces.Persistence;
-using PharmacyERP.Application.Features.Catalog.DTOs;
-using PharmacyERP.Application.Features.Catalog.Interfaces;
-using PharmacyERP.Application.Features.Catalog.Services.Interfaces;
-using PharmacyERP.Application.Features.Catalog.Validators;
-using PharmacyERP.Domain.Entities.Catalog;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Domain.Exceptions;
-
 namespace PharmacyERP.Application.Features.Catalog.Services.Implementations;
 
 public class ProductUomService : IProductUomService

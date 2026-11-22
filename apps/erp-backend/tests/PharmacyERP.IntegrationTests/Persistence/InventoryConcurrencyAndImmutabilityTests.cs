@@ -1,16 +1,5 @@
-using System;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Common.Interfaces.Persistence;
-using PharmacyERP.Domain.Entities.Inventory;
-using PharmacyERP.Domain.Enums;
 using PharmacyERP.Domain.Exceptions;
-using PharmacyERP.Infrastructure.Persistence.Database;
 using PharmacyERP.IntegrationTests.Api;
-using Xunit;
 
 namespace PharmacyERP.IntegrationTests.Persistence;
 

@@ -1,11 +1,5 @@
 using Microsoft.AspNetCore.Identity;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using PharmacyERP.Application.Features.Identity.Interfaces;
-using PharmacyERP.Domain.Entities.Identity;
 using PharmacyERP.Infrastructure;
-using PharmacyERP.Infrastructure.Auth;
-using PharmacyERP.Infrastructure.Persistence.Repositories.Identity;
 
 namespace PharmacyERP.UnitTests.Infrastructure;
 

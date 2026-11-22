@@ -1,11 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
-using PharmacyERP.Application.Common.Interfaces.CrossModule;
-using PharmacyERP.Application.Features.Inventory.Interfaces;
-using PharmacyERP.Domain.Entities.Inventory;
-
 namespace PharmacyERP.Infrastructure.Persistence.Repositories.Inventory;
 
 public class BranchDefaultLocationSeeder : IBranchDefaultLocationSeeder

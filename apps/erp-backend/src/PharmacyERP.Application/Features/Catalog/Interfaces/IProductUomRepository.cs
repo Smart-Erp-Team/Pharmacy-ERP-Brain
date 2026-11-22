@@ -1,5 +1,3 @@
-using PharmacyERP.Domain.Entities.Catalog;
-
 namespace PharmacyERP.Application.Features.Catalog.Interfaces;
 
 /// <summary>

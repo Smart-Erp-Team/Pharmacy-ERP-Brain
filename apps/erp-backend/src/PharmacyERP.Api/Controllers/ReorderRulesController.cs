@@ -1,16 +1,4 @@
 #nullable enable
-using System;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using PharmacyERP.Api.Common;
-using PharmacyERP.Api.Filters;
-using PharmacyERP.Application.Common.Constants;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Features.Catalog.DTOs;
-using PharmacyERP.Application.Features.Catalog.Services.Interfaces;
-using PharmacyERP.Domain.Enums;
 
 namespace PharmacyERP.Api.Controllers;
 

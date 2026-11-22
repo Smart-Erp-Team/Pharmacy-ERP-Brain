@@ -1,13 +1,4 @@
-﻿using System.Text.Encodings.Web;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Common.Interfaces.Integration;
-using PharmacyERP.Application.Features.Integration.Interfaces;
-using PharmacyERP.Domain.Entities.Integration;
-using PharmacyERP.Domain.Enums;
-
-namespace PharmacyERP.Application.Features.Integration.Services.Implementations;
+﻿namespace PharmacyERP.Application.Features.Integration.Services.Implementations;
 
 public class AuditLogger : IAuditLogger
 {

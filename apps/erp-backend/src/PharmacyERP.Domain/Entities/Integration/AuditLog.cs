@@ -1,8 +1,4 @@
-﻿using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Domain.Exceptions;
-
-namespace PharmacyERP.Domain.Entities.Integration;
+﻿namespace PharmacyERP.Domain.Entities.Integration;
 
 public class AuditLog
 {

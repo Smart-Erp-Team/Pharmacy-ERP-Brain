@@ -1,16 +1,9 @@
-using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Cors.Infrastructure;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using PharmacyERP.Api.Auth;
-using PharmacyERP.Api.Logging;
-using PharmacyERP.Application.Common.Constants;
-using PharmacyERP.Application.Common.DTOs;
 using PharmacyERP.Application.Features.Identity.Interfaces;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Infrastructure.Auth;
 
 namespace PharmacyERP.Api;
 

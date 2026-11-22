@@ -1,15 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using PharmacyERP.Application.Common.Interfaces.CrossModule;
-using PharmacyERP.Application.Common.Interfaces.Integration;
 using PharmacyERP.Application.Features.Catalog.Services.Implementations;
-using PharmacyERP.Application.Features.Catalog.Services.Interfaces;
 using PharmacyERP.Application.Features.Identity.Services.Implementations;
-using PharmacyERP.Application.Features.Identity.Services.Interfaces;
 using PharmacyERP.Application.Features.Integration.Services.Implementations;
-using PharmacyERP.Application.Features.Integration.Services.Interfaces;
 using PharmacyERP.Application.Features.Inventory.Services.Implementations;
-using PharmacyERP.Application.Features.Inventory.Services.Interfaces;
 
 namespace PharmacyERP.Application;
 

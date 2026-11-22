@@ -1,6 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
 using PharmacyERP.Application;
-using PharmacyERP.Application.Features.Identity.Services.Implementations;
 using PharmacyERP.Application.Features.Identity.Services.Interfaces;
 
 namespace PharmacyERP.UnitTests.Application.Identity;

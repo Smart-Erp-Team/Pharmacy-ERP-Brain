@@ -1,16 +1,4 @@
-using System;
-using System.Linq;
-using System.Net;
-using System.Net.Http;
-using System.Net.Http.Json;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Features.Integration.DTOs;
 using PharmacyERP.Application.Features.Inventory.DTOs;
-using PharmacyERP.Domain.Enums;
-using Xunit;
 
 namespace PharmacyERP.IntegrationTests.Api;
 

@@ -1,7 +1,3 @@
-using Microsoft.AspNetCore.Identity;
-using PharmacyERP.Application.Features.Identity.Interfaces;
-using PharmacyERP.Domain.Entities.Identity;
-
 namespace PharmacyERP.Infrastructure.Auth;
 
 public sealed class PasswordHasherService : IPasswordHasherService

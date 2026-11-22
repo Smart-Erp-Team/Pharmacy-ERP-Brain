@@ -1,10 +1,3 @@
-using Microsoft.EntityFrameworkCore;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Features.Identity.Interfaces;
-using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Infrastructure.Persistence.Database;
-
 namespace PharmacyERP.Infrastructure.Persistence.Repositories.Identity;
 
 public sealed class UserAccountRepository : IUserAccountRepository

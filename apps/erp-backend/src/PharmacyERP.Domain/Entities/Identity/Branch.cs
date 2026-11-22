@@ -1,5 +1,3 @@
-using PharmacyERP.Domain.ValueObjects;
-
 namespace PharmacyERP.Domain.Entities.Identity;
 
 public sealed class Branch

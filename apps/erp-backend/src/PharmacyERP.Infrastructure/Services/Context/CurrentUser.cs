@@ -1,7 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
-using PharmacyERP.Application.Common.Interfaces.Context;
 
 namespace PharmacyERP.Infrastructure.Services.Context;
 

@@ -1,6 +1,5 @@
 ﻿using System.Data.Common;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using PharmacyERP.Application.Common.Interfaces.Context;
 
 namespace PharmacyERP.Infrastructure.Persistence.Interceptors;
 

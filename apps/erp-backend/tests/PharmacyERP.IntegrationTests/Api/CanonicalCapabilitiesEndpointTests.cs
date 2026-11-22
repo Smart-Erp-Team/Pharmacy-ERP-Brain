@@ -1,16 +1,4 @@
-﻿using System.Net;
-using System.Text.Json;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using PharmacyERP.Application.Features.Integration.DTOs;
-using PharmacyERP.Infrastructure.Persistence.Security;
-using Xunit;
-
-namespace PharmacyERP.IntegrationTests.Api;
+﻿namespace PharmacyERP.IntegrationTests.Api;
 
 public class CanonicalCapabilitiesEndpointTests : IClassFixture<WebApplicationFactory<PharmacyERP.Api.Program>>
 {

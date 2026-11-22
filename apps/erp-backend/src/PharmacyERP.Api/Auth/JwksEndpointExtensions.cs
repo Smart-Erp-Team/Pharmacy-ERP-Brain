@@ -1,10 +1,3 @@
-using System.Text.Json;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
-using PharmacyERP.Infrastructure.Auth;
-
 namespace PharmacyERP.Api.Auth;
 
 public static class JwksEndpointExtensions
