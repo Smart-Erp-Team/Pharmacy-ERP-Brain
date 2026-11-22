@@ -1,5 +1,3 @@
-using PharmacyERP.Application.Common.Interfaces.CrossModule;
-
 namespace PharmacyERP.Application.Features.Catalog.Services.Implementations;
 
 /// <summary>

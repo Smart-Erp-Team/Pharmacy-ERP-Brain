@@ -1,6 +1,3 @@
-using Microsoft.EntityFrameworkCore;
-using PharmacyERP.Domain.Entities.Catalog;
-
 namespace PharmacyERP.Infrastructure.Persistence.Database;
 
 public partial class PharmacyDbContext

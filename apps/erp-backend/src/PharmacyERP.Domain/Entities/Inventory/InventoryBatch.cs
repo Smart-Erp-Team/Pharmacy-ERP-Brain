@@ -1,12 +1,12 @@
-using System;
-using System.Collections.Generic;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Domain.Exceptions;
-using PharmacyERP.Domain.ValueObjects;
 using PharmacyERP.Domain.Entities.Catalog;
 
 namespace PharmacyERP.Domain.Entities.Inventory;
 
+/// <summary>
+/// Represents a tracked inventory batch (lot) for a product. Lot-tracked products use dated batches
+/// with an explicit expiry date, whereas non-lot-tracked products use a single deterministic
+/// <c>NON-LOT</c> system batch so stock balances always reference a valid batch record.
+/// </summary>
 public class InventoryBatch
 {
     public Guid BatchId { get; private set; }
@@ -58,6 +58,7 @@ public class InventoryBatch
         if (string.IsNullOrWhiteSpace(batchNumber))
             throw new ArgumentException("BatchNumber is required.", nameof(batchNumber));
 
+        // Reserve "NON-LOT" exclusively for system-initialized batches of non-lot-tracked products.
         if (string.Equals(batchNumber, DeterministicBatchIdGenerator.NonLotBatchNumber, StringComparison.OrdinalIgnoreCase))
             throw new NonLotBatchMisuseException();
 
@@ -109,6 +110,10 @@ public class InventoryBatch
         };
     }
 
+    /// <summary>
+    /// Determines whether this batch can be sold on <paramref name="organizationBusinessDate"/>.
+    /// Batches expiring on or before the business date are treated as expired and ineligible.
+    /// </summary>
     public bool IsEligibleForSale(DateOnly organizationBusinessDate)
     {
         if (QualityStatus != BatchQualityStatus.AVAILABLE)

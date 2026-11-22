@@ -1,19 +1,8 @@
-using PharmacyERP.Application.Common.Constants;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Common.Interfaces.Integration;
-using PharmacyERP.Application.Common.Interfaces.Persistence;
-using PharmacyERP.Application.Features.Catalog.DTOs;
-using PharmacyERP.Application.Features.Catalog.Interfaces;
-using PharmacyERP.Application.Features.Catalog.Services.Interfaces;
-using PharmacyERP.Application.Features.Catalog.Validators;
-using PharmacyERP.Application.Features.Identity.Interfaces;
-using PharmacyERP.Domain.Entities.Catalog;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Domain.Exceptions;
-
 namespace PharmacyERP.Application.Features.Catalog.Services.Implementations;
 
+/// <summary>
+/// Manages branch-scoped product reorder point thresholds with advisory-locked upsert concurrency safety.
+/// </summary>
 public class ReorderRuleService : IReorderRuleService
 {
     private readonly IProductReorderRuleRepository _reorderRuleRepository;
@@ -72,7 +61,7 @@ public class ReorderRuleService : IReorderRuleService
                 await _unitOfWork.BeginTransactionAsync(ct);
             }
 
-            var rule = await _reorderRuleRepository.GetByBranchAndProductAsync(orgId, branchId, productId, ct);
+            var rule = await _reorderRuleRepository.GetByBranchAndProductReadOnlyAsync(orgId, branchId, productId, ct);
             if (rule == null)
                 return Result<ReorderRuleDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ReorderRuleNotFound);
 
@@ -110,37 +99,39 @@ public class ReorderRuleService : IReorderRuleService
         await _unitOfWork.BeginTransactionAsync(ct);
         try
         {
+            var idempotencyPayload = new { BranchId = branchId, ProductId = productId, Request = request };
             try
             {
-                var idempotencyResult = await _idempotencyService.CheckAsync<UpsertReorderRuleRequest, ReorderRuleDto>(
-                    "catalog.reorderrule.upsert", request.IdempotencyKey, branchId, request, ct);
+                var idempotencyResult = await _idempotencyService.CheckAsync<object, ReorderRuleDto>(
+                    "catalog.reorderrule.upsert", request.IdempotencyKey, branchId, idempotencyPayload, ct);
 
                 if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
                 {
-                    await _unitOfWork.RollbackTransactionAsync(ct);
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                     return Result<ReorderRuleDto>.Success(idempotencyResult.ReplayedResponse);
                 }
             }
             catch (IntegrationDomainException ex) when (string.Equals(ex.Message, "IDEMPOTENCY_MISMATCH", StringComparison.OrdinalIgnoreCase))
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<ReorderRuleDto>.Failure(ErrorCode.IDEMPOTENCY_MISMATCH, ErrorMessages.IdempotencyMismatch);
             }
 
             var branch = await _branchRepository.GetByIdAsync(orgId, branchId, ct);
             if (branch == null)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<ReorderRuleDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.NotFound);
             }
 
             var product = await _productRepository.GetByIdAsync(orgId, productId, ct);
             if (product == null)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<ReorderRuleDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductNotFound);
             }
 
+            await _reorderRuleRepository.AcquireUpsertLockAsync(orgId, branchId, productId, ct);
             var existingRule = await _reorderRuleRepository.GetByBranchAndProductAsync(orgId, branchId, productId, ct);
             ProductReorderRule rule;
             string action;
@@ -154,7 +145,7 @@ public class ReorderRuleService : IReorderRuleService
                 }
                 catch (CatalogDomainException ex)
                 {
-                    await _unitOfWork.RollbackTransactionAsync(ct);
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                     return Result<ReorderRuleDto>.Failure(ErrorCode.VALIDATION_ERROR, ex.Message);
                 }
 
@@ -176,7 +167,7 @@ public class ReorderRuleService : IReorderRuleService
                 }
                 catch (CatalogDomainException ex)
                 {
-                    await _unitOfWork.RollbackTransactionAsync(ct);
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                     return Result<ReorderRuleDto>.Failure(ErrorCode.VALIDATION_ERROR, ex.Message);
                 }
 
@@ -195,14 +186,14 @@ public class ReorderRuleService : IReorderRuleService
                 ct);
 
             var dto = MapToDto(rule);
-            await _idempotencyService.PersistResponseAsync("catalog.reorderrule.upsert", request.IdempotencyKey, branchId, request, dto, ct);
+            await _idempotencyService.PersistResponseAsync("catalog.reorderrule.upsert", request.IdempotencyKey, branchId, idempotencyPayload, dto, ct);
 
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result<ReorderRuleDto>.Success(dto);
         }
         catch (Exception)
         {
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             throw;
         }
     }
@@ -219,15 +210,15 @@ public class ReorderRuleService : IReorderRuleService
         string.Equals(_currentUser.Role, "Pharmacist", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(_currentUser.Role, "Cashier", StringComparison.OrdinalIgnoreCase);
 
-    private static ReorderRuleDto MapToDto(ProductReorderRule r) =>
+    private static ReorderRuleDto MapToDto(ProductReorderRule reorderRule) =>
         new(
-            r.ReorderRuleId,
-            r.OrganizationId,
-            r.BranchId,
-            r.ProductId,
-            r.ReorderPointBase,
-            r.ReorderQuantityBase,
-            r.MaxQuantityBase,
-            r.IsActive,
-            r.UpdatedAt);
+            reorderRule.ReorderRuleId,
+            reorderRule.OrganizationId,
+            reorderRule.BranchId,
+            reorderRule.ProductId,
+            reorderRule.ReorderPointBase,
+            reorderRule.ReorderQuantityBase,
+            reorderRule.MaxQuantityBase,
+            reorderRule.IsActive,
+            reorderRule.UpdatedAt);
 }

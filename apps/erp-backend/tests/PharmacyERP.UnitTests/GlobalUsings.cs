@@ -1,0 +1,46 @@
+global using System.Net;
+global using System.Reflection;
+global using System.Security.Claims;
+global using System.Text;
+global using System.Text.Json;
+
+global using Microsoft.AspNetCore.Http;
+global using Microsoft.EntityFrameworkCore;
+global using Microsoft.EntityFrameworkCore.Diagnostics;
+global using Microsoft.EntityFrameworkCore.Infrastructure;
+global using Microsoft.EntityFrameworkCore.Metadata;
+global using Microsoft.Extensions.Configuration;
+global using Microsoft.Extensions.DependencyInjection;
+global using Microsoft.Extensions.Logging;
+
+global using Moq;
+
+global using PharmacyERP.Api.Middleware;
+global using PharmacyERP.Application.Common.Constants;
+global using PharmacyERP.Application.Common.DTOs;
+global using PharmacyERP.Application.Common.Interfaces.Context;
+global using PharmacyERP.Application.Common.Interfaces.CrossModule;
+global using PharmacyERP.Application.Common.Interfaces.Integration;
+global using PharmacyERP.Application.Common.Interfaces.Persistence;
+global using PharmacyERP.Application.Common.Utilities;
+global using PharmacyERP.Application.Features.Catalog.DTOs;
+global using PharmacyERP.Application.Features.Catalog.Interfaces;
+global using PharmacyERP.Application.Features.Catalog.Services.Implementations;
+global using PharmacyERP.Application.Features.Identity.Interfaces;
+global using PharmacyERP.Application.Features.Identity.Services.Implementations;
+global using PharmacyERP.Application.Features.Integration.DTOs;
+global using PharmacyERP.Application.Features.Integration.Services.Implementations;
+global using PharmacyERP.Application.Features.Inventory.Interfaces;
+global using PharmacyERP.Application.Features.Inventory.Services.Implementations;
+global using PharmacyERP.Domain.Entities.Catalog;
+global using PharmacyERP.Domain.Entities.Identity;
+global using PharmacyERP.Domain.Entities.Integration;
+global using PharmacyERP.Domain.Entities.Inventory;
+global using PharmacyERP.Domain.Enums;
+global using PharmacyERP.Domain.Exceptions;
+global using PharmacyERP.Domain.ValueObjects;
+global using PharmacyERP.Infrastructure.Auth;
+global using PharmacyERP.Infrastructure.Persistence.Database;
+global using PharmacyERP.Infrastructure.Persistence.Repositories.Catalog;
+global using PharmacyERP.Infrastructure.Persistence.Repositories.Identity;
+global using PharmacyERP.Infrastructure.Services.Context;

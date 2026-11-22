@@ -10,10 +10,12 @@ BEGIN
         IF OLD.status = 'POSTED' THEN
             RAISE EXCEPTION 'Cannot delete a POSTED inventory transaction.';
         END IF;
+        RETURN OLD;
     ELSIF (TG_OP = 'UPDATE') THEN
         IF OLD.status = 'POSTED' THEN
             RAISE EXCEPTION 'Cannot update a POSTED inventory transaction.';
         END IF;
+        RETURN NEW;
     END IF;
     RETURN NEW;
 END;
@@ -32,6 +34,7 @@ BEGIN
         IF parent_status = 'POSTED' THEN
             RAISE EXCEPTION 'Cannot delete lines from a POSTED inventory transaction.';
         END IF;
+        RETURN OLD;
     ELSIF (TG_OP = 'UPDATE') THEN
         SELECT status INTO parent_status 
         FROM inventory.""INVENTORY_TXN"" 
@@ -40,6 +43,16 @@ BEGIN
         IF parent_status = 'POSTED' THEN
             RAISE EXCEPTION 'Cannot update lines of a POSTED inventory transaction.';
         END IF;
+        RETURN NEW;
+    ELSIF (TG_OP = 'INSERT') THEN
+        SELECT status INTO parent_status 
+        FROM inventory.""INVENTORY_TXN"" 
+        WHERE inventory_txn_id = NEW.inventory_txn_id;
+
+        IF parent_status = 'POSTED' THEN
+            RAISE EXCEPTION 'Cannot insert lines into a POSTED inventory transaction.';
+        END IF;
+        RETURN NEW;
     END IF;
     RETURN NEW;
 END;
@@ -52,7 +65,7 @@ FOR EACH ROW EXECUTE FUNCTION inventory.fn_prevent_posted_inventory_txn_mutation
 
 DROP TRIGGER IF EXISTS trg_prevent_posted_inventory_txn_line_mutation ON inventory.""INVENTORY_TXN_LINE"";
 CREATE TRIGGER trg_prevent_posted_inventory_txn_line_mutation
-BEFORE UPDATE OR DELETE ON inventory.""INVENTORY_TXN_LINE""
+BEFORE INSERT OR UPDATE OR DELETE ON inventory.""INVENTORY_TXN_LINE""
 FOR EACH ROW EXECUTE FUNCTION inventory.fn_prevent_posted_inventory_txn_line_mutation();
 ";
 }

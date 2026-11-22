@@ -1,8 +1,3 @@
-using Microsoft.EntityFrameworkCore;
-using PharmacyERP.Application.Features.Identity.Interfaces;
-using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Infrastructure.Persistence.Database;
-
 namespace PharmacyERP.Infrastructure.Persistence.Repositories.Identity;
 
 public sealed class OrganizationRepository : IOrganizationRepository
@@ -14,7 +9,7 @@ public sealed class OrganizationRepository : IOrganizationRepository
     public Task<Organization?> GetActiveByCodeAsync(string organizationCode, CancellationToken ct = default)
     {
         var code = organizationCode.Trim();
-        return _db.Organizations.IgnoreQueryFilters()
+        return _db.Organizations.IgnoreQueryFilters().AsNoTracking()
             .FirstOrDefaultAsync(x => x.IsActive && x.OrganizationCode.ToUpper() == code.ToUpper(), ct);
     }
 

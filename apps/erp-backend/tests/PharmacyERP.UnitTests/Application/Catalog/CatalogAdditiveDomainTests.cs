@@ -1,7 +1,3 @@
-using PharmacyERP.Domain.Entities.Catalog;
-using PharmacyERP.Domain.Exceptions;
-using Xunit;
-
 namespace PharmacyERP.UnitTests.Application.Catalog;
 
 public class CatalogAdditiveDomainTests

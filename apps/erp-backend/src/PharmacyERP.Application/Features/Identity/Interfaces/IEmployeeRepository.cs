@@ -1,7 +1,3 @@
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Common.Interfaces.Persistence;
-using PharmacyERP.Domain.Entities.Identity;
-
 namespace PharmacyERP.Application.Features.Identity.Interfaces;
 
 public interface IEmployeeRepository : IGenericRepository<Employee>

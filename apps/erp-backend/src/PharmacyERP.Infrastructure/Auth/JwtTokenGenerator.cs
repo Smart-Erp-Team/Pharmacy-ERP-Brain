@@ -1,12 +1,11 @@
 using System.IdentityModel.Tokens.Jwt;
-using Microsoft.Extensions.Configuration;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Features.Identity.Interfaces;
-using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Domain.Enums;
 
 namespace PharmacyERP.Infrastructure.Auth;
 
+/// <summary>
+/// Issues RS256-signed JWT access tokens embedding tenant, role, branch-scope, and
+/// <c>security_stamp</c> claims, restricting BranchLocal tokens to the single enrolled branch.
+/// </summary>
 public sealed class JwtTokenGenerator : IJwtTokenGenerator
 {
     private static readonly TimeSpan DefaultLifetime = TimeSpan.FromMinutes(15);
@@ -36,6 +35,11 @@ public sealed class JwtTokenGenerator : IJwtTokenGenerator
         {
             var enrolledBranchId = _runtimeMode.EnrolledBranchId
                 ?? throw new InvalidOperationException("BranchLocal mode requires ENROLLED_BRANCH_ID.");
+            var isOrgAdmin = user.Role == UserRole.Admin && user.BranchScope == BranchScope.ALL;
+            if (!isOrgAdmin && !effectiveBranches.Contains(enrolledBranchId))
+            {
+                throw new UnauthorizedAccessException("User is not authorized to access the enrolled BranchLocal branch.");
+            }
             effectiveBranches = new[] { enrolledBranchId };
             // CurrentUser treats Admin + ALL as unrestricted, so local tokens must use ASSIGNED.
             branchScope = BranchScope.ASSIGNED.ToString();
@@ -59,6 +63,7 @@ public sealed class JwtTokenGenerator : IJwtTokenGenerator
             ["branch_scope"] = branchScope,
             ["branch_ids"] = effectiveBranches.Select(x => x.ToString()).ToArray(),
             ["scope"] = string.Join(' ', scopes),
+            ["security_stamp"] = user.SecurityStamp.ToString(),
             ["iat"] = now.ToUnixTimeSeconds(),
             ["exp"] = expires.ToUnixTimeSeconds()
         };

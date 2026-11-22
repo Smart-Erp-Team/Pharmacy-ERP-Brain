@@ -1,15 +1,4 @@
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using PharmacyERP.Application.Common.Interfaces.Persistence;
-using PharmacyERP.Application.Features.Catalog.Interfaces;
-using PharmacyERP.Domain.Entities.Catalog;
 using PharmacyERP.Infrastructure;
-using PharmacyERP.Infrastructure.Persistence.Database;
-using PharmacyERP.Infrastructure.Persistence.Repositories.Catalog;
-using PharmacyERP.Infrastructure.Services.Context;
-using Xunit;
 
 namespace PharmacyERP.UnitTests.Infrastructure;
 
@@ -538,7 +527,12 @@ public class CatalogRepositoriesTests
     public void DependencyInjection_RegistersAllFourCatalogRepositoriesAsScoped()
     {
         var services = new ServiceCollection();
-        var configuration = new ConfigurationBuilder().Build();
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DefaultConnection"] = "Host=localhost;Database=erp_db;Username=erp_app"
+            })
+            .Build();
 
         services.AddInfrastructureServices(configuration);
 

@@ -1,8 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
-using PharmacyERP.Application.Common.Interfaces.Persistence;
-using PharmacyERP.Infrastructure.Persistence.Database;
-
-namespace PharmacyERP.Infrastructure.Persistence.Repositories;
+﻿namespace PharmacyERP.Infrastructure.Persistence.Repositories;
 
 public class GenericRepository<T> : IGenericRepository<T> where T : class
 {

@@ -1,10 +1,3 @@
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Metadata;
-using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Infrastructure.Persistence.Database;
-using PharmacyERP.Infrastructure.Services.Context;
-
 namespace PharmacyERP.UnitTests.Infrastructure;
 
 public class IdentityModelConfigurationTests

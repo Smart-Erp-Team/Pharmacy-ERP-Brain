@@ -1,8 +1,3 @@
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using PharmacyERP.Domain.Entities.Catalog;
-using PharmacyERP.Domain.Entities.Inventory;
-
 namespace PharmacyERP.Infrastructure.Persistence.Configurations.Inventory;
 
 public class InventoryBatchConfiguration : IEntityTypeConfiguration<InventoryBatch>
@@ -43,6 +38,10 @@ public class InventoryBatchConfiguration : IEntityTypeConfiguration<InventoryBat
 
         // FEFO Index
         builder.HasIndex(x => new { x.OrganizationId, x.ProductId, x.QualityStatus, x.ExpiresOn, x.BatchId });
+
+        // Org-wide expiry alert query index (when productId is omitted)
+        builder.HasIndex(x => new { x.OrganizationId, x.ExpiresOn, x.BatchNumber })
+            .HasFilter("expires_on IS NOT NULL");
 
         // Check Constraints
         builder.ToTable(t =>

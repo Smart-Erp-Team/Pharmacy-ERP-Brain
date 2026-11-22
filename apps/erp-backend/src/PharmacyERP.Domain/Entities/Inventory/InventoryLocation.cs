@@ -1,11 +1,9 @@
-using System;
-using System.Collections.Generic;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Domain.Exceptions;
-using PharmacyERP.Domain.Entities.Identity;
-
 namespace PharmacyERP.Domain.Entities.Inventory;
 
+/// <summary>
+/// Represents a physical or logical stock location within a branch (e.g., sellable shelf, quarantine, or scrap).
+/// Enforces the invariant that only <see cref="LocationType.SELLABLE"/> locations may be marked sellable.
+/// </summary>
 public class InventoryLocation
 {
 	public Guid LocationId { get; private set; }

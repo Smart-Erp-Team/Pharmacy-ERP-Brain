@@ -1,7 +1,10 @@
-using PharmacyERP.Domain.Exceptions;
-
 namespace PharmacyERP.Domain.Entities.Identity;
 
+/// <summary>
+/// Tracks an opaque refresh token as a 32-byte SHA-256 hash grouped into a <see cref="TokenFamilyId"/>.
+/// Refresh rotation marks the presented token as consumed (<see cref="ConsumedAt"/>) and issues a
+/// successor in the same family; replaying a consumed token indicates theft and revokes the entire family.
+/// </summary>
 public sealed class UserRefreshToken
 {
     private byte[] _tokenHash = Array.Empty<byte>();

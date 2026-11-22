@@ -1,6 +1,4 @@
-﻿using PharmacyERP.Domain.Entities.Identity;
-
-namespace PharmacyERP.Domain.Entities.Integration;
+﻿namespace PharmacyERP.Domain.Entities.Integration;
 
 public class OutboxEventCursor
 {

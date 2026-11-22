@@ -1,13 +1,4 @@
-﻿using System.Text.Json;
-using Moq;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Common.Utilities;
-using PharmacyERP.Application.Features.Integration.Interfaces;
-using PharmacyERP.Application.Features.Integration.Services.Implementations;
-using PharmacyERP.Domain.Entities.Integration;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Domain.Exceptions;
-using Xunit;
+﻿using PharmacyERP.Application.Features.Integration.Interfaces;
 
 namespace PharmacyERP.UnitTests.Application.Integration;
 

@@ -1,9 +1,3 @@
-using Microsoft.EntityFrameworkCore;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Features.Catalog.Interfaces;
-using PharmacyERP.Domain.Entities.Catalog;
-using PharmacyERP.Infrastructure.Persistence.Database;
-
 namespace PharmacyERP.Infrastructure.Persistence.Repositories.Catalog;
 
 public class ProductCategoryRepository : GenericRepository<ProductCategory>, IProductCategoryRepository
@@ -50,7 +44,7 @@ public class ProductCategoryRepository : GenericRepository<ProductCategory>, IPr
         var resolvedPage = page < 1 ? 1 : page;
         var resolvedPageSize = pageSize <= 0 ? DefaultPageSize : Math.Min(pageSize, MaxPageSize);
 
-        var query = _dbSet.Where(c => c.OrganizationId == organizationId);
+        var query = _dbSet.AsNoTracking().Where(c => c.OrganizationId == organizationId);
 
         if (!includeInactive)
         {

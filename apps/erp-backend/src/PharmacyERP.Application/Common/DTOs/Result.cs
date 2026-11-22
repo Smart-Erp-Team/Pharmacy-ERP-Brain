@@ -1,6 +1,4 @@
-﻿using PharmacyERP.Domain.Enums;
-
-namespace PharmacyERP.Application.Common.DTOs;
+﻿namespace PharmacyERP.Application.Common.DTOs;
 
 public class Result<T>
 {

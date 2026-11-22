@@ -1,8 +1,3 @@
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using PharmacyERP.Domain.Entities.Catalog;
-using PharmacyERP.Domain.Entities.Inventory;
-
 namespace PharmacyERP.Infrastructure.Persistence.Configurations.Inventory;
 
 public class InventoryTxnLineConfiguration : IEntityTypeConfiguration<InventoryTxnLine>
@@ -32,6 +27,9 @@ public class InventoryTxnLineConfiguration : IEntityTypeConfiguration<InventoryT
         builder.Property(x => x.SalesReturnLineId).HasColumnName("sales_return_line_id");
         builder.Property(x => x.PurchaseOrderLineId).HasColumnName("purchase_order_line_id");
         builder.Property(x => x.VendorReturnLineId).HasColumnName("vendor_return_line_id");
+
+        // Product-filtered transaction history index
+        builder.HasIndex(x => new { x.OrganizationId, x.BranchId, x.ProductId, x.InventoryTxnId });
 
         // Check Constraints
         builder.ToTable(t =>

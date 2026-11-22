@@ -1,6 +1,4 @@
-﻿using PharmacyERP.Domain.Enums;
-
-namespace PharmacyERP.Application.Features.Integration.DTOs;
+﻿namespace PharmacyERP.Application.Features.Integration.DTOs;
 
 public sealed record AuditEntryRequest(
     string Action,

@@ -1,6 +1,3 @@
-using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Domain.Exceptions;
-
 namespace PharmacyERP.Domain.Entities.Catalog;
 
 /// <summary>

@@ -1,7 +1,3 @@
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using PharmacyERP.Domain.Entities.Inventory;
-
 namespace PharmacyERP.Infrastructure.Persistence.Configurations.Inventory;
 
 public class StockBalanceConfiguration : IEntityTypeConfiguration<StockBalance>
@@ -25,6 +21,9 @@ public class StockBalanceConfiguration : IEntityTypeConfiguration<StockBalance>
 
         // Batch Reconciliation Index
         builder.HasIndex(x => new { x.OrganizationId, x.BatchId, x.LocationId });
+
+        // Incremental canonical sync index (updatedSince)
+        builder.HasIndex(x => new { x.OrganizationId, x.UpdatedAt });
 
         // Check Constraints
         builder.ToTable(t =>

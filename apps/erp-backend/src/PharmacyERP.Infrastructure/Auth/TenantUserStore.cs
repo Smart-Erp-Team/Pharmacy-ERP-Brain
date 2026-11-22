@@ -1,9 +1,3 @@
-using Microsoft.AspNetCore.Identity;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Common.Interfaces.Persistence;
-using PharmacyERP.Application.Features.Identity.Interfaces;
-using PharmacyERP.Domain.Entities.Identity;
-
 namespace PharmacyERP.Infrastructure.Auth;
 
 /// <summary>A small Identity store adapter over the existing tenant-aware USER_ACCOUNT table.</summary>

@@ -1,18 +1,9 @@
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Common.Constants;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Common.Interfaces.CrossModule;
-using PharmacyERP.Application.Common.Interfaces.Integration;
-using PharmacyERP.Application.Common.Interfaces.Persistence;
-using PharmacyERP.Application.Features.Identity.DTOs;
-using PharmacyERP.Application.Features.Identity.Interfaces;
-using PharmacyERP.Application.Features.Identity.Services.Interfaces;
-using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Domain.Entities.Integration;
-using PharmacyERP.Domain.Enums;
-
 namespace PharmacyERP.Application.Features.Identity.Services.Implementations;
 
+/// <summary>
+/// Provisions a brand-new tenant organization along with its outbox cursor, initial branch,
+/// default inventory locations, founding employee, and all-branch Admin account in a single transaction.
+/// </summary>
 public sealed class OrganizationProvisioningService : IOrganizationProvisioningService
 {
     private readonly IOrganizationRepository _organizations;
@@ -59,9 +50,9 @@ public sealed class OrganizationProvisioningService : IOrganizationProvisioningS
                 request.InitialAdmin.Username, "pending-hash", UserRole.Admin, BranchScope.ALL);
             admin.UpdatePasswordHash(_passwords.HashPassword(admin, request.InitialAdmin.Password), _clock.UtcNow);
         }
-        catch (Exception ex) when (ex is ArgumentException or PharmacyERP.Domain.Exceptions.IdentityDomainException)
+        catch (Exception exception) when (exception is ArgumentException or PharmacyERP.Domain.Exceptions.IdentityDomainException)
         {
-            return IdentityResults.Failure<OrganizationDto>(ErrorCode.VALIDATION_ERROR, ex.Message);
+            return IdentityResults.Failure<OrganizationDto>(ErrorCode.VALIDATION_ERROR, exception.Message);
         }
 
         try
@@ -79,7 +70,7 @@ public sealed class OrganizationProvisioningService : IOrganizationProvisioningS
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 throw;
             }
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             if (exists)
                 return IdentityResults.Failure<OrganizationDto>(ErrorCode.CONFLICT, ErrorMessages.DuplicateOrganizationCode);
 
@@ -105,7 +96,7 @@ public sealed class OrganizationProvisioningService : IOrganizationProvisioningS
         }
         catch
         {
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             throw;
         }
     }

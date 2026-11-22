@@ -1,7 +1,4 @@
-﻿using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Domain.Enums;
-
-namespace PharmacyERP.Application.Common.Exceptions;
+﻿namespace PharmacyERP.Application.Common.Exceptions;
 
 public class AppException : Exception
 {

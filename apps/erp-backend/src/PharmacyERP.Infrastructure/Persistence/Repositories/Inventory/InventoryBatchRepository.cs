@@ -1,17 +1,9 @@
-using System;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.EntityFrameworkCore;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Features.Inventory.Interfaces;
-using PharmacyERP.Domain.Entities.Inventory;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Domain.ValueObjects;
-using PharmacyERP.Infrastructure.Persistence.Database;
-
 namespace PharmacyERP.Infrastructure.Persistence.Repositories.Inventory;
 
+/// <summary>
+/// Persists <see cref="InventoryBatch"/> records with idempotent PostgreSQL batch upserts
+/// (<c>ON CONFLICT DO NOTHING</c>) keyed by deterministic UUIDv5 batch identifiers.
+/// </summary>
 public class InventoryBatchRepository : IInventoryBatchRepository
 {
     private readonly PharmacyDbContext _context;
@@ -23,6 +15,13 @@ public class InventoryBatchRepository : IInventoryBatchRepository
 
     public async Task<InventoryBatch?> GetByIdAsync(Guid organizationId, Guid productId, Guid batchId, CancellationToken ct = default)
     {
+        var local = _context.InventoryBatches.Local.FirstOrDefault(b =>
+            b.OrganizationId == organizationId && b.ProductId == productId && b.BatchId == batchId);
+        if (local != null)
+        {
+            return local;
+        }
+
         return await _context.InventoryBatches
             .FirstOrDefaultAsync(b => b.OrganizationId == organizationId && b.ProductId == productId && b.BatchId == batchId, ct);
     }
@@ -39,18 +38,154 @@ public class InventoryBatchRepository : IInventoryBatchRepository
             ? DeterministicBatchIdGenerator.Generate(organizationId, productId, batchNumber, expiresOn.Value)
             : DeterministicBatchIdGenerator.GenerateNonLotBatchId(organizationId, productId);
 
-        var existingBatch = await GetByIdAsync(organizationId, productId, computedBatchId, ct);
+        var localBatch = _context.InventoryBatches.Local.FirstOrDefault(b =>
+            b.OrganizationId == organizationId && b.ProductId == productId && b.BatchId == computedBatchId);
+        if (localBatch != null)
+        {
+            return localBatch;
+        }
+
+        InventoryBatch candidateBatch = expiresOn.HasValue
+            ? InventoryBatch.CreateDatedBatch(organizationId, productId, batchNumber, expiresOn.Value, manufacturedOn)
+            : InventoryBatch.CreateNonLotSystemBatch(organizationId, productId);
+
+        if (_context.Database.IsRelational())
+        {
+            var productExistsInDb = await _context.Products
+                .AsNoTracking()
+                .AnyAsync(p => p.OrganizationId == organizationId && p.ProductId == productId, ct);
+
+            if (productExistsInDb)
+            {
+                var qualityStatus = candidateBatch.QualityStatus.ToString();
+                await _context.Database.ExecuteSqlInterpolatedAsync(
+                    $@"INSERT INTO inventory.""INVENTORY_BATCH""
+                       (batch_id, organization_id, product_id, batch_number, manufactured_on, expires_on, quality_status, created_at, updated_at)
+                       VALUES ({candidateBatch.BatchId}, {candidateBatch.OrganizationId}, {candidateBatch.ProductId}, {candidateBatch.BatchNumber}, {candidateBatch.ManufacturedOn}, {candidateBatch.ExpiresOn}, {qualityStatus}, {candidateBatch.CreatedAt}, {candidateBatch.UpdatedAt})
+                       ON CONFLICT DO NOTHING;", ct);
+
+                var persisted = await _context.InventoryBatches
+                    .FirstOrDefaultAsync(b => b.OrganizationId == organizationId && b.ProductId == productId && b.BatchId == candidateBatch.BatchId, ct);
+                if (persisted != null)
+                {
+                    return persisted;
+                }
+            }
+        }
+
+        var existingBatch = await _context.InventoryBatches
+            .FirstOrDefaultAsync(b => b.OrganizationId == organizationId && b.ProductId == productId && b.BatchId == computedBatchId, ct);
         if (existingBatch != null)
         {
             return existingBatch;
         }
 
-        InventoryBatch newBatch = expiresOn.HasValue
-            ? InventoryBatch.CreateDatedBatch(organizationId, productId, batchNumber, expiresOn.Value, manufacturedOn)
-            : InventoryBatch.CreateNonLotSystemBatch(organizationId, productId);
+        await _context.InventoryBatches.AddAsync(candidateBatch, ct);
+        return candidateBatch;
+    }
 
-        await _context.InventoryBatches.AddAsync(newBatch, ct);
-        return newBatch;
+    public async Task<IReadOnlyDictionary<Guid, InventoryBatch>> GetOrCreateBatchesAsync(
+        Guid organizationId,
+        IReadOnlyCollection<(Guid ProductId, string BatchNumber, DateOnly? ExpiresOn, DateOnly? ManufacturedOn)> requests,
+        CancellationToken ct = default)
+    {
+        var result = new Dictionary<Guid, InventoryBatch>();
+        if (requests.Count == 0)
+        {
+            return result;
+        }
+
+        var candidatesById = new Dictionary<Guid, InventoryBatch>();
+        foreach (var req in requests)
+        {
+            Guid computedBatchId = req.ExpiresOn.HasValue
+                ? DeterministicBatchIdGenerator.Generate(organizationId, req.ProductId, req.BatchNumber, req.ExpiresOn.Value)
+                : DeterministicBatchIdGenerator.GenerateNonLotBatchId(organizationId, req.ProductId);
+
+            if (candidatesById.ContainsKey(computedBatchId))
+            {
+                continue;
+            }
+
+            var localBatch = _context.InventoryBatches.Local.FirstOrDefault(b =>
+                b.OrganizationId == organizationId && b.ProductId == req.ProductId && b.BatchId == computedBatchId);
+            if (localBatch != null)
+            {
+                candidatesById[computedBatchId] = localBatch;
+                continue;
+            }
+
+            var candidate = req.ExpiresOn.HasValue
+                ? InventoryBatch.CreateDatedBatch(organizationId, req.ProductId, req.BatchNumber, req.ExpiresOn.Value, req.ManufacturedOn)
+                : InventoryBatch.CreateNonLotSystemBatch(organizationId, req.ProductId);
+
+            candidatesById[computedBatchId] = candidate;
+        }
+
+        var allIds = candidatesById.Keys.ToArray();
+        var persistedBatches = await _context.InventoryBatches
+            .Where(b => b.OrganizationId == organizationId && allIds.Contains(b.BatchId))
+            .ToListAsync(ct);
+
+        foreach (var batch in persistedBatches)
+        {
+            result[batch.BatchId] = batch;
+        }
+
+        var missing = candidatesById
+            .Where(kvp => !result.ContainsKey(kvp.Key) && _context.Entry(kvp.Value).State == EntityState.Detached)
+            .Select(kvp => kvp.Value)
+            .ToList();
+
+        if (missing.Count > 0)
+        {
+            if (_context.Database.IsRelational())
+            {
+                var batchIds = missing.Select(b => b.BatchId).ToArray();
+                var productIds = missing.Select(b => b.ProductId).ToArray();
+                var batchNumbers = missing.Select(b => b.BatchNumber).ToArray();
+                var manufacturedOns = missing.Select(b => b.ManufacturedOn).ToArray();
+                var expiresOns = missing.Select(b => b.ExpiresOn).ToArray();
+                var qualityStatuses = missing.Select(b => b.QualityStatus.ToString()).ToArray();
+                var createdAts = missing.Select(b => b.CreatedAt).ToArray();
+                var updatedAts = missing.Select(b => b.UpdatedAt).ToArray();
+
+                await _context.Database.ExecuteSqlInterpolatedAsync(
+                    $@"INSERT INTO inventory.""INVENTORY_BATCH""
+                       (batch_id, organization_id, product_id, batch_number, manufactured_on, expires_on, quality_status, created_at, updated_at)
+                       SELECT b_id, {organizationId}, p_id, b_num, m_on, e_on, q_st, c_at, u_at
+                       FROM unnest({batchIds}, {productIds}, {batchNumbers}, {manufacturedOns}, {expiresOns}, {qualityStatuses}, {createdAts}, {updatedAts})
+                            AS t(b_id, p_id, b_num, m_on, e_on, q_st, c_at, u_at)
+                       ON CONFLICT DO NOTHING;", ct);
+
+                var fetchedMissing = await _context.InventoryBatches
+                    .Where(b => b.OrganizationId == organizationId && batchIds.Contains(b.BatchId))
+                    .ToListAsync(ct);
+
+                foreach (var batch in fetchedMissing)
+                {
+                    result[batch.BatchId] = batch;
+                }
+            }
+            else
+            {
+                await _context.InventoryBatches.AddRangeAsync(missing, ct);
+                foreach (var batch in missing)
+                {
+                    result[batch.BatchId] = batch;
+                }
+            }
+        }
+
+        foreach (var kvp in candidatesById)
+        {
+            if (!result.ContainsKey(kvp.Key))
+            {
+                result[kvp.Key] = kvp.Value;
+            }
+        }
+
+        return result;
     }
 
     public async Task<PagedResult<InventoryBatch>> GetPagedAsync(
@@ -62,7 +197,9 @@ public class InventoryBatchRepository : IInventoryBatchRepository
         int pageSize,
         CancellationToken ct = default)
     {
-        var query = _context.InventoryBatches.Where(b => b.OrganizationId == organizationId);
+        var query = _context.InventoryBatches
+            .AsNoTracking()
+            .Where(b => b.OrganizationId == organizationId);
 
         if (productId.HasValue)
         {
@@ -87,7 +224,7 @@ public class InventoryBatchRepository : IInventoryBatchRepository
             .Take(pageSize)
             .ToListAsync(ct);
 
-        return new PagedResult<InventoryBatch>(items, totalCount, page, pageSize);
+        return new PagedResult<InventoryBatch>(items, page, pageSize, totalCount);
     }
 
     public async Task AddAsync(InventoryBatch batch, CancellationToken ct = default)

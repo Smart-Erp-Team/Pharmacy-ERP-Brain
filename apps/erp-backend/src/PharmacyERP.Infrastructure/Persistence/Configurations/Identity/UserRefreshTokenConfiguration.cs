@@ -1,7 +1,3 @@
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using PharmacyERP.Domain.Entities.Identity;
-
 namespace PharmacyERP.Infrastructure.Persistence.Configurations.Identity;
 
 public sealed class UserRefreshTokenConfiguration : IEntityTypeConfiguration<UserRefreshToken>
@@ -22,8 +18,12 @@ public sealed class UserRefreshTokenConfiguration : IEntityTypeConfiguration<Use
         builder.Property(x => x.RevokedAt).HasColumnName("revoked_at").HasColumnType("timestamptz");
         builder.Property(x => x.CreatedAt).HasColumnName("created_at").HasColumnType("timestamptz").IsRequired();
         builder.HasIndex(x => x.TokenHash).IsUnique();
-        builder.HasIndex(x => new { x.OrganizationId, x.UserId, x.RevokedAt });
-        builder.HasIndex(x => new { x.OrganizationId, x.TokenFamilyId });
+        builder.HasIndex(x => new { x.OrganizationId, x.UserId, x.ExpiresAt })
+            .HasDatabaseName("IX_USER_REFRESH_TOKEN_active_user")
+            .HasFilter("revoked_at IS NULL");
+        builder.HasIndex(x => new { x.OrganizationId, x.TokenFamilyId, x.ExpiresAt })
+            .HasDatabaseName("IX_USER_REFRESH_TOKEN_active_family")
+            .HasFilter("revoked_at IS NULL");
         builder.HasOne(x => x.UserAccount).WithMany(x => x.RefreshTokens).HasForeignKey(x => new { x.OrganizationId, x.UserId }).HasPrincipalKey(x => new { x.OrganizationId, x.UserId }).OnDelete(DeleteBehavior.Restrict);
     }
 }

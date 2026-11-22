@@ -1,11 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
-using PharmacyERP.Domain.Entities.Integration;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Infrastructure.Persistence.Database;
-using PharmacyERP.Infrastructure.Services.Context;
-using Xunit;
-
-namespace PharmacyERP.IntegrationTests.Persistence;
+﻿namespace PharmacyERP.IntegrationTests.Persistence;
 
 public class TenantRlsIsolationTests
 {

@@ -1,8 +1,3 @@
-using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Domain.Exceptions;
-using PharmacyERP.Domain.ValueObjects;
-
 namespace PharmacyERP.UnitTests.Domain.Identity;
 
 public class IdentityEntitiesTests

@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-
 namespace PharmacyERP.Application.Features.Integration.DTOs;
 
 public record CanonicalInventoryLotDto(

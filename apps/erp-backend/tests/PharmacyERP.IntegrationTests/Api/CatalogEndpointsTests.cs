@@ -1,47 +1,17 @@
 #nullable enable
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;
-using System.Net.Http;
-using System.Net.Http.Json;
-using System.Reflection;
-using System.Security.Claims;
+
 using System.Text;
 using System.Text.Encodings.Web;
-using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Routing;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.TestHost;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Npgsql;
 using PharmacyERP.Api;
 using PharmacyERP.Api.Controllers;
 using PharmacyERP.Application.Common.Constants;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Common.Interfaces.CrossModule;
 using PharmacyERP.Application.Features.Catalog.DTOs;
 using PharmacyERP.Application.Features.Catalog.Services.Implementations;
-using PharmacyERP.Application.Features.Integration.DTOs;
-using PharmacyERP.Domain.Entities.Catalog;
-using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Domain.Entities.Integration;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Domain.ValueObjects;
-using PharmacyERP.Infrastructure.Persistence.Database;
-using PharmacyERP.Infrastructure.Services.Context;
-using Xunit;
 using Xunit.Sdk;
 
 namespace PharmacyERP.IntegrationTests.Api;
@@ -264,6 +234,7 @@ public class CatalogWebApplicationFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("ConnectionStrings:DefaultConnection", _fixture.ConnectionString);
+        builder.UseSetting("Outbox:WorkerEnabled", "false");
         builder.ConfigureLogging(logging => logging.ClearProviders());
         builder.ConfigureTestServices(services =>
         {
@@ -310,58 +281,28 @@ public class CatalogPostgresFixture : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        var processVar = Environment.GetEnvironmentVariable("ERP_IT_POSTGRES", EnvironmentVariableTarget.Process);
-        if (string.Equals(processVar, "DISABLED", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(processVar, "NONE", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(processVar, "SKIP", StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        var rawConnStr = !string.IsNullOrWhiteSpace(processVar)
-            ? processVar
-            : (Environment.GetEnvironmentVariable("ERP_IT_POSTGRES", EnvironmentVariableTarget.User)
-               ?? Environment.GetEnvironmentVariable("ERP_IT_POSTGRES", EnvironmentVariableTarget.Machine));
-
+        var rawConnStr = ThrowawayPostgresDatabaseProvisioner.ResolveAdminConnectionString();
         if (string.IsNullOrWhiteSpace(rawConnStr))
         {
             return;
         }
 
-        var mBuilder = new NpgsqlConnectionStringBuilder(rawConnStr);
-        _maintenanceConnStr = mBuilder.ConnectionString;
-
         DatabaseName = "erp_catalog_it_" + Guid.NewGuid().ToString("N");
 
-        await using (var conn = new NpgsqlConnection(_maintenanceConnStr))
-        {
-            await conn.OpenAsync();
-            await using var cmd = conn.CreateCommand();
-            cmd.CommandText = $"CREATE DATABASE \"{DatabaseName}\" TEMPLATE template0;";
-            await cmd.ExecuteNonQueryAsync();
-        }
-
-        var testBuilder = new NpgsqlConnectionStringBuilder(rawConnStr)
-        {
-            Database = DatabaseName
-        };
-        ConnectionString = testBuilder.ConnectionString;
+        var provisioned = await ThrowawayPostgresDatabaseProvisioner.CreateAndProvisionDatabaseAsync(rawConnStr, DatabaseName);
+        _maintenanceConnStr = provisioned.MaintenanceConnectionString;
+        ConnectionString = provisioned.AppConnectionString;
 
         try
         {
             var options = new DbContextOptionsBuilder<PharmacyDbContext>()
-                .UseNpgsql(ConnectionString)
+                .UseNpgsql(provisioned.AdminConnectionString)
                 .Options;
 
             var tenant = new TenantContext();
             tenant.AllowSystemBypass();
 
             await using var db = new PharmacyDbContext(options, tenant);
-            var created = await db.Database.EnsureCreatedAsync();
-            if (!created)
-            {
-                throw new InvalidOperationException("Database.EnsureCreatedAsync() returned false.");
-            }
 
             // Seed required baseline data
             await SeedBaselineDataAsync(db);
@@ -433,27 +374,8 @@ public class CatalogPostgresFixture : IAsyncLifetime
         await DropDatabaseAsync();
     }
 
-    private async Task DropDatabaseAsync()
-    {
-        if (string.IsNullOrWhiteSpace(_maintenanceConnStr) || string.IsNullOrWhiteSpace(DatabaseName))
-        {
-            return;
-        }
-
-        await using var conn = new NpgsqlConnection(_maintenanceConnStr);
-        await conn.OpenAsync();
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"DROP DATABASE IF EXISTS \"{DatabaseName}\" WITH (FORCE);";
-        await cmd.ExecuteNonQueryAsync();
-
-        await using var verifyCmd = conn.CreateCommand();
-        verifyCmd.CommandText = $"SELECT 1 FROM pg_database WHERE datname = '{DatabaseName}';";
-        var exists = await verifyCmd.ExecuteScalarAsync();
-        if (exists != null)
-        {
-            throw new InvalidOperationException($"Failed to drop throwaway integration test database '{DatabaseName}'. It still exists in pg_database.");
-        }
-    }
+    private Task DropDatabaseAsync()
+        => ThrowawayPostgresDatabaseProvisioner.DropDatabaseAsync(_maintenanceConnStr, DatabaseName);
 }
 #endregion
 
@@ -974,35 +896,43 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         // 6. Direct verification of AUDIT_LOG table in database for all 3 writes
         using var scope = _fixture.Factory.Services.CreateScope();
         var tenant = (TenantContext)scope.ServiceProvider.GetRequiredService<ITenantContext>();
-        tenant.AllowSystemBypass();
+        tenant.SetTenant(_fixture.OrganizationAId);
+        var uow = scope.ServiceProvider.GetRequiredService<PharmacyERP.Application.Common.Interfaces.Persistence.IUnitOfWork>();
         var db = scope.ServiceProvider.GetRequiredService<PharmacyDbContext>();
+        await uow.BeginTransactionAsync();
+        try
+        {
+            var createAudit = await db.AuditLogs.FirstOrDefaultAsync(a => a.SourcePromptId == createPromptId);
+            Assert.NotNull(createAudit);
+            Assert.Equal(_fixture.OrganizationAId, createAudit!.OrganizationId);
+            Assert.Equal(_fixture.UserAId, createAudit.ActorUserId);
+            Assert.Equal(_fixture.EmployeeAId, createAudit.ActorEmployeeId);
+            Assert.Equal(AuditActorType.AI_ASSISTED, createAudit.ActorType);
+            Assert.Equal("CREATE", createAudit.Action);
+            Assert.Equal("PRODUCT", createAudit.EntityName);
 
-        var createAudit = await db.AuditLogs.FirstOrDefaultAsync(a => a.SourcePromptId == createPromptId);
-        Assert.NotNull(createAudit);
-        Assert.Equal(_fixture.OrganizationAId, createAudit!.OrganizationId);
-        Assert.Equal(_fixture.UserAId, createAudit.ActorUserId);
-        Assert.Equal(_fixture.EmployeeAId, createAudit.ActorEmployeeId);
-        Assert.Equal(AuditActorType.AI_ASSISTED, createAudit.ActorType);
-        Assert.Equal("CREATE", createAudit.Action);
-        Assert.Equal("PRODUCT", createAudit.EntityName);
+            var updateAudit = await db.AuditLogs.FirstOrDefaultAsync(a => a.SourcePromptId == updatePromptId);
+            Assert.NotNull(updateAudit);
+            Assert.Equal(_fixture.OrganizationAId, updateAudit!.OrganizationId);
+            Assert.Equal(_fixture.UserAId, updateAudit.ActorUserId);
+            Assert.Equal(_fixture.EmployeeAId, updateAudit.ActorEmployeeId);
+            Assert.Equal(AuditActorType.AI_ASSISTED, updateAudit.ActorType);
+            Assert.Equal("UPDATE", updateAudit.Action);
+            Assert.Equal("PRODUCT", updateAudit.EntityName);
 
-        var updateAudit = await db.AuditLogs.FirstOrDefaultAsync(a => a.SourcePromptId == updatePromptId);
-        Assert.NotNull(updateAudit);
-        Assert.Equal(_fixture.OrganizationAId, updateAudit!.OrganizationId);
-        Assert.Equal(_fixture.UserAId, updateAudit.ActorUserId);
-        Assert.Equal(_fixture.EmployeeAId, updateAudit.ActorEmployeeId);
-        Assert.Equal(AuditActorType.AI_ASSISTED, updateAudit.ActorType);
-        Assert.Equal("UPDATE", updateAudit.Action);
-        Assert.Equal("PRODUCT", updateAudit.EntityName);
-
-        var rrAudit = await db.AuditLogs.FirstOrDefaultAsync(a => a.SourcePromptId == rrPromptId);
-        Assert.NotNull(rrAudit);
-        Assert.Equal(_fixture.OrganizationAId, rrAudit!.OrganizationId);
-        Assert.Equal(_fixture.UserAId, rrAudit.ActorUserId);
-        Assert.Equal(_fixture.EmployeeAId, rrAudit.ActorEmployeeId);
-        Assert.Equal(_fixture.BranchA1Id, rrAudit.BranchId);
-        Assert.Equal(AuditActorType.AI_ASSISTED, rrAudit.ActorType);
-        Assert.Equal("PRODUCT_REORDER_RULE", rrAudit.EntityName);
+            var rrAudit = await db.AuditLogs.FirstOrDefaultAsync(a => a.SourcePromptId == rrPromptId);
+            Assert.NotNull(rrAudit);
+            Assert.Equal(_fixture.OrganizationAId, rrAudit!.OrganizationId);
+            Assert.Equal(_fixture.UserAId, rrAudit.ActorUserId);
+            Assert.Equal(_fixture.EmployeeAId, rrAudit.ActorEmployeeId);
+            Assert.Equal(_fixture.BranchA1Id, rrAudit.BranchId);
+            Assert.Equal(AuditActorType.AI_ASSISTED, rrAudit.ActorType);
+            Assert.Equal("PRODUCT_REORDER_RULE", rrAudit.EntityName);
+        }
+        finally
+        {
+            await uow.RollbackTransactionAsync();
+        }
 
         // 7. Canonical Idempotency Replay & Mismatch
         var rrReplayResp = await client.SendAsync(CreateRequest(HttpMethod.Put, "/api/v1/canonical/configuration/reorder-rules", rrConfigReq, rrConfigKey));
@@ -1505,8 +1435,13 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         var content = new StringContent("{ this is definitely not valid json }", Encoding.UTF8, "application/json");
 
         var resp = await client.PostAsync("/api/v1/products", content);
-        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        // InvalidModelStateResponseFactory returns unified 422 VALIDATION_ERROR envelope for model-binding/JSON failures.
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
         Assert.True(resp.Headers.Contains("X-Trace-Id"));
+        var errEnv = await resp.Content.ReadFromJsonAsync<ApiErrorEnvelopeDto>(JsonOptions);
+        Assert.NotNull(errEnv);
+        Assert.Equal("VALIDATION_ERROR", errEnv!.Error.Code);
+        Assert.False(string.IsNullOrWhiteSpace(errEnv.Error.TraceId));
     }
 
     [SkipWhenPostgresUnavailableFact]
@@ -2328,19 +2263,28 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         using (var scope = _fixture.Factory.Services.CreateScope())
         {
             var tenant = (TenantContext)scope.ServiceProvider.GetRequiredService<ITenantContext>();
-            tenant.AllowSystemBypass();
+            tenant.SetTenant(_fixture.OrganizationAId);
+            var uow = scope.ServiceProvider.GetRequiredService<PharmacyERP.Application.Common.Interfaces.Persistence.IUnitOfWork>();
             var db = scope.ServiceProvider.GetRequiredService<PharmacyDbContext>();
-            var audit = await db.AuditLogs
-                .AsNoTracking()
-                .FirstOrDefaultAsync(a => a.OrganizationId == _fixture.OrganizationAId &&
-                                         a.SourcePromptId == pPromptId &&
-                                         a.EntityId == pResult!.TargetEntityId);
+            await uow.BeginTransactionAsync();
+            try
+            {
+                var audit = await db.AuditLogs
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(a => a.OrganizationId == _fixture.OrganizationAId &&
+                                             a.SourcePromptId == pPromptId &&
+                                             a.EntityId == pResult!.TargetEntityId);
 
-            Assert.NotNull(audit);
-            Assert.Equal(AuditActorType.AI_ASSISTED, audit!.ActorType);
-            Assert.Equal(_fixture.UserAId, audit.ActorUserId);
-            Assert.Equal(_fixture.EmployeeAId, audit.ActorEmployeeId);
-            Assert.NotEqual(Guid.Empty, audit.ActorUserId);
+                Assert.NotNull(audit);
+                Assert.Equal(AuditActorType.AI_ASSISTED, audit!.ActorType);
+                Assert.Equal(_fixture.UserAId, audit.ActorUserId);
+                Assert.Equal(_fixture.EmployeeAId, audit.ActorEmployeeId);
+                Assert.NotEqual(Guid.Empty, audit.ActorUserId);
+            }
+            finally
+            {
+                await uow.RollbackTransactionAsync();
+            }
         }
 
         // 2. Raw JSON containing caller-injected actor fields sent to PUT /canonical/configuration/reorder-rules
@@ -2375,17 +2319,26 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         using (var scope = _fixture.Factory.Services.CreateScope())
         {
             var tenant = (TenantContext)scope.ServiceProvider.GetRequiredService<ITenantContext>();
-            tenant.AllowSystemBypass();
+            tenant.SetTenant(_fixture.OrganizationAId);
+            var uow = scope.ServiceProvider.GetRequiredService<PharmacyERP.Application.Common.Interfaces.Persistence.IUnitOfWork>();
             var db = scope.ServiceProvider.GetRequiredService<PharmacyDbContext>();
-            var audit = await db.AuditLogs
-                .AsNoTracking()
-                .FirstOrDefaultAsync(a => a.OrganizationId == _fixture.OrganizationAId &&
-                                         a.SourcePromptId == rrPromptId);
+            await uow.BeginTransactionAsync();
+            try
+            {
+                var audit = await db.AuditLogs
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(a => a.OrganizationId == _fixture.OrganizationAId &&
+                                             a.SourcePromptId == rrPromptId);
 
-            Assert.NotNull(audit);
-            Assert.Equal(AuditActorType.AI_ASSISTED, audit!.ActorType);
-            Assert.Equal(_fixture.UserAId, audit.ActorUserId);
-            Assert.NotEqual(Guid.Empty, audit.ActorUserId);
+                Assert.NotNull(audit);
+                Assert.Equal(AuditActorType.AI_ASSISTED, audit!.ActorType);
+                Assert.Equal(_fixture.UserAId, audit.ActorUserId);
+                Assert.NotEqual(Guid.Empty, audit.ActorUserId);
+            }
+            finally
+            {
+                await uow.RollbackTransactionAsync();
+            }
         }
     }
 
@@ -2546,23 +2499,23 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
     {
         var client = CreateClient("Pharmacist");
 
-        // 1. Malformed JSON
+        // 1. Malformed JSON (InvalidModelStateResponseFactory returns unified 422 ApiErrorEnvelopeDto)
         var malformedContent = new StringContent("{ \"sku\": \"broken json ...", Encoding.UTF8, "application/json");
         var malformedResp = await client.PostAsync("/api/v1/products", malformedContent);
-        Assert.Equal(HttpStatusCode.BadRequest, malformedResp.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, malformedResp.StatusCode);
 
         var malformedBody = await malformedResp.Content.ReadAsStringAsync();
         using var malformedDoc = JsonDocument.Parse(malformedBody);
         var malformedRoot = malformedDoc.RootElement;
 
-        // ASP.NET Core default model binding produces ProblemDetails for unparseable JSON
+        // InvalidModelStateResponseFactory produces ApiErrorEnvelopeDto for unparseable JSON
         Assert.True(malformedRoot.TryGetProperty("title", out _) || malformedRoot.TryGetProperty("errors", out _) || malformedRoot.TryGetProperty("error", out _),
             "Observed shape must be either ASP.NET Core ProblemDetails or ApiErrorEnvelopeDto.");
 
         // 2. Empty Body on create endpoint
         var emptyContent = new StringContent(string.Empty, Encoding.UTF8, "application/json");
         var emptyResp = await client.PostAsync("/api/v1/products", emptyContent);
-        Assert.Equal(HttpStatusCode.BadRequest, emptyResp.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, emptyResp.StatusCode);
 
         var emptyBody = await emptyResp.Content.ReadAsStringAsync();
         using var emptyDoc = JsonDocument.Parse(emptyBody);
@@ -3008,7 +2961,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         Assert.Equal(HttpStatusCode.OK, bothReplayResp.StatusCode);
 
         // =========================================================================
-        // 8. Different required body property omitted (even with Idempotency-Key header present) -> STILL REJECTED (400 Bad Request)
+        // 8. Different required body property omitted (even with Idempotency-Key header present) -> STILL REJECTED (422 Unprocessable Entity)
         // =========================================================================
         // 8a. Omitting required "code" on POST /api/v1/product-categories
         var missingCodeJson = """
@@ -3017,7 +2970,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         }
         """;
         var missingCodeResp = await client.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/product-categories", missingCodeJson, Guid.NewGuid().ToString()));
-        Assert.Equal(HttpStatusCode.BadRequest, missingCodeResp.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, missingCodeResp.StatusCode);
 
         // 8b. Omitting required "name" and "sku" on POST /api/v1/products
         var missingSkuJson = $$"""
@@ -3030,7 +2983,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         }
         """;
         var missingSkuResp = await client.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/products", missingSkuJson, Guid.NewGuid().ToString()));
-        Assert.Equal(HttpStatusCode.BadRequest, missingSkuResp.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, missingSkuResp.StatusCode);
 
         // 8c. Omitting required "sourcePromptId" on POST /api/v1/canonical/configuration/products
         var missingPromptJson = $$"""
@@ -3042,13 +2995,13 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         }
         """;
         var missingPromptResp = await client.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/canonical/configuration/products", missingPromptJson, Guid.NewGuid().ToString()));
-        Assert.Equal(HttpStatusCode.BadRequest, missingPromptResp.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, missingPromptResp.StatusCode);
 
         // =========================================================================
-        // 9. Malformed JSON (even with Idempotency-Key header present) -> STILL REJECTED (400 Bad Request)
+        // 9. Malformed JSON (even with Idempotency-Key header present) -> STILL REJECTED (422 Unprocessable Entity)
         // =========================================================================
         var malformedWithHeaderResp = await client.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/product-categories", "{ \"code\": \"BROKEN\", ", Guid.NewGuid().ToString()));
-        Assert.Equal(HttpStatusCode.BadRequest, malformedWithHeaderResp.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, malformedWithHeaderResp.StatusCode);
 
         var wrongTypeIdempotencyKeyJson = $$"""
         {
@@ -3058,19 +3011,19 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         }
         """;
         var wrongTypeResp = await client.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/product-categories", wrongTypeIdempotencyKeyJson, Guid.NewGuid().ToString()));
-        Assert.Equal(HttpStatusCode.BadRequest, wrongTypeResp.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, wrongTypeResp.StatusCode);
 
         // =========================================================================
         // 10. Unrelated endpoints not supporting header-based idempotency remain completely unaffected
         // =========================================================================
-        var adminClient = CreateClient("Admin");
+        var adminClient = CreateClient("Admin", branchScope: "ALL");
         var invalidBranchJson = """
         {
             "branchCode": "BR-ONLY"
         }
         """;
         var unrelatedBranchResp = await adminClient.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/branches", invalidBranchJson, Guid.NewGuid().ToString()));
-        Assert.Equal(HttpStatusCode.BadRequest, unrelatedBranchResp.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, unrelatedBranchResp.StatusCode);
     }
 
     [SkipWhenPostgresUnavailableFact]
@@ -3140,7 +3093,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
     public void AllowHeaderIdempotencyKeyAttribute_RemovesOnlyImplicitRequiredError_PreservesAllOtherModelStateErrors()
     {
         var filterType = typeof(ProductCategoriesController).Assembly
-            .GetType("PharmacyERP.Api.Controllers.AllowHeaderIdempotencyKeyAttribute");
+            .GetType("PharmacyERP.Api.Filters.AllowHeaderIdempotencyKeyAttribute");
         Assert.NotNull(filterType);
 
         var filter = (Microsoft.AspNetCore.Mvc.Filters.ActionFilterAttribute)Activator.CreateInstance(filterType!)!;

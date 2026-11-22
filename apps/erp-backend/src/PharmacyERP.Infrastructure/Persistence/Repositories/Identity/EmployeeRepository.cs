@@ -1,10 +1,3 @@
-using Microsoft.EntityFrameworkCore;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Features.Identity.Interfaces;
-using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Infrastructure.Persistence.Database;
-using PharmacyERP.Infrastructure.Persistence.Repositories;
-
 namespace PharmacyERP.Infrastructure.Persistence.Repositories.Identity;
 
 public sealed class EmployeeRepository : GenericRepository<Employee>, IEmployeeRepository

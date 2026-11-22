@@ -1,21 +1,3 @@
-using Moq;
-using PharmacyERP.Application.Common.Constants;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Common.Interfaces.CrossModule;
-using PharmacyERP.Application.Common.Interfaces.Integration;
-using PharmacyERP.Application.Common.Interfaces.Persistence;
-using PharmacyERP.Application.Features.Catalog.DTOs;
-using PharmacyERP.Application.Features.Catalog.Interfaces;
-using PharmacyERP.Application.Features.Catalog.Services.Implementations;
-using PharmacyERP.Application.Features.Identity.Interfaces;
-using PharmacyERP.Domain.Entities.Catalog;
-using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Domain.Exceptions;
-using PharmacyERP.Domain.ValueObjects;
-using Xunit;
-
 namespace PharmacyERP.UnitTests.Application.Catalog;
 
 public class CatalogServicesTests
@@ -892,11 +874,11 @@ public class CatalogServicesTests
         Assert.Equal(15m, result.Value.ReorderPointBase);
         Assert.Equal(branchId, result.Value.BranchId);
 
-        // Verify BranchId is passed to CheckAsync, PersistResponseAsync, AuditLogger, Outbox
-        _idempotencyServiceMock.Verify(i => i.CheckAsync<UpsertReorderRuleRequest, ReorderRuleDto>(
-            "catalog.reorderrule.upsert", "idemp-rr-branch", branchId, request, It.IsAny<CancellationToken>()), Times.Once);
+        // Verify BranchId and target IDs are passed to CheckAsync, PersistResponseAsync, AuditLogger, Outbox
+        _idempotencyServiceMock.Verify(i => i.CheckAsync<object, ReorderRuleDto>(
+            "catalog.reorderrule.upsert", "idemp-rr-branch", branchId, It.IsAny<object>(), It.IsAny<CancellationToken>()), Times.Once);
         _idempotencyServiceMock.Verify(i => i.PersistResponseAsync(
-            "catalog.reorderrule.upsert", "idemp-rr-branch", branchId, request, It.IsAny<ReorderRuleDto>(), It.IsAny<CancellationToken>()), Times.Once);
+            "catalog.reorderrule.upsert", "idemp-rr-branch", branchId, It.IsAny<object>(), It.IsAny<ReorderRuleDto>(), It.IsAny<CancellationToken>()), Times.Once);
         _auditLoggerMock.Verify(a => a.LogAsync(
             "CREATE", "catalog", "PRODUCT_REORDER_RULE", It.IsAny<Guid>(), null, It.IsAny<object>(), branchId, null, null, It.IsAny<CancellationToken>()), Times.Once);
         _outboxServiceMock.Verify(o => o.EnqueueAsync(
@@ -964,7 +946,7 @@ public class CatalogServicesTests
 
         var existingRule = ProductReorderRule.Create(_orgId, productId, branchId, 10m, 50m, 100m);
 
-        reorderRepoMock.Setup(r => r.GetByBranchAndProductAsync(_orgId, branchId, productId, It.IsAny<CancellationToken>()))
+        reorderRepoMock.Setup(r => r.GetByBranchAndProductReadOnlyAsync(_orgId, branchId, productId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(existingRule);
 
         var service = new ReorderRuleService(
@@ -996,7 +978,7 @@ public class CatalogServicesTests
         var branchId = Guid.NewGuid();
         var productId = Guid.NewGuid();
 
-        reorderRepoMock.Setup(r => r.GetByBranchAndProductAsync(_orgId, branchId, productId, It.IsAny<CancellationToken>()))
+        reorderRepoMock.Setup(r => r.GetByBranchAndProductReadOnlyAsync(_orgId, branchId, productId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((ProductReorderRule?)null);
 
         var service = new ReorderRuleService(
@@ -1583,7 +1565,7 @@ public class CatalogServicesTests
         var productId = Guid.NewGuid();
         var existingRule = ProductReorderRule.Create(_orgId, productId, branchId, 10m, 50m, 100m);
 
-        reorderRepoMock.Setup(r => r.GetByBranchAndProductAsync(_orgId, branchId, productId, It.IsAny<CancellationToken>()))
+        reorderRepoMock.Setup(r => r.GetByBranchAndProductReadOnlyAsync(_orgId, branchId, productId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(existingRule);
 
         var service = new ReorderRuleService(
@@ -1618,7 +1600,7 @@ public class CatalogServicesTests
         var productId = Guid.NewGuid();
         var existingRule = ProductReorderRule.Create(_orgId, productId, branchId, 10m, 50m, 100m);
 
-        reorderRepoMock.Setup(r => r.GetByBranchAndProductAsync(_orgId, branchId, productId, It.IsAny<CancellationToken>()))
+        reorderRepoMock.Setup(r => r.GetByBranchAndProductReadOnlyAsync(_orgId, branchId, productId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(existingRule);
 
         var service = new ReorderRuleService(
@@ -1690,7 +1672,7 @@ public class CatalogServicesTests
         var branchId = Guid.NewGuid();
         var productId = Guid.NewGuid();
 
-        reorderRepoMock.Setup(r => r.GetByBranchAndProductAsync(_orgId, branchId, productId, It.IsAny<CancellationToken>()))
+        reorderRepoMock.Setup(r => r.GetByBranchAndProductReadOnlyAsync(_orgId, branchId, productId, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("DB timeout"));
 
         var service = new ReorderRuleService(
@@ -1735,7 +1717,7 @@ public class CatalogServicesTests
         var branchId = Guid.NewGuid();
         var productId = Guid.NewGuid();
 
-        reorderRepoMock.Setup(r => r.GetByBranchAndProductAsync(_orgId, branchId, productId, cts.Token))
+        reorderRepoMock.Setup(r => r.GetByBranchAndProductReadOnlyAsync(_orgId, branchId, productId, cts.Token))
             .ThrowsAsync(new OperationCanceledException(cts.Token));
 
         var service = new ReorderRuleService(

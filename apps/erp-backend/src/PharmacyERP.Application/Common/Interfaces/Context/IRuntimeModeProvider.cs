@@ -1,6 +1,4 @@
-﻿using PharmacyERP.Domain.Enums;
-
-namespace PharmacyERP.Application.Common.Interfaces.Context
+﻿namespace PharmacyERP.Application.Common.Interfaces.Context
 {
     public interface IRuntimeModeProvider
     {

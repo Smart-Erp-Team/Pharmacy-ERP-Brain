@@ -1,13 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Features.Inventory.DTOs;
-using PharmacyERP.Application.Features.Inventory.Services.Interfaces;
-using PharmacyERP.Domain.Enums;
-using System;
-using System.Threading;
-using System.Threading.Tasks;
+#nullable enable
 
 namespace PharmacyERP.Api.Controllers;
 
@@ -25,7 +16,7 @@ public class InventoryLocationsController : ControllerBase
     }
 
     [HttpGet]
-    [Authorize(Roles = "Admin,Pharmacist,Cashier")] 
+    [Authorize(Roles = "Admin,Pharmacist,Cashier")]
     public async Task<IActionResult> GetLocations(
         [FromQuery] Guid branchId,
         [FromQuery] bool? isSellable,
@@ -35,60 +26,45 @@ public class InventoryLocationsController : ControllerBase
         CancellationToken ct = default)
     {
         var result = await _locationService.GetPagedAsync(branchId, isSellable, includeInactive, page, pageSize, ct);
-        return HandleResult(result);
+        return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
     }
 
+    [AllowHeaderIdempotencyKey]
     [HttpPost]
-    [Authorize(Roles = "Admin,Pharmacist")] 
+    [Authorize(Roles = "Admin,Pharmacist")]
     public async Task<IActionResult> CreateLocation(
         [FromBody] CreateInventoryLocationRequest request,
-        [FromHeader(Name = "Idempotency-Key")] string idempotencyKey, 
-        CancellationToken ct)
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken ct = default)
     {
-        var requestWithKey = request with { IdempotencyKey = idempotencyKey };
+        if (request == null)
+        {
+            return ApiResultMapper.ToErrorResult(this, ErrorCode.MALFORMED_REQUEST, ErrorMessages.MalformedRequest, _currentUser.TraceId);
+        }
+
+        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey : request.IdempotencyKey ?? string.Empty;
+        var requestWithKey = request with { IdempotencyKey = effectiveKey };
         var result = await _locationService.CreateAsync(requestWithKey, ct);
-        return HandleResult(result);
+        return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
     }
 
+    [AllowHeaderIdempotencyKey]
     [HttpPatch("{id:guid}")]
-    [Authorize(Roles = "Admin,Pharmacist")] 
+    [Authorize(Roles = "Admin,Pharmacist")]
     public async Task<IActionResult> UpdateLocation(
         Guid id,
         [FromBody] UpdateInventoryLocationRequest request,
-        [FromHeader(Name = "Idempotency-Key")] string idempotencyKey,
-        CancellationToken ct)
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken ct = default)
     {
-        var requestWithKey = request with { IdempotencyKey = idempotencyKey };
-        var result = await _locationService.UpdateAsync(id, requestWithKey, ct);
-        return HandleResult(result);
-    }
-
-    private IActionResult HandleResult<T>(Result<T> result)
-    {
-        if (result.IsSuccess)
+        if (request == null)
         {
-            return Ok(result.Value);
+            return ApiResultMapper.ToErrorResult(this, ErrorCode.MALFORMED_REQUEST, ErrorMessages.MalformedRequest, _currentUser.TraceId);
         }
 
-        var statusCode = result.ErrorCode switch
-        {
-            ErrorCode.NOT_FOUND => 404,
-            ErrorCode.FORBIDDEN_BRANCH => 403,
-            ErrorCode.UNAUTHORIZED => 401,
-            ErrorCode.OUT_OF_STOCK => 409,
-            ErrorCode.CONFLICT => 409,
-            ErrorCode.VALIDATION_ERROR => 422,
-            _ => 400
-        };
-
-        var errorResponse = new ApiErrorEnvelopeDto(
-            Error: new ApiErrorBodyDto(
-                Code: result.ErrorCode?.ToString() ?? ErrorCode.MALFORMED_REQUEST.ToString(),
-                Message: result.ErrorMessage ?? string.Empty,
-                Details: result.ErrorDetails ?? Array.Empty<ApiErrorDetailDto>(),
-                TraceId: _currentUser.TraceId)
-        );
-
-        return StatusCode(statusCode, errorResponse);
+        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey : request.IdempotencyKey ?? string.Empty;
+        var requestWithKey = request with { IdempotencyKey = effectiveKey };
+        var result = await _locationService.UpdateAsync(id, requestWithKey, ct);
+        return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
     }
 }

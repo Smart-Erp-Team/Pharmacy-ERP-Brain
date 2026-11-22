@@ -1,16 +1,17 @@
-﻿using System.Net;
-using System.Text.Json;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
-using PharmacyERP.Application.Common.DTOs;
+using Microsoft.EntityFrameworkCore;
 using PharmacyERP.Application.Common.Exceptions;
-using PharmacyERP.Domain.Enums;
 using PharmacyERP.Domain.Exceptions;
 
 namespace PharmacyERP.Api.Middleware;
 
+/// <summary>
+/// Global HTTP exception middleware that translates domain, application, EF Core concurrency,
+/// and PostgreSQL SQLSTATE exceptions into standardized <see cref="ApiErrorEnvelopeDto"/> responses.
+/// </summary>
 public class ExceptionHandlingMiddleware
 {
+    public const string HandledExceptionItemKey = "__PharmacyErp_HandledException";
+
     private readonly RequestDelegate _next;
     private readonly ILogger<ExceptionHandlingMiddleware> _logger;
 
@@ -26,15 +27,25 @@ public class ExceptionHandlingMiddleware
         {
             await _next(context);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException exception) when (context.RequestAborted.IsCancellationRequested)
         {
-            _logger.LogError(ex, "An unhandled exception occurred during request processing.");
-            await HandleExceptionAsync(context, ex);
+            _logger.LogInformation(exception, "Request was cancelled by the client.");
+        }
+        catch (Exception exception)
+        {
+            context.Items[HandledExceptionItemKey] = exception;
+            _logger.LogError(exception, "An unhandled exception occurred during request processing.");
+            await HandleExceptionAsync(context, exception);
         }
     }
 
     private static async Task HandleExceptionAsync(HttpContext context, Exception exception)
     {
+        if (context.Response.HasStarted || context.RequestAborted.IsCancellationRequested)
+        {
+            return;
+        }
+
         var (statusCode, errorCode, message, details) = MapException(exception);
 
         context.Response.ContentType = "application/json";
@@ -45,8 +56,8 @@ public class ExceptionHandlingMiddleware
         var errorBody = new ApiErrorBodyDto(errorCode, message, details, traceId);
         var errorEnvelope = new ApiErrorEnvelopeDto(errorBody);
 
-        var result = JsonSerializer.Serialize(errorEnvelope);
-        await context.Response.WriteAsync(result);
+        var serializedError = JsonSerializer.Serialize(errorEnvelope);
+        await context.Response.WriteAsync(serializedError, context.RequestAborted);
     }
 
     private static (HttpStatusCode StatusCode, string ErrorCode, string Message, IReadOnlyList<ApiErrorDetailDto> Details) MapException(Exception exception)
@@ -55,15 +66,36 @@ public class ExceptionHandlingMiddleware
 
         switch (exception)
         {
-            case AppException appEx:
-                return (MapErrorCodeToHttpStatus(appEx.ErrorCode), appEx.ErrorCode.ToString(), appEx.Message, appEx.Details);
+            case ValidationException validationException:
+                var validationDetails = validationException.Errors
+                    .SelectMany(entry => (entry.Value ?? Array.Empty<string>())
+                        .Select(errorMessage => new ApiErrorDetailDto(entry.Key, errorMessage)))
+                    .ToList();
+                return (HttpStatusCode.UnprocessableEntity, ErrorCode.VALIDATION_ERROR.ToString(), validationException.Message, validationDetails);
 
-            case IntegrationDomainException intEx when string.Equals(intEx.Message, "IDEMPOTENCY_MISMATCH", StringComparison.OrdinalIgnoreCase)
-                                                    || intEx.GetType().Name.Contains("IdempotencyMismatch", StringComparison.OrdinalIgnoreCase):
-                return (HttpStatusCode.Conflict, ErrorCode.IDEMPOTENCY_MISMATCH.ToString(), intEx.Message, emptyDetails);
+            case AppException appException:
+                return (MapErrorCodeToHttpStatus(appException.ErrorCode), appException.ErrorCode.ToString(), appException.Message, appException.Details);
 
-            case DomainException domainEx:
-                return (HttpStatusCode.UnprocessableEntity, ErrorCode.VALIDATION_ERROR.ToString(), domainEx.Message, emptyDetails);
+            case IntegrationDomainException integrationException when string.Equals(integrationException.Message, "IDEMPOTENCY_MISMATCH", StringComparison.OrdinalIgnoreCase)
+                                                    || integrationException.GetType().Name.Contains("IdempotencyMismatch", StringComparison.OrdinalIgnoreCase):
+                return (HttpStatusCode.Conflict, ErrorCode.IDEMPOTENCY_MISMATCH.ToString(), integrationException.Message, emptyDetails);
+
+            case DomainException domainException:
+                return (HttpStatusCode.UnprocessableEntity, ErrorCode.VALIDATION_ERROR.ToString(), domainException.Message, emptyDetails);
+
+            // Optimistic concurrency token (row_version) mismatch surfaced by EF Core.
+            case DbUpdateConcurrencyException:
+                return (HttpStatusCode.Conflict, ErrorCode.CONFLICT.ToString(), "The resource was modified by another concurrent request. Please retry.", emptyDetails);
+
+            // PostgreSQL serialization_failure (40001) and deadlock_detected (40P01) map to retryable 409 Conflict.
+            case PostgresException postgresException when postgresException.SqlState is "40001" or "40P01":
+            case DbUpdateException dbUpdateException when dbUpdateException.InnerException is PostgresException { SqlState: "40001" or "40P01" }:
+                return (HttpStatusCode.Conflict, ErrorCode.CONFLICT.ToString(), "The request conflicted with a concurrent transaction. Please retry.", emptyDetails);
+
+            // PostgreSQL unique_violation (23505) maps to 409 Conflict.
+            case PostgresException postgresUniqueException when postgresUniqueException.SqlState == "23505":
+            case DbUpdateException dbUniqueException when dbUniqueException.InnerException is PostgresException { SqlState: "23505" }:
+                return (HttpStatusCode.Conflict, ErrorCode.CONFLICT.ToString(), "A conflicting record with the same unique value already exists.", emptyDetails);
 
             case JsonException:
                 return (HttpStatusCode.BadRequest, ErrorCode.MALFORMED_REQUEST.ToString(), "Malformed JSON request payload.", emptyDetails);
@@ -71,11 +103,8 @@ public class ExceptionHandlingMiddleware
             case UnauthorizedAccessException:
                 return (HttpStatusCode.Forbidden, ErrorCode.FORBIDDEN.ToString(), "You do not have permission to perform this action.", emptyDetails);
 
-            case KeyNotFoundException notFoundEx:
-                return (HttpStatusCode.NotFound, ErrorCode.NOT_FOUND.ToString(), notFoundEx.Message, emptyDetails);
-
-            case InvalidOperationException invalidOpEx:
-                return (HttpStatusCode.BadRequest, ErrorCode.MALFORMED_REQUEST.ToString(), invalidOpEx.Message, emptyDetails);
+            case KeyNotFoundException notFoundException:
+                return (HttpStatusCode.NotFound, ErrorCode.NOT_FOUND.ToString(), notFoundException.Message, emptyDetails);
 
             default:
                 return (HttpStatusCode.InternalServerError, "INTERNAL_SERVER_ERROR", "An unexpected error occurred.", emptyDetails);

@@ -1,13 +1,9 @@
-﻿using System.Text.Encodings.Web;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Common.Interfaces.Integration;
-using PharmacyERP.Application.Features.Integration.Interfaces;
-using PharmacyERP.Domain.Entities.Integration;
-
 namespace PharmacyERP.Application.Features.Integration.Services.Implementations;
 
+/// <summary>
+/// Appends domain integration events to the tenant's transactional outbox using a row-locked
+/// per-organization sequence cursor so event ordering stays strictly monotonic across concurrent writers.
+/// </summary>
 public class OutboxService : IOutboxService
 {
     private static readonly JsonSerializerOptions OutboxJsonOptions = new()
@@ -39,25 +35,30 @@ public class OutboxService : IOutboxService
             throw new InvalidOperationException("OrganizationId is required to enqueue outbox events.");
         }
 
-        var orgId = _tenantContext.OrganizationId.Value;
+        var organizationId = _tenantContext.OrganizationId.Value;
 
-        var cursor = await _repository.LockAndGetCursorAsync(orgId, ct);
+        // Lock the tenant's cursor row (SELECT ... FOR UPDATE) so concurrent transactions allocate
+        // strictly increasing, gap-free event sequences within the organization.
+        var cursor = await _repository.LockAndGetCursorAsync(organizationId, ct);
         if (cursor == null)
         {
             throw new InvalidOperationException("OutboxEventCursor missing. Ensure PlatformProvisioner created the initial cursor.");
         }
 
-        var nextSequence = cursor.AllocateNextSequence(_dateTimeProvider.UtcNow);
+        var now = _dateTimeProvider.UtcNow;
+        var nextSequence = cursor.AllocateNextSequence(now);
         var payloadJson = JsonSerializer.Serialize(payload, OutboxJsonOptions);
 
         var outboxEvent = new OutboxEvent(
             Guid.NewGuid(),
-            orgId,
+            organizationId,
             branchId,
             nextSequence,
             eventType,
             payloadJson,
-            _currentUser.TraceId
+            _currentUser.TraceId,
+            schemaVersion,
+            now
         );
 
         await _repository.AddEventAsync(outboxEvent, ct);

@@ -1,8 +1,4 @@
-﻿using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Features.Integration.DTOs;
-using PharmacyERP.Application.Features.Integration.Services.Interfaces;
-
-namespace PharmacyERP.Application.Features.Integration.Services.Implementations;
+﻿namespace PharmacyERP.Application.Features.Integration.Services.Implementations;
 
 public class CanonicalCapabilitiesService : ICanonicalCapabilitiesService
 {

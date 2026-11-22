@@ -1,12 +1,9 @@
-using System.Text.Json;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
-using PharmacyERP.Infrastructure.Auth;
-
 namespace PharmacyERP.Api.Auth;
 
+/// <summary>
+/// Registers a startup middleware serving the active RSA public signing key at
+/// <c>GET /.well-known/jwks.json</c> for external token verification.
+/// </summary>
 public static class JwksEndpointExtensions
 {
     public static IServiceCollection AddJwksEndpoint(this IServiceCollection services)

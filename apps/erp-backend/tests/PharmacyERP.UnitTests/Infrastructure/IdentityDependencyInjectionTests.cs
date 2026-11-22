@@ -1,11 +1,5 @@
 using Microsoft.AspNetCore.Identity;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using PharmacyERP.Application.Features.Identity.Interfaces;
-using PharmacyERP.Domain.Entities.Identity;
 using PharmacyERP.Infrastructure;
-using PharmacyERP.Infrastructure.Auth;
-using PharmacyERP.Infrastructure.Persistence.Repositories.Identity;
 
 namespace PharmacyERP.UnitTests.Infrastructure;
 
@@ -15,7 +9,12 @@ public sealed class IdentityDependencyInjectionTests
     public void AddInfrastructureServices_RegistersIdentityDependenciesWithExpectedLifetimes()
     {
         var services = new ServiceCollection();
-        var configuration = new ConfigurationBuilder().Build();
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DefaultConnection"] = "Host=localhost;Database=erp_db;Username=erp_app;Password=test-only"
+            })
+            .Build();
 
         services.AddInfrastructureServices(configuration);
 
@@ -31,6 +30,15 @@ public sealed class IdentityDependencyInjectionTests
 
         var keyProvider = Assert.Single(services, x => x.ServiceType == typeof(JwksKeyProvider));
         Assert.Equal(ServiceLifetime.Singleton, keyProvider.Lifetime);
+    }
+
+    [Fact]
+    public void AddInfrastructureServices_ThrowsWhenDefaultConnectionStringIsMissing()
+    {
+        var services = new ServiceCollection();
+        var configuration = new ConfigurationBuilder().Build();
+
+        Assert.Throws<InvalidOperationException>(() => services.AddInfrastructureServices(configuration));
     }
 
     private static void AssertScoped<TService, TImplementation>(IServiceCollection services)

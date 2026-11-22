@@ -1,9 +1,11 @@
-using System;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Domain.Exceptions;
-
 namespace PharmacyERP.Domain.Entities.Inventory;
 
+/// <summary>
+/// A single ledger line. Quantities are captured both as entered (<see cref="EnteredQty"/> in the
+/// chosen product UOM) and as a signed base-unit delta (<see cref="QuantityDeltaBase"/>):
+/// positive adds stock, negative removes it. <see cref="ConversionSnapshot"/> freezes the UOM's
+/// conversion-to-base factor at posting time so later UOM changes cannot alter historical lines.
+/// </summary>
 public class InventoryTxnLine
 {
     public Guid InventoryTxnLineId { get; private set; }
@@ -125,12 +127,15 @@ public class InventoryTxnLine
         if (batchId == Guid.Empty) throw new ArgumentException("BatchId cannot be empty.", nameof(batchId));
         if (productUomId == Guid.Empty) throw new ArgumentException("ProductUomId cannot be empty.", nameof(productUomId));
 
+        // Entered quantity and conversion factor are always positive; direction lives only in the
+        // sign of QuantityDeltaBase, which therefore can never be zero. Cost may be zero but not negative.
         if (enteredQty <= 0m || conversionSnapshot <= 0m || quantityDeltaBase == 0m || unitCostBase < 0m)
         {
             throw new InvalidTransactionSignOrLineMathException();
         }
 
         // Check math accuracy: abs(quantity_delta_base) = round(entered_qty * conversion_snapshot, 4)
+        // (the base-unit magnitude must match the entered UOM quantity converted to base units).
         decimal expectedAbsDelta = Math.Round(enteredQty * conversionSnapshot, 4, MidpointRounding.AwayFromZero);
         if (Math.Abs(quantityDeltaBase) != expectedAbsDelta)
         {
@@ -140,6 +145,7 @@ public class InventoryTxnLine
         // Check delta sign based on transaction type
         switch (transactionType)
         {
+            // Inbound types (including OPENING_BALANCE) must strictly increase stock.
             case InventoryTransactionType.OPENING_BALANCE:
             case InventoryTransactionType.ADJUSTMENT_IN:
             case InventoryTransactionType.SALES_RETURN_IN:
@@ -147,6 +153,7 @@ public class InventoryTxnLine
                 if (quantityDeltaBase <= 0m) throw new InvalidTransactionSignOrLineMathException();
                 break;
 
+            // Outbound types must strictly decrease stock.
             case InventoryTransactionType.ADJUSTMENT_OUT:
             case InventoryTransactionType.SALE_ISSUE:
             case InventoryTransactionType.VENDOR_RETURN_OUT:
@@ -155,7 +162,8 @@ public class InventoryTxnLine
                 break;
 
             case InventoryTransactionType.REVERSAL:
-                // Reversal lines invert the original transaction's delta sign
+                // Reversal lines invert the original transaction's delta sign, so either sign is
+                // valid here; the caller derives the delta by negating the original line.
                 break;
 
             default:

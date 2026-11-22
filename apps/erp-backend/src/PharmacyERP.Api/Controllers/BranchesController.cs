@@ -1,9 +1,3 @@
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Features.Identity.DTOs;
-using PharmacyERP.Application.Features.Identity.Services.Interfaces;
-
 namespace PharmacyERP.Api.Controllers;
 
 [ApiController]
@@ -19,7 +13,7 @@ public sealed class BranchesController : ControllerBase
         [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default)
         => ApiResultMapper.ToActionResult(this, await _service.GetPagedAsync(includeInactive, search, page, pageSize, ct), _currentUser.TraceId);
 
-    [Authorize(Policy = "AdminOnly"), HttpPost("branches")]
+    [Authorize(Policy = "OrgAdminOnly"), HttpPost("branches")]
     public async Task<IActionResult> Create([FromBody] CreateBranchRequest request, CancellationToken ct)
         => ApiResultMapper.ToActionResult(this, await _service.CreateAsync(request, ct), _currentUser.TraceId);
 

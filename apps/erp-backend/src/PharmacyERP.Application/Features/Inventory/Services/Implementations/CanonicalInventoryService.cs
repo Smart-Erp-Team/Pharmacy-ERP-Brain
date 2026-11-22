@@ -1,35 +1,32 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using PharmacyERP.Application.Common.Constants;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Features.Integration.DTOs;
-using PharmacyERP.Application.Features.Inventory.Interfaces;
-using PharmacyERP.Application.Features.Inventory.Services.Interfaces;
-using PharmacyERP.Domain.Enums;
-
 namespace PharmacyERP.Application.Features.Inventory.Services.Implementations;
 
+/// <summary>
+/// Projects tenant- and branch-scoped stock balances into the canonical inventory read feed,
+/// computing sellable availability and weighted-average base unit costs per (product, location).
+/// </summary>
 public class CanonicalInventoryService : ICanonicalInventoryService
 {
     private readonly ICurrentUser _currentUser;
     private readonly IStockBalanceRepository _stockBalanceRepository;
+    private readonly IBranchRepository _branchRepository;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly ITenantContext _tenantContext;
+    private readonly IUnitOfWork _unitOfWork;
 
     public CanonicalInventoryService(
         ICurrentUser currentUser,
         IStockBalanceRepository stockBalanceRepository,
+        IBranchRepository branchRepository,
         IDateTimeProvider dateTimeProvider,
-        ITenantContext tenantContext)
+        ITenantContext tenantContext,
+        IUnitOfWork unitOfWork)
     {
         _currentUser = currentUser;
         _stockBalanceRepository = stockBalanceRepository;
+        _branchRepository = branchRepository;
         _dateTimeProvider = dateTimeProvider;
         _tenantContext = tenantContext;
+        _unitOfWork = unitOfWork;
     }
 
     public async Task<Result<PagedResult<CanonicalInventoryItemDto>>> GetCanonicalInventoryAsync(
@@ -41,86 +38,128 @@ public class CanonicalInventoryService : ICanonicalInventoryService
         int pageSize,
         CancellationToken ct)
     {
-        
-        if (!_currentUser.CanAccessBranch(branchId))
+        if (!_tenantContext.OrganizationId.HasValue || _tenantContext.OrganizationId.Value == Guid.Empty)
         {
             return Result<PagedResult<CanonicalInventoryItemDto>>.Failure(
-                ErrorCode.FORBIDDEN_BRANCH,
-                ErrorMessages.ForbiddenBranchAccess);
+                ErrorCode.UNAUTHORIZED,
+                ErrorMessages.Unauthorized);
         }
 
-        var businessDate = _dateTimeProvider.GetOrganizationBusinessDate("UTC");
-
-        
-        var balances = await _stockBalanceRepository.GetBalancesWithDetailsAsync(
-            organizationId, branchId, productId, null, null, ct);
-
-        
-        if (updatedSince.HasValue)
+        var tenantOrganizationId = _tenantContext.OrganizationId.Value;
+        if (organizationId != Guid.Empty && organizationId != tenantOrganizationId)
         {
-            balances = balances.Where(b => b.UpdatedAt >= updatedSince.Value).ToList();
+            return Result<PagedResult<CanonicalInventoryItemDto>>.Failure(
+                ErrorCode.FORBIDDEN,
+                ErrorMessages.Forbidden);
         }
 
-     
-        var allItems = balances
-            .GroupBy(b => new { b.OrganizationId, b.Location.BranchId, b.Batch.ProductId, b.LocationId })
-            .Select(g =>
+        if (branchId == Guid.Empty)
+        {
+            return Result<PagedResult<CanonicalInventoryItemDto>>.Failure(
+                ErrorCode.VALIDATION_ERROR,
+                ErrorMessages.InvalidBranchId);
+        }
+
+        var resolvedPageSize = pageSize <= 0 ? 100 : Math.Min(pageSize, 1000);
+        var offset = cursor.HasValue && cursor.Value > 0 ? (int)Math.Min(cursor.Value, int.MaxValue) : 0;
+
+        // Explicit read transaction ensures TenantRlsConnectionInterceptor sets the tenant GUC for PostgreSQL FORCE RLS.
+        var ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        try
+        {
+            if (ownsTransaction)
             {
-                var firstBalance = g.First();
+                await _unitOfWork.BeginTransactionAsync(ct);
+            }
 
-                var lots = g.Select(b =>
+            // Verify branch belongs to the authenticated tenant before checking branch scope
+            // (ALL-scope Admins pass CanAccessBranch for any GUID).
+            var branch = await _branchRepository.GetByIdAsync(tenantOrganizationId, branchId, ct);
+            if (branch is null)
+            {
+                return Result<PagedResult<CanonicalInventoryItemDto>>.Failure(
+                    ErrorCode.NOT_FOUND,
+                    ErrorMessages.NotFound);
+            }
+
+            if (!_currentUser.CanAccessBranch(branchId))
+            {
+                return Result<PagedResult<CanonicalInventoryItemDto>>.Failure(
+                    ErrorCode.FORBIDDEN_BRANCH,
+                    ErrorMessages.ForbiddenBranchAccess);
+            }
+
+            var businessDate = _dateTimeProvider.GetOrganizationBusinessDate("UTC");
+
+            var (balances, totalGroups, hasMore) = await _stockBalanceRepository.GetCanonicalInventoryPageAsync(
+                tenantOrganizationId, branchId, productId, updatedSince, offset, resolvedPageSize, ct);
+
+            var items = balances
+                .GroupBy(balance => new { balance.OrganizationId, balance.Location.BranchId, balance.Batch.ProductId, balance.LocationId })
+                .Select(group =>
                 {
-                   
-                    bool isAvailable = b.Location.IsSellable && b.Location.IsActive && b.Batch.IsEligibleForSale(businessDate);
-                    return new CanonicalInventoryLotDto(
-                        BatchId: b.BatchId,
-                        BatchNumber: b.Batch.BatchNumber,
-                        QuantityOnHandBase: b.OnHandQtyBase,
-                        AvailableQuantityBase: isAvailable ? b.OnHandQtyBase : 0m,
-                        ManufacturedOn: b.Batch.ManufacturedOn,
-                        ExpiresOn: b.Batch.ExpiresOn,
-                        QualityStatus: b.Batch.QualityStatus.ToString()
+                    var firstBalance = group.First();
+
+                    var lots = group.Select(balance =>
+                    {
+                        bool isAvailable = balance.Location.IsSellable && balance.Location.IsActive && balance.Batch.IsEligibleForSale(businessDate);
+                        return new CanonicalInventoryLotDto(
+                            BatchId: balance.BatchId,
+                            BatchNumber: balance.Batch.BatchNumber,
+                            QuantityOnHandBase: balance.OnHandQtyBase,
+                            AvailableQuantityBase: isAvailable ? balance.OnHandQtyBase : 0m,
+                            ManufacturedOn: balance.Batch.ManufacturedOn,
+                            ExpiresOn: balance.Batch.ExpiresOn,
+                            QualityStatus: balance.Batch.QualityStatus.ToString()
+                        );
+                    }).ToList();
+
+                    var totalOnHand = lots.Sum(lot => lot.QuantityOnHandBase);
+                    var totalAvailable = lots.Sum(lot => lot.AvailableQuantityBase);
+
+                    var averageUnitCostBase = totalOnHand > 0
+                        ? Math.Round(group.Sum(balance => balance.OnHandQtyBase * balance.AverageUnitCost) / totalOnHand, 4, MidpointRounding.AwayFromZero)
+                        : 0m;
+
+                    return new CanonicalInventoryItemDto(
+                        OrganizationId: group.Key.OrganizationId,
+                        BranchId: group.Key.BranchId,
+                        ProductId: group.Key.ProductId,
+                        LocationId: group.Key.LocationId,
+                        BaseUomCode: firstBalance.Batch.Product.BaseUomCode,
+                        QuantityOnHandBase: totalOnHand,
+                        AvailableQuantityBase: totalAvailable,
+                        AverageUnitCostBase: averageUnitCostBase,
+                        ReorderPointBase: firstBalance.Batch.Product.ReorderRules
+                            .FirstOrDefault(rule => rule.BranchId == branchId && rule.IsActive)?.ReorderPointBase,
+                        Lots: lots,
+                        UpdatedAt: group.Max(balance => balance.UpdatedAt)
                     );
-                }).ToList();
+                })
+                .OrderBy(item => item.ProductId).ThenBy(item => item.LocationId)
+                .ToList();
 
-                var totalOnHand = lots.Sum(l => l.QuantityOnHandBase);
-                var totalAvailable = lots.Sum(l => l.AvailableQuantityBase);
+            var page = (offset / resolvedPageSize) + 1;
+            string? nextCursor = hasMore
+                ? (offset + items.Count).ToString()
+                : null;
 
-                var averageUnitCostBase = totalOnHand > 0
-                    ? Math.Round(g.Sum(b => b.OnHandQtyBase * b.AverageUnitCost) / totalOnHand, 4, MidpointRounding.AwayFromZero)
-                    : 0m;
+            var pagedResult = new PagedResult<CanonicalInventoryItemDto>(
+                Items: items,
+                Page: page,
+                PageSize: resolvedPageSize,
+                TotalCount: totalGroups,
+                NextCursor: nextCursor
+            );
 
-                return new CanonicalInventoryItemDto(
-                    OrganizationId: g.Key.OrganizationId,
-                    BranchId: g.Key.BranchId,
-                    ProductId: g.Key.ProductId,
-                    LocationId: g.Key.LocationId,
-                    BaseUomCode: firstBalance.Batch.Product.BaseUomCode, 
-                    QuantityOnHandBase: totalOnHand,
-                    AvailableQuantityBase: totalAvailable,
-                    AverageUnitCostBase: averageUnitCostBase,
-                    ReorderPointBase: firstBalance.Batch.Product.ReorderRules
-                        .FirstOrDefault(r => r.BranchId == branchId && r.IsActive)?.ReorderPointBase,
-                    Lots: lots,
-                    UpdatedAt: g.Max(b => b.UpdatedAt)
-                );
-            })
-            .OrderBy(x => x.ProductId).ThenBy(x => x.LocationId)
-            .ToList();
-
-        var page = cursor.HasValue ? ((int)cursor.Value / pageSize) + 1 : 1;
-        var items = allItems
-            .Skip(cursor.HasValue ? (int)cursor.Value : 0)
-            .Take(pageSize)
-            .ToList();
-
-        var pagedResult = new PagedResult<CanonicalInventoryItemDto>(
-            items,
-            page,
-            pageSize,
-            allItems.Count
-        );
-
-        return Result<PagedResult<CanonicalInventoryItemDto>>.Success(pagedResult);
+            return Result<PagedResult<CanonicalInventoryItemDto>>.Success(pagedResult);
+        }
+        finally
+        {
+            if (ownsTransaction && _unitOfWork.HasActiveTransaction)
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+            }
+        }
     }
 }

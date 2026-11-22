@@ -1,6 +1,4 @@
-﻿using PharmacyERP.Domain.Enums;
-
-namespace PharmacyERP.Application.Common.Interfaces.Integration
+﻿namespace PharmacyERP.Application.Common.Interfaces.Integration
 {
     public interface IAuditLogger
     {

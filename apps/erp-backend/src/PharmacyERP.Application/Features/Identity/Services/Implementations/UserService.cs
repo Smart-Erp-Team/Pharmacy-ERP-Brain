@@ -1,17 +1,10 @@
-using PharmacyERP.Application.Common.Constants;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Common.Interfaces.Integration;
-using PharmacyERP.Application.Common.Interfaces.Persistence;
-using PharmacyERP.Application.Features.Identity.DTOs;
-using PharmacyERP.Application.Features.Identity.Interfaces;
-using PharmacyERP.Application.Features.Identity.Services.Interfaces;
-using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Domain.Exceptions;
-
 namespace PharmacyERP.Application.Features.Identity.Services.Implementations;
 
+/// <summary>
+/// Manages user accounts, branch access assignments, password resets, and session revocations.
+/// Rotates <see cref="UserAccount.SecurityStamp"/> and invalidates the validator cache whenever
+/// privileges, credentials, or active status change so existing JWTs are rejected immediately.
+/// </summary>
 public sealed class UserService : IUserService
 {
     private readonly IUserAccountRepository _users;
@@ -25,27 +18,31 @@ public sealed class UserService : IUserService
     private readonly ITenantContext _tenant;
     private readonly ICurrentUser _currentUser;
     private readonly IDateTimeProvider _clock;
+    private readonly IUserManagementAuthorizer _authorizer;
+    private readonly IUserSecurityStampValidator? _securityStampValidator;
 
     public UserService(IUserAccountRepository users, IEmployeeRepository employees, IBranchRepository branches,
         IUserRefreshTokenRepository tokens, IPasswordHasherService passwords, IUnitOfWork unitOfWork,
-        IAuditLogger audit, IOutboxService outbox, ITenantContext tenant, ICurrentUser currentUser, IDateTimeProvider clock)
-    { _users = users; _employees = employees; _branches = branches; _tokens = tokens; _passwords = passwords; _unitOfWork = unitOfWork; _audit = audit; _outbox = outbox; _tenant = tenant; _currentUser = currentUser; _clock = clock; }
+        IAuditLogger audit, IOutboxService outbox, ITenantContext tenant, ICurrentUser currentUser, IDateTimeProvider clock,
+        IUserManagementAuthorizer authorizer, IUserSecurityStampValidator? securityStampValidator = null)
+    { _users = users; _employees = employees; _branches = branches; _tokens = tokens; _passwords = passwords; _unitOfWork = unitOfWork; _audit = audit; _outbox = outbox; _tenant = tenant; _currentUser = currentUser; _clock = clock; _authorizer = authorizer; _securityStampValidator = securityStampValidator; }
 
     public async Task<Result<PagedResult<UserDto>>> GetPagedAsync(Guid? branchId, UserRole? role, bool includeInactive, int page, int pageSize, CancellationToken ct = default)
     {
-        if (!IsAdmin()) return IdentityResults.Failure<PagedResult<UserDto>>(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
+        var authorizationResult = _authorizer.AuthorizeList(branchId);
+        if (!authorizationResult.IsSuccess) return IdentityResults.Failure<PagedResult<UserDto>>(authorizationResult.ErrorCode!.Value, authorizationResult.ErrorMessage!);
         if (_tenant.OrganizationId is not Guid organizationId) return IdentityResults.Failure<PagedResult<UserDto>>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
         if (page < 1 || pageSize is < 1 or > 200) return IdentityResults.Failure<PagedResult<UserDto>>(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError);
-        if (branchId.HasValue && !_currentUser.CanAccessBranch(branchId.Value))
-            return IdentityResults.Failure<PagedResult<UserDto>>(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
+
+        // Explicit read transaction binds the tenant GUC for PostgreSQL FORCE ROW LEVEL SECURITY.
         await _unitOfWork.BeginTransactionAsync(ct);
         try
         {
-            var result = await _users.GetPagedAsync(organizationId, branchId, role, includeInactive, page, pageSize, ct);
-            await _unitOfWork.RollbackTransactionAsync(ct);
-            return Result<PagedResult<UserDto>>.Success(new PagedResult<UserDto>(result.Items.Select(UserDtoMapper.From).ToArray(), page, pageSize, result.TotalCount));
+            var pagedUsers = await _users.GetPagedAsync(organizationId, branchId, role, includeInactive, page, pageSize, ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+            return Result<PagedResult<UserDto>>.Success(new PagedResult<UserDto>(pagedUsers.Items.Select(UserDtoMapper.From).ToArray(), page, pageSize, pagedUsers.TotalCount));
         }
-        catch { await _unitOfWork.RollbackTransactionAsync(ct); throw; }
+        catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
 
     public async Task<Result<UserDto>> GetByIdAsync(Guid userId, CancellationToken ct = default)
@@ -56,10 +53,13 @@ public sealed class UserService : IUserService
         try
         {
             var user = await _users.GetByIdWithAccessAsync(organizationId, userId, ct);
-            await _unitOfWork.RollbackTransactionAsync(ct);
-            return user is null ? IdentityResults.Failure<UserDto>(ErrorCode.NOT_FOUND, ErrorMessages.UserNotFound) : Result<UserDto>.Success(UserDtoMapper.From(user));
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+            if (user is null) return IdentityResults.Failure<UserDto>(ErrorCode.NOT_FOUND, ErrorMessages.UserNotFound);
+            var authorizationResult = _authorizer.AuthorizeRead(user);
+            if (!authorizationResult.IsSuccess) return IdentityResults.Failure<UserDto>(authorizationResult.ErrorCode!.Value, authorizationResult.ErrorMessage!);
+            return Result<UserDto>.Success(UserDtoMapper.From(user));
         }
-        catch { await _unitOfWork.RollbackTransactionAsync(ct); throw; }
+        catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
 
     public async Task<Result<UserDto>> CreateAsync(CreateUserRequest request, CancellationToken ct = default)
@@ -72,22 +72,28 @@ public sealed class UserService : IUserService
             var employee = await _employees.GetByIdAsync(organizationId, request.EmployeeId, ct);
             if (employee is null || !employee.IsActive)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<UserDto>(ErrorCode.NOT_FOUND, ErrorMessages.NotFound);
+            }
+            var authorizationResult = _authorizer.AuthorizeCreate(employee, request.Role, request.BranchScope, request.BranchIds);
+            if (!authorizationResult.IsSuccess)
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                return IdentityResults.Failure<UserDto>(authorizationResult.ErrorCode!.Value, authorizationResult.ErrorMessage!);
             }
             if (await _users.ExistsByUsernameAsync(organizationId, request.Username.Trim().ToUpperInvariant(), ct))
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<UserDto>(ErrorCode.CONFLICT, ErrorMessages.DuplicateUsername);
             }
             if (await _users.ExistsForEmployeeAsync(organizationId, employee.EmployeeId, ct))
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<UserDto>(ErrorCode.CONFLICT, ErrorMessages.EmployeeAlreadyHasAccount);
             }
             if (!await ValidateBranchesAsync(organizationId, request.BranchScope, request.BranchIds, ct))
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<UserDto>(ErrorCode.VALIDATION_ERROR, ErrorMessages.InvalidBranchSelection);
             }
 
@@ -97,10 +103,10 @@ public sealed class UserService : IUserService
                 user = UserAccount.Create(organizationId, employee.EmployeeId, request.Username, "pending-hash", request.Role, request.BranchScope);
                 user.UpdatePasswordHash(_passwords.HashPassword(user, request.Password), _clock.UtcNow);
             }
-            catch (Exception ex) when (ex is ArgumentException or IdentityDomainException)
+            catch (Exception exception) when (exception is ArgumentException or IdentityDomainException)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
-                return IdentityResults.Failure<UserDto>(ErrorCode.VALIDATION_ERROR, ex.Message);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                return IdentityResults.Failure<UserDto>(ErrorCode.VALIDATION_ERROR, exception.Message);
             }
             await _users.AddAsync(user, ct);
             await _users.ReplaceBranchAccessAsync(organizationId, user.UserId, request.BranchScope == BranchScope.ALL ? Array.Empty<Guid>() : request.BranchIds, ct);
@@ -109,13 +115,13 @@ public sealed class UserService : IUserService
             await _outbox.EnqueueAsync("identity.user.created", employee.BranchId,
                 new { user.UserId, user.EmployeeId, user.Role }, ct: ct);
             await _unitOfWork.CommitTransactionAsync(ct);
-            var branchIds = request.BranchScope == BranchScope.ALL
+            var assignedBranchIds = request.BranchScope == BranchScope.ALL
                 ? Array.Empty<Guid>()
                 : request.BranchIds.Distinct().ToArray();
             return Result<UserDto>.Success(new UserDto(user.UserId, user.EmployeeId, user.OrganizationId,
-                user.Username, user.Role, user.BranchScope, user.IsActive, branchIds));
+                user.Username, user.Role, user.BranchScope, user.IsActive, assignedBranchIds));
         }
-        catch { await _unitOfWork.RollbackTransactionAsync(ct); throw; }
+        catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
 
     public async Task<Result<UserDto>> UpdateAsync(Guid userId, UpdateUserRequest request, CancellationToken ct = default)
@@ -128,34 +134,60 @@ public sealed class UserService : IUserService
             var user = await _users.GetByIdWithAccessAsync(organizationId, userId, ct);
             if (user is null)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<UserDto>(ErrorCode.NOT_FOUND, ErrorMessages.UserNotFound);
+            }
+            var authorizationResult = _authorizer.AuthorizeUpdate(user, request.Role, request.BranchScope, request.BranchIds, request.IsActive);
+            if (!authorizationResult.IsSuccess)
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                return IdentityResults.Failure<UserDto>(authorizationResult.ErrorCode!.Value, authorizationResult.ErrorMessage!);
             }
             if (!await ValidateBranchesAsync(organizationId, request.BranchScope, request.BranchIds, ct))
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<UserDto>(ErrorCode.VALIDATION_ERROR, ErrorMessages.InvalidBranchSelection);
             }
+
+            var roleChanged = user.Role != request.Role;
+            var scopeChanged = user.BranchScope != request.BranchScope;
+            var existingBranchIds = user.BranchAccesses.Select(access => access.BranchId).ToHashSet();
+            var requestedBranchIds = request.BranchScope == BranchScope.ALL
+                ? new HashSet<Guid>()
+                : request.BranchIds.ToHashSet();
+            var branchesChanged = !existingBranchIds.SetEquals(requestedBranchIds);
+
             try { user.ChangeRoleAndScope(request.Role, request.BranchScope); }
-            catch (Exception ex) when (ex is ArgumentException or IdentityDomainException)
+            catch (Exception exception) when (exception is ArgumentException or IdentityDomainException)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
-                return IdentityResults.Failure<UserDto>(ErrorCode.VALIDATION_ERROR, ex.Message);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                return IdentityResults.Failure<UserDto>(ErrorCode.VALIDATION_ERROR, exception.Message);
             }
             await _users.ReplaceBranchAccessAsync(organizationId, user.UserId, request.BranchScope == BranchScope.ALL ? Array.Empty<Guid>() : request.BranchIds, ct);
             if (request.IsActive.HasValue)
             {
                 user.SetActive(request.IsActive.Value);
-                if (!request.IsActive.Value) await _tokens.RevokeAllUserTokensAsync(organizationId, userId, _clock.UtcNow, ct);
+            }
+
+            // Any privilege change or deactivation must invalidate active JWTs (via SecurityStamp)
+            // and revoke refresh sessions so stale permissions cannot persist.
+            var isDeactivating = request.IsActive.HasValue && !request.IsActive.Value;
+            if (roleChanged || scopeChanged || branchesChanged || isDeactivating)
+            {
+                user.RotateSecurityStamp(_clock.UtcNow);
+                await _tokens.RevokeAllUserTokensAsync(organizationId, userId, _clock.UtcNow, ct);
             }
             await _audit.LogAsync("user.updated", "identity", "USER_ACCOUNT", user.UserId, null,
                 new { user.Role, user.BranchScope, user.IsActive }, user.Employee.BranchId, ct: ct);
             await _outbox.EnqueueAsync("identity.user.updated", user.Employee.BranchId,
                 new { user.UserId, user.Role, user.BranchScope, user.IsActive }, ct: ct);
             await _unitOfWork.CommitTransactionAsync(ct);
+
+            // Evict cached stamp after commit so subsequent JWT validations observe the rotated stamp immediately.
+            _securityStampValidator?.Invalidate(organizationId, userId);
             return Result<UserDto>.Success(UserDtoMapper.From(user));
         }
-        catch { await _unitOfWork.RollbackTransactionAsync(ct); throw; }
+        catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
 
     public async Task<Result> ResetPasswordAsync(Guid userId, ResetPasswordRequest request, CancellationToken ct = default)
@@ -168,19 +200,26 @@ public sealed class UserService : IUserService
             var user = await _users.GetByIdWithAccessAsync(organizationId, userId, ct);
             if (user is null)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure(ErrorCode.NOT_FOUND, ErrorMessages.UserNotFound);
             }
-            var newHash = _passwords.HashPassword(user, request.NewPassword);
-            user.UpdatePasswordHash(newHash, _clock.UtcNow);
+            var authorizationResult = _authorizer.AuthorizeSensitiveAction(user);
+            if (!authorizationResult.IsSuccess)
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                return authorizationResult;
+            }
+            var newPasswordHash = _passwords.HashPassword(user, request.NewPassword);
+            user.UpdatePasswordHash(newPasswordHash, _clock.UtcNow);
             await _tokens.RevokeAllUserTokensAsync(organizationId, userId, _clock.UtcNow, ct);
             await _audit.LogAsync("user.password_reset", "identity", "USER_ACCOUNT", userId, null,
                 new { refreshSessionsRevoked = true }, user.Employee.BranchId, ct: ct);
             await _outbox.EnqueueAsync("identity.user.password_reset", user.Employee.BranchId, new { user.UserId }, ct: ct);
             await _unitOfWork.CommitTransactionAsync(ct);
+            _securityStampValidator?.Invalidate(organizationId, userId);
             return Result.Success();
         }
-        catch { await _unitOfWork.RollbackTransactionAsync(ct); throw; }
+        catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
 
     public async Task<Result> RevokeSessionsAsync(Guid userId, CancellationToken ct = default)
@@ -193,30 +232,33 @@ public sealed class UserService : IUserService
             var user = await _users.GetByIdWithAccessAsync(organizationId, userId, ct);
             if (user is null)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure(ErrorCode.NOT_FOUND, ErrorMessages.UserNotFound);
             }
+            var authorizationResult = _authorizer.AuthorizeSensitiveAction(user);
+            if (!authorizationResult.IsSuccess)
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                return authorizationResult;
+            }
+            user.RotateSecurityStamp(_clock.UtcNow);
             await _tokens.RevokeAllUserTokensAsync(organizationId, userId, _clock.UtcNow, ct);
             await _audit.LogAsync("user.sessions_revoked", "identity", "USER_ACCOUNT", userId, null,
                 new { sessionsRevoked = true }, user.Employee.BranchId, ct: ct);
             await _outbox.EnqueueAsync("identity.user.sessions_revoked", user.Employee.BranchId, new { user.UserId }, ct: ct);
             await _unitOfWork.CommitTransactionAsync(ct);
+            _securityStampValidator?.Invalidate(organizationId, userId);
             return Result.Success();
         }
-        catch { await _unitOfWork.RollbackTransactionAsync(ct); throw; }
+        catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
 
-    private async Task<bool> ValidateBranchesAsync(Guid organizationId, BranchScope scope, IReadOnlyCollection<Guid> branchIds, CancellationToken ct)
+    private async Task<bool> ValidateBranchesAsync(Guid organizationId, BranchScope scope, IReadOnlyCollection<Guid> branchIds, CancellationToken cancellationToken)
     {
         if (scope == BranchScope.ALL) return branchIds.Count == 0;
-        var ids = branchIds.Distinct().ToArray();
-        if (ids.Length == 0 || ids.Length != branchIds.Count) return false;
-        foreach (var id in ids)
-        {
-            var branch = await _branches.GetByIdAsync(organizationId, id, ct);
-            if (branch is null || !branch.IsActive) return false;
-        }
-        return true;
+        var distinctBranchIds = branchIds.Distinct().ToArray();
+        if (distinctBranchIds.Length == 0 || distinctBranchIds.Length != branchIds.Count) return false;
+        return await _branches.CountActiveByIdsAsync(organizationId, distinctBranchIds, cancellationToken) == distinctBranchIds.Length;
     }
 
     private bool IsAdmin() => string.Equals(_currentUser.Role, UserRole.Admin.ToString(), StringComparison.Ordinal);

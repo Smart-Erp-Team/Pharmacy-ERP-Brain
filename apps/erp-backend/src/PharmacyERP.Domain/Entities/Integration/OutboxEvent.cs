@@ -1,8 +1,9 @@
-﻿using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Domain.Exceptions;
-
 namespace PharmacyERP.Domain.Entities.Integration;
 
+/// <summary>
+/// Transactional outbox record written in the same database transaction as business state changes
+/// and asynchronously published in <see cref="EventSequence"/> order per tenant.
+/// </summary>
 public class OutboxEvent
 {
     public Guid EventId { get; private set; }
@@ -22,20 +23,31 @@ public class OutboxEvent
 
     private OutboxEvent() { }
 
-    public OutboxEvent(Guid eventId, Guid organizationId, Guid? branchId, long eventSequence, string eventType, string payload, string traceId)
+    public OutboxEvent(
+        Guid eventId,
+        Guid organizationId,
+        Guid? branchId,
+        long eventSequence,
+        string eventType,
+        string payload,
+        string traceId,
+        string schemaVersion = "1.0",
+        DateTimeOffset? occurredAt = null)
     {
         if (eventSequence <= 0) throw new IntegrationDomainException("EventSequence must be greater than zero.");
         if (string.IsNullOrWhiteSpace(eventType)) throw new IntegrationDomainException("EventType is required.");
         if (string.IsNullOrWhiteSpace(payload)) throw new IntegrationDomainException("Payload is required.");
         if (string.IsNullOrWhiteSpace(traceId)) throw new IntegrationDomainException("TraceId is required.");
+        if (string.IsNullOrWhiteSpace(schemaVersion)) throw new IntegrationDomainException("SchemaVersion is required.");
 
         EventId = eventId;
         OrganizationId = organizationId;
         BranchId = branchId;
         EventSequence = eventSequence;
         EventType = eventType;
+        SchemaVersion = schemaVersion.Trim();
         Payload = payload;
-        OccurredAt = DateTimeOffset.UtcNow;
+        OccurredAt = occurredAt ?? DateTimeOffset.UtcNow;
         TraceId = traceId;
         AttemptCount = 0;
     }
@@ -46,7 +58,7 @@ public class OutboxEvent
         LastError = null;
     }
 
-    public void RecordPublishFailure(string error, DateTimeOffset failedAt)
+    public void RecordPublishFailure(string error)
     {
         AttemptCount++;
         LastError = error.Length > 500 ? error.Substring(0, 500) : error;

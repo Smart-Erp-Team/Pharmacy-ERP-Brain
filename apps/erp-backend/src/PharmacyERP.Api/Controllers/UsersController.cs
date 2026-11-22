@@ -1,10 +1,3 @@
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Features.Identity.DTOs;
-using PharmacyERP.Application.Features.Identity.Services.Interfaces;
-using PharmacyERP.Domain.Enums;
-
 namespace PharmacyERP.Api.Controllers;
 
 [ApiController]

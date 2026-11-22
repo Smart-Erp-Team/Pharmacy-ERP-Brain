@@ -1,7 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
-using PharmacyERP.Domain.Entities.Inventory;
-
-namespace PharmacyERP.Infrastructure.Persistence.Database;
+﻿namespace PharmacyERP.Infrastructure.Persistence.Database;
 
 public partial class PharmacyDbContext
 {

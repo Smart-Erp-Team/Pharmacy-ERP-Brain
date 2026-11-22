@@ -1,0 +1,30 @@
+global using System.Reflection;
+global using System.Security.Cryptography;
+global using System.Text.Json;
+
+global using Microsoft.AspNetCore.Identity;
+global using Microsoft.EntityFrameworkCore;
+global using Microsoft.EntityFrameworkCore.Metadata.Builders;
+global using Microsoft.Extensions.Configuration;
+global using Microsoft.Extensions.DependencyInjection;
+global using Microsoft.Extensions.Hosting;
+global using Microsoft.Extensions.Logging;
+
+global using PharmacyERP.Application.Common.DTOs;
+global using PharmacyERP.Application.Common.Interfaces.Context;
+global using PharmacyERP.Application.Common.Interfaces.CrossModule;
+global using PharmacyERP.Application.Common.Interfaces.Integration;
+global using PharmacyERP.Application.Common.Interfaces.Persistence;
+global using PharmacyERP.Application.Features.Catalog.Interfaces;
+global using PharmacyERP.Application.Features.Identity.Interfaces;
+global using PharmacyERP.Application.Features.Integration.Interfaces;
+global using PharmacyERP.Application.Features.Inventory.Interfaces;
+global using PharmacyERP.Domain.Entities.Catalog;
+global using PharmacyERP.Domain.Entities.Identity;
+global using PharmacyERP.Domain.Entities.Integration;
+global using PharmacyERP.Domain.Entities.Inventory;
+global using PharmacyERP.Domain.Enums;
+global using PharmacyERP.Domain.ValueObjects;
+global using PharmacyERP.Infrastructure.Persistence.Database;
+global using PharmacyERP.Infrastructure.Persistence.Repositories;
+global using PharmacyERP.Infrastructure.Services.Context;

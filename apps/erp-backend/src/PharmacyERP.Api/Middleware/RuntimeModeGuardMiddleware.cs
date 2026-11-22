@@ -1,12 +1,10 @@
-﻿using System.Net;
-using System.Text.Json;
-using Microsoft.AspNetCore.Http;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Domain.Enums;
-
 namespace PharmacyERP.Api.Middleware;
 
+/// <summary>
+/// Enforces Cloud vs. BranchLocal deployment route boundaries at the HTTP pipeline edge,
+/// returning <c>404 NOT_FOUND</c> for Cloud-only endpoints on BranchLocal nodes and for
+/// BranchLocal-only stock mutations on Cloud nodes.
+/// </summary>
 public class RuntimeModeGuardMiddleware
 {
     private readonly RequestDelegate _next;
@@ -30,7 +28,7 @@ public class RuntimeModeGuardMiddleware
                 return;
             }
 
-            if (currentMode == ErpRuntimeMode.BranchLocal && IsCloudOnlyEndpoint(path))
+            if (currentMode == ErpRuntimeMode.BranchLocal && IsCloudOnlyEndpoint(path, method))
             {
                 await WriteRouteNotAvailableAsync(context, "Cloud-only endpoints are not available on the BranchLocal runtime.");
                 return;
@@ -52,14 +50,31 @@ public class RuntimeModeGuardMiddleware
                path.StartsWith("/api/v1/inventory/transfers", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsCloudOnlyEndpoint(string path)
+    private static bool IsCloudOnlyEndpoint(string path, string method)
     {
-        return path.StartsWith("/api/v1/organizations", StringComparison.OrdinalIgnoreCase) ||
-               path.StartsWith("/api/v1/canonical/", StringComparison.OrdinalIgnoreCase);
+        if (path.StartsWith("/api/v1/organizations", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/api/v1/canonical/", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (HttpMethods.IsGet(method) || HttpMethods.IsHead(method) || HttpMethods.IsOptions(method))
+        {
+            return false;
+        }
+
+        return path.StartsWith("/api/v1/product-categories", StringComparison.OrdinalIgnoreCase) ||
+               path.StartsWith("/api/v1/products", StringComparison.OrdinalIgnoreCase) ||
+               path.EndsWith("/reorder-rule", StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task WriteRouteNotAvailableAsync(HttpContext context, string message)
     {
+        if (context.Response.HasStarted || context.RequestAborted.IsCancellationRequested)
+        {
+            return;
+        }
+
         context.Response.StatusCode = (int)HttpStatusCode.NotFound;
         context.Response.ContentType = "application/json";
 
@@ -68,6 +83,6 @@ public class RuntimeModeGuardMiddleware
         var envelope = new ApiErrorEnvelopeDto(errorBody);
 
         var json = JsonSerializer.Serialize(envelope);
-        await context.Response.WriteAsync(json);
+        await context.Response.WriteAsync(json, context.RequestAborted);
     }
 }

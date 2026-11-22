@@ -1,7 +1,3 @@
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Common.Interfaces.Persistence;
-using PharmacyERP.Domain.Entities.Catalog;
-
 namespace PharmacyERP.Application.Features.Catalog.Interfaces;
 
 /// <summary>
@@ -11,6 +7,7 @@ namespace PharmacyERP.Application.Features.Catalog.Interfaces;
 public interface IProductRepository : IGenericRepository<Product>
 {
     Task<Product?> GetByIdAsync(Guid organizationId, Guid productId, CancellationToken ct = default);
+    Task<IReadOnlyList<Product>> GetByIdsAsync(Guid organizationId, IReadOnlyCollection<Guid> productIds, CancellationToken ct = default);
     Task<Product?> GetByIdWithUomsAsync(Guid organizationId, Guid productId, CancellationToken ct = default);
     Task<bool> ExistsBySkuAsync(Guid organizationId, string sku, Guid? excludeProductId = null, CancellationToken ct = default);
     Task<bool> ExistsByBarcodeAsync(Guid organizationId, string barcode, Guid? excludeProductId = null, CancellationToken ct = default);

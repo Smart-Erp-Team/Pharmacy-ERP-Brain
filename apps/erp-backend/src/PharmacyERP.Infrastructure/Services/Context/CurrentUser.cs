@@ -1,10 +1,13 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
-using PharmacyERP.Application.Common.Interfaces.Context;
 
 namespace PharmacyERP.Infrastructure.Services.Context;
 
+/// <summary>
+/// Extracts authenticated user identity, role, branch authorization, scopes, and W3C trace ID
+/// from the current <see cref="HttpContext"/>.
+/// </summary>
 public class CurrentUser : ICurrentUser
 {
     private readonly IHttpContextAccessor _httpContextAccessor;

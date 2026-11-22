@@ -1,7 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using PharmacyERP.Application.Features.Integration.DTOs;
-using PharmacyERP.Application.Features.Integration.Services.Interfaces;
+﻿using PharmacyERP.Application.Features.Integration.Services.Interfaces;
 
 namespace PharmacyERP.Api.Controllers;
 

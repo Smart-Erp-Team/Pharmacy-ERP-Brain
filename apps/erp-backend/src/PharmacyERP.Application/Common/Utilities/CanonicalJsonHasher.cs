@@ -1,13 +1,12 @@
-﻿using System.Globalization;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Encodings.Web;
-using System.Text.Json;
+using System.Globalization;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization;
 
 namespace PharmacyERP.Application.Common.Utilities;
 
+/// <summary>
+/// Produces deterministic canonical JSON and lowercase SHA-256 hex digests for idempotency
+/// request-payload comparison by sorting object keys ordinally and normalizing decimal scale.
+/// </summary>
 public static class CanonicalJsonHasher
 {
     private static readonly JsonSerializerOptions Options = new()
@@ -39,24 +38,24 @@ public static class CanonicalJsonHasher
 
     private static JsonNode? SortNode(JsonNode? node)
     {
-        if (node is JsonObject jsonObj)
+        if (node is JsonObject jsonObject)
         {
-            var sortedObj = new JsonObject();
-            foreach (var kvp in jsonObj.OrderBy(p => p.Key, StringComparer.Ordinal))
+            var sortedObject = new JsonObject();
+            foreach (var property in jsonObject.OrderBy(entry => entry.Key, StringComparer.Ordinal))
             {
-                sortedObj[kvp.Key] = SortNode(kvp.Value?.DeepClone());
+                sortedObject[property.Key] = SortNode(property.Value?.DeepClone());
             }
-            return sortedObj;
+            return sortedObject;
         }
 
-        if (node is JsonArray jsonArr)
+        if (node is JsonArray jsonArray)
         {
-            var newArr = new JsonArray();
-            foreach (var item in jsonArr)
+            var clonedArray = new JsonArray();
+            foreach (var item in jsonArray)
             {
-                newArr.Add(SortNode(item?.DeepClone()));
+                clonedArray.Add(SortNode(item?.DeepClone()));
             }
-            return newArr;
+            return clonedArray;
         }
 
         return node?.DeepClone();
@@ -69,8 +68,9 @@ public static class CanonicalJsonHasher
 
         public override void Write(Utf8JsonWriter writer, decimal value, JsonSerializerOptions options)
         {
-            decimal normalized = value / 1.000000000000000000000000000000000m;
-            writer.WriteRawValue(normalized.ToString("G29", CultureInfo.InvariantCulture));
+            // Dividing by 1.000... strips insignificant trailing fractional zeros so 10.0 and 10.00 hash identically.
+            decimal normalizedValue = value / 1.000000000000000000000000000000000m;
+            writer.WriteRawValue(normalizedValue.ToString("G29", CultureInfo.InvariantCulture));
         }
     }
 }

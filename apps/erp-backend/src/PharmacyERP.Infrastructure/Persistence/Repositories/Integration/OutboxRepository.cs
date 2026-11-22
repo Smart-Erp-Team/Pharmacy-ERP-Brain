@@ -1,10 +1,9 @@
-﻿using Microsoft.EntityFrameworkCore;
-using PharmacyERP.Application.Features.Integration.Interfaces;
-using PharmacyERP.Domain.Entities.Integration;
-using PharmacyERP.Infrastructure.Persistence.Database;
-
 namespace PharmacyERP.Infrastructure.Persistence.Repositories.Integration;
 
+/// <summary>
+/// Persists transactional outbox events and row-locks (<c>FOR UPDATE</c>) the per-organization
+/// <see cref="OutboxEventCursor"/> to guarantee monotonic sequence allocation.
+/// </summary>
 public class OutboxRepository : IOutboxRepository
 {
     private readonly PharmacyDbContext _dbContext;
@@ -24,7 +23,8 @@ public class OutboxRepository : IOutboxRepository
                    ON CONFLICT (organization_id) DO NOTHING;", ct);
 
             var cursors = await _dbContext.OutboxEventCursors
-                .FromSqlInterpolated($"SELECT * FROM integration.\"OUTBOX_EVENT_CURSOR\" WHERE organization_id = {organizationId} FOR UPDATE")
+                .FromSqlInterpolated($"SELECT * FROM integration.\"OUTBOX_EVENT_CURSOR\" WHERE organization_id = {organizationId} LIMIT 1 FOR UPDATE")
+                .IgnoreQueryFilters()
                 .ToListAsync(ct);
 
             return cursors.FirstOrDefault();

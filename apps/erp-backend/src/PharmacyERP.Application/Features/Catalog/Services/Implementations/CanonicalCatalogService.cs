@@ -1,20 +1,3 @@
-using System.Text;
-using PharmacyERP.Application.Common.Constants;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Common.Interfaces.CrossModule;
-using PharmacyERP.Application.Common.Interfaces.Integration;
-using PharmacyERP.Application.Common.Interfaces.Persistence;
-using PharmacyERP.Application.Features.Catalog.DTOs;
-using PharmacyERP.Application.Features.Catalog.Interfaces;
-using PharmacyERP.Application.Features.Catalog.Services.Interfaces;
-using PharmacyERP.Application.Features.Catalog.Validators;
-using PharmacyERP.Application.Features.Identity.Interfaces;
-using PharmacyERP.Application.Features.Integration.DTOs;
-using PharmacyERP.Domain.Entities.Catalog;
-using PharmacyERP.Domain.Enums;
-using PharmacyERP.Domain.Exceptions;
-
 namespace PharmacyERP.Application.Features.Catalog.Services.Implementations;
 
 /// <summary>
@@ -169,13 +152,13 @@ public class CanonicalCatalogService : ICanonicalCatalogService
 
                 if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
                 {
-                    await _unitOfWork.RollbackTransactionAsync(ct);
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                     return Result<CanonicalWriteResultDto>.Success(idempotencyResult.ReplayedResponse);
                 }
             }
             catch (IntegrationDomainException ex) when (string.Equals(ex.Message, "IDEMPOTENCY_MISMATCH", StringComparison.OrdinalIgnoreCase))
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<CanonicalWriteResultDto>.Failure(ErrorCode.IDEMPOTENCY_MISMATCH, ErrorMessages.IdempotencyMismatch);
             }
 
@@ -189,14 +172,14 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                     var catExists = await _categoryRepository.ExistsAndActiveAsync(orgId, request.CategoryId!.Value, ct);
                     if (!catExists)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.CategoryNotFoundOrInactive);
                     }
 
                     var skuExists = await _productRepository.ExistsBySkuAsync(orgId, request.Sku!, null, ct);
                     if (skuExists)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.DuplicateSku);
                     }
 
@@ -205,7 +188,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                         var barcodeExists = await _productRepository.ExistsByBarcodeAsync(orgId, request.Barcode, null, ct);
                         if (barcodeExists)
                         {
-                            await _unitOfWork.RollbackTransactionAsync(ct);
+                            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                             return Result<CanonicalWriteResultDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.DuplicateBarcode);
                         }
                     }
@@ -273,7 +256,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                     var product = await _productRepository.GetByIdWithUomsAsync(orgId, request.ProductId!.Value, ct);
                     if (product == null)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductNotFound);
                     }
 
@@ -298,7 +281,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                         var catExists = await _categoryRepository.ExistsAndActiveAsync(orgId, request.CategoryId.Value, ct);
                         if (!catExists)
                         {
-                            await _unitOfWork.RollbackTransactionAsync(ct);
+                            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                             return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.CategoryNotFoundOrInactive);
                         }
                     }
@@ -308,7 +291,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                         var skuExists = await _productRepository.ExistsBySkuAsync(orgId, request.Sku, product.ProductId, ct);
                         if (skuExists)
                         {
-                            await _unitOfWork.RollbackTransactionAsync(ct);
+                            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                             return Result<CanonicalWriteResultDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.DuplicateSku);
                         }
                     }
@@ -318,7 +301,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                         var barcodeExists = await _productRepository.ExistsByBarcodeAsync(orgId, request.Barcode, product.ProductId, ct);
                         if (barcodeExists)
                         {
-                            await _unitOfWork.RollbackTransactionAsync(ct);
+                            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                             return Result<CanonicalWriteResultDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.DuplicateBarcode);
                         }
                     }
@@ -331,17 +314,27 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                         var hasHistory = await _usageChecker.HasAnyStockOrPostedHistoryForProductAsync(orgId, product.ProductId, ct);
                         if (hasHistory)
                         {
-                            await _unitOfWork.RollbackTransactionAsync(ct);
+                            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                             return Result<CanonicalWriteResultDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.HistoricalUomModificationForbidden);
                         }
 
                         if (modifyingLotTracking)
                         {
                             product.ChangeLotTrackingPolicy(request.LotTrackingRequired!.Value, hasHistory);
+
+                            if (!product.LotTrackingRequired)
+                            {
+                                await _nonLotBatchInitializer.EnsureNonLotBatchExistsAsync(orgId, product.ProductId, ct);
+                            }
                         }
 
                         if (modifyingBaseUom)
                         {
+                            if (product.BeginBaseUomChange(request.BaseUomCode!, hasHistory))
+                            {
+                                await _unitOfWork.SaveChangesAsync(ct);
+                            }
+
                             product.ChangeBaseUom(request.BaseUomCode!, hasHistory);
                         }
                     }
@@ -393,14 +386,14 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                     var product = await _productRepository.GetByIdWithUomsAsync(orgId, request.ProductId!.Value, ct);
                     if (product == null)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductNotFound);
                     }
 
                     var uomExists = await _productUomRepository.ExistsByUomCodeAsync(orgId, product.ProductId, request.UomCode!, null, ct);
                     if (uomExists)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.DuplicateUomCode);
                     }
 
@@ -443,14 +436,14 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                     var product = await _productRepository.GetByIdWithUomsAsync(orgId, request.ProductId!.Value, ct);
                     if (product == null)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductNotFound);
                     }
 
                     var uom = await _productUomRepository.GetByIdAsync(orgId, product.ProductId, request.ProductUomId!.Value, ct);
                     if (uom == null)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductUomNotFound);
                     }
 
@@ -469,7 +462,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                         var hasUsage = await _usageChecker.HasAnyStockOrDocumentReferenceForUomAsync(orgId, product.ProductId, uom.ProductUomId, ct);
                         if (hasUsage)
                         {
-                            await _unitOfWork.RollbackTransactionAsync(ct);
+                            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                             return Result<CanonicalWriteResultDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.HistoricalUomModificationForbidden);
                         }
 
@@ -478,7 +471,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
 
                     if (request.IsActive.HasValue && !request.IsActive.Value && uom.IsBase)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.CannotDeactivateBaseUom);
                     }
 
@@ -522,20 +515,20 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                     var product = await _productRepository.GetByIdWithUomsAsync(orgId, request.ProductId!.Value, ct);
                     if (product == null)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductNotFound);
                     }
 
                     var uom = await _productUomRepository.GetByIdAsync(orgId, product.ProductId, request.ProductUomId!.Value, ct);
                     if (uom == null)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductUomNotFound);
                     }
 
                     if (uom.IsBase)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.CannotDeactivateBaseUom);
                     }
 
@@ -555,7 +548,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
 
                 default:
                 {
-                    await _unitOfWork.RollbackTransactionAsync(ct);
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                     return Result<CanonicalWriteResultDto>.Failure(ErrorCode.MALFORMED_REQUEST, ErrorMessages.InvalidConfigurationAction);
                 }
             }
@@ -574,7 +567,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
         }
         catch (CatalogDomainException ex)
         {
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             var errorCode = ex switch
             {
                 HistoricalUomModificationForbiddenException => ErrorCode.CONFLICT,
@@ -585,7 +578,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
         }
         catch (Exception)
         {
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             throw;
         }
     }
@@ -622,30 +615,31 @@ public class CanonicalCatalogService : ICanonicalCatalogService
 
                 if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
                 {
-                    await _unitOfWork.RollbackTransactionAsync(ct);
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                     return Result<CanonicalWriteResultDto>.Success(idempotencyResult.ReplayedResponse);
                 }
             }
             catch (IntegrationDomainException ex) when (string.Equals(ex.Message, "IDEMPOTENCY_MISMATCH", StringComparison.OrdinalIgnoreCase))
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<CanonicalWriteResultDto>.Failure(ErrorCode.IDEMPOTENCY_MISMATCH, ErrorMessages.IdempotencyMismatch);
             }
 
             var branch = await _branchRepository.GetByIdAsync(orgId, request.BranchId, ct);
             if (branch == null)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.NotFound);
             }
 
             var product = await _productRepository.GetByIdAsync(orgId, request.ProductId, ct);
             if (product == null)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductNotFound);
             }
 
+            await _reorderRuleRepository.AcquireUpsertLockAsync(orgId, request.BranchId, request.ProductId, ct);
             var existingRule = await _reorderRuleRepository.GetByBranchAndProductAsync(orgId, request.BranchId, request.ProductId, ct);
             Guid targetEntityId;
 
@@ -723,7 +717,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
         }
         catch (CatalogDomainException ex)
         {
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             var errorCode = ex switch
             {
                 HistoricalUomModificationForbiddenException => ErrorCode.CONFLICT,
@@ -734,7 +728,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
         }
         catch (Exception)
         {
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             throw;
         }
     }
@@ -798,100 +792,100 @@ public class CanonicalCatalogService : ICanonicalCatalogService
         }
     }
 
-    private static CanonicalProductDto MapToCanonicalDto(Product p) =>
+    private static CanonicalProductDto MapToCanonicalDto(Product product) =>
         new(
-            OrganizationId: p.OrganizationId,
-            Id: p.ProductId,
-            Sku: p.Sku,
-            Barcode: p.Barcode,
-            Name: p.Name,
-            CategoryId: p.CategoryId,
-            CategoryName: p.Category?.Name ?? string.Empty,
-            BaseUomCode: p.BaseUomCode,
-            TaxRate: p.TaxRate,
-            LotTrackingRequired: p.LotTrackingRequired,
-            IsActive: p.IsActive,
-            SupportedConversions: p.Uoms.Select(u => new CanonicalUomConversionDto(
-                ProductUomId: u.ProductUomId,
-                UomCode: u.UomCode,
-                DisplayName: u.DisplayName,
-                ConversionToBase: u.ConversionToBase,
-                SaleUnitPrice: u.SaleUnitPrice,
-                IsBase: u.IsBase,
-                IsSellable: u.IsSellable,
-                IsPurchasable: u.IsPurchasable,
-                IsActive: u.IsActive
+            OrganizationId: product.OrganizationId,
+            Id: product.ProductId,
+            Sku: product.Sku,
+            Barcode: product.Barcode,
+            Name: product.Name,
+            CategoryId: product.CategoryId,
+            CategoryName: product.Category?.Name ?? string.Empty,
+            BaseUomCode: product.BaseUomCode,
+            TaxRate: product.TaxRate,
+            LotTrackingRequired: product.LotTrackingRequired,
+            IsActive: product.IsActive,
+            SupportedConversions: product.Uoms.Select(uom => new CanonicalUomConversionDto(
+                ProductUomId: uom.ProductUomId,
+                UomCode: uom.UomCode,
+                DisplayName: uom.DisplayName,
+                ConversionToBase: uom.ConversionToBase,
+                SaleUnitPrice: uom.SaleUnitPrice,
+                IsBase: uom.IsBase,
+                IsSellable: uom.IsSellable,
+                IsPurchasable: uom.IsPurchasable,
+                IsActive: uom.IsActive
             )).ToList(),
-            UpdatedAt: p.UpdatedAt
+            UpdatedAt: product.UpdatedAt
         );
 
-    private static List<ApiErrorDetailDto> ValidateProductConfigurationRequest(CanonicalProductConfigurationRequest r)
+    private static List<ApiErrorDetailDto> ValidateProductConfigurationRequest(CanonicalProductConfigurationRequest request)
     {
         var errors = new List<ApiErrorDetailDto>();
 
-        if (r.RequestId == Guid.Empty)
+        if (request.RequestId == Guid.Empty)
             errors.Add(new ApiErrorDetailDto("RequestId", ErrorMessages.InvalidRequestId));
 
-        if (string.IsNullOrWhiteSpace(r.SourcePromptId) || r.SourcePromptId.Length > 100)
+        if (string.IsNullOrWhiteSpace(request.SourcePromptId) || request.SourcePromptId.Length > 100)
             errors.Add(new ApiErrorDetailDto("SourcePromptId", ErrorMessages.InvalidSourcePromptId));
 
-        if (string.IsNullOrWhiteSpace(r.IdempotencyKey))
+        if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
             errors.Add(new ApiErrorDetailDto("IdempotencyKey", ErrorMessages.InvalidIdempotencyKey));
 
-        switch (r.Action)
+        switch (request.Action)
         {
             case CatalogConfigurationAction.CreateProduct:
             {
-                if (!r.CategoryId.HasValue || r.CategoryId.Value == Guid.Empty)
+                if (!request.CategoryId.HasValue || request.CategoryId.Value == Guid.Empty)
                     errors.Add(new ApiErrorDetailDto("CategoryId", "CategoryId is required."));
 
-                if (string.IsNullOrWhiteSpace(r.Sku))
+                if (string.IsNullOrWhiteSpace(request.Sku))
                     errors.Add(new ApiErrorDetailDto("Sku", "Sku is required."));
 
-                if (string.IsNullOrWhiteSpace(r.Name))
+                if (string.IsNullOrWhiteSpace(request.Name))
                     errors.Add(new ApiErrorDetailDto("Name", "Name is required."));
 
-                if (string.IsNullOrWhiteSpace(r.BaseUomCode))
+                if (string.IsNullOrWhiteSpace(request.BaseUomCode))
                     errors.Add(new ApiErrorDetailDto("BaseUomCode", "BaseUomCode is required."));
 
-                if (!r.LotTrackingRequired.HasValue)
+                if (!request.LotTrackingRequired.HasValue)
                     errors.Add(new ApiErrorDetailDto("LotTrackingRequired", "LotTrackingRequired is required for product creation."));
 
-                if (!r.TaxRate.HasValue)
+                if (!request.TaxRate.HasValue)
                     errors.Add(new ApiErrorDetailDto("TaxRate", "TaxRate is required for product creation."));
 
-                if (!r.ExpiryAlertDays.HasValue)
+                if (!request.ExpiryAlertDays.HasValue)
                     errors.Add(new ApiErrorDetailDto("ExpiryAlertDays", "ExpiryAlertDays is required for product creation."));
 
-                if (r.Uoms == null || r.Uoms.Count == 0)
+                if (request.Uoms == null || request.Uoms.Count == 0)
                     errors.Add(new ApiErrorDetailDto("Uoms", "At least one UOM is required."));
 
                 if (errors.Count == 0)
                 {
-                    var uoms = r.Uoms!.Select(u => new CreateProductUomItemRequest(
-                        u.UomCode,
-                        u.DisplayName,
-                        u.ConversionToBase,
-                        u.SaleUnitPrice,
-                        u.IsBase,
-                        u.IsSellable,
-                        u.IsPurchasable
+                    var uoms = request.Uoms!.Select(uom => new CreateProductUomItemRequest(
+                        uom.UomCode,
+                        uom.DisplayName,
+                        uom.ConversionToBase,
+                        uom.SaleUnitPrice,
+                        uom.IsBase,
+                        uom.IsSellable,
+                        uom.IsPurchasable
                     )).ToList();
 
                     var createDto = new CreateProductRequest(
-                        r.CategoryId!.Value,
-                        r.Sku!,
-                        r.Barcode,
-                        r.Name!,
-                        r.GenericName,
-                        r.BrandName,
-                        r.BaseUomCode!,
-                        r.TaxRate!.Value,
-                        r.ImageUrl,
-                        r.LotTrackingRequired!.Value,
-                        r.ExpiryAlertDays!.Value,
+                        request.CategoryId!.Value,
+                        request.Sku!,
+                        request.Barcode,
+                        request.Name!,
+                        request.GenericName,
+                        request.BrandName,
+                        request.BaseUomCode!,
+                        request.TaxRate!.Value,
+                        request.ImageUrl,
+                        request.LotTrackingRequired!.Value,
+                        request.ExpiryAlertDays!.Value,
                         uoms,
-                        r.IdempotencyKey);
+                        request.IdempotencyKey);
 
                     var validatorErrors = CreateProductRequestValidator.Validate(createDto);
                     errors.AddRange(validatorErrors);
@@ -901,23 +895,23 @@ public class CanonicalCatalogService : ICanonicalCatalogService
 
             case CatalogConfigurationAction.UpdateProduct:
             {
-                if (!r.ProductId.HasValue || r.ProductId.Value == Guid.Empty)
+                if (!request.ProductId.HasValue || request.ProductId.Value == Guid.Empty)
                     errors.Add(new ApiErrorDetailDto("ProductId", "ProductId is required."));
 
                 var updateDto = new UpdateProductRequest(
-                    r.CategoryId,
-                    r.Sku,
-                    r.Barcode,
-                    r.Name,
-                    r.GenericName,
-                    r.BrandName,
-                    r.BaseUomCode,
-                    r.TaxRate,
-                    r.ImageUrl,
-                    r.LotTrackingRequired,
-                    r.ExpiryAlertDays,
-                    r.IsActive,
-                    r.IdempotencyKey);
+                    request.CategoryId,
+                    request.Sku,
+                    request.Barcode,
+                    request.Name,
+                    request.GenericName,
+                    request.BrandName,
+                    request.BaseUomCode,
+                    request.TaxRate,
+                    request.ImageUrl,
+                    request.LotTrackingRequired,
+                    request.ExpiryAlertDays,
+                    request.IsActive,
+                    request.IdempotencyKey);
 
                 var validatorErrors = UpdateProductRequestValidator.Validate(updateDto);
                 errors.AddRange(validatorErrors);
@@ -926,18 +920,18 @@ public class CanonicalCatalogService : ICanonicalCatalogService
 
             case CatalogConfigurationAction.AddUom:
             {
-                if (!r.ProductId.HasValue || r.ProductId.Value == Guid.Empty)
+                if (!request.ProductId.HasValue || request.ProductId.Value == Guid.Empty)
                     errors.Add(new ApiErrorDetailDto("ProductId", "ProductId is required."));
 
                 var addUomDto = new CreateProductUomRequest(
-                    r.UomCode ?? string.Empty,
-                    r.DisplayName ?? string.Empty,
-                    r.ConversionToBase ?? 0m,
-                    r.SaleUnitPrice,
-                    r.IsBase ?? false,
-                    r.IsSellable ?? false,
-                    r.IsPurchasable ?? true,
-                    r.IdempotencyKey);
+                    request.UomCode ?? string.Empty,
+                    request.DisplayName ?? string.Empty,
+                    request.ConversionToBase ?? 0m,
+                    request.SaleUnitPrice,
+                    request.IsBase ?? false,
+                    request.IsSellable ?? false,
+                    request.IsPurchasable ?? true,
+                    request.IdempotencyKey);
 
                 var validatorErrors = CreateProductUomRequestValidator.Validate(addUomDto);
                 errors.AddRange(validatorErrors);
@@ -946,20 +940,20 @@ public class CanonicalCatalogService : ICanonicalCatalogService
 
             case CatalogConfigurationAction.UpdateUom:
             {
-                if (!r.ProductId.HasValue || r.ProductId.Value == Guid.Empty)
+                if (!request.ProductId.HasValue || request.ProductId.Value == Guid.Empty)
                     errors.Add(new ApiErrorDetailDto("ProductId", "ProductId is required."));
 
-                if (!r.ProductUomId.HasValue || r.ProductUomId.Value == Guid.Empty)
+                if (!request.ProductUomId.HasValue || request.ProductUomId.Value == Guid.Empty)
                     errors.Add(new ApiErrorDetailDto("ProductUomId", "ProductUomId is required."));
 
                 var updateUomDto = new UpdateProductUomRequest(
-                    r.DisplayName,
-                    r.ConversionToBase,
-                    r.SaleUnitPrice,
-                    r.IsSellable,
-                    r.IsPurchasable,
-                    r.IsActive,
-                    r.IdempotencyKey);
+                    request.DisplayName,
+                    request.ConversionToBase,
+                    request.SaleUnitPrice,
+                    request.IsSellable,
+                    request.IsPurchasable,
+                    request.IsActive,
+                    request.IdempotencyKey);
 
                 var validatorErrors = UpdateProductUomRequestValidator.Validate(updateUomDto);
                 errors.AddRange(validatorErrors);
@@ -968,10 +962,10 @@ public class CanonicalCatalogService : ICanonicalCatalogService
 
             case CatalogConfigurationAction.DeactivateUom:
             {
-                if (!r.ProductId.HasValue || r.ProductId.Value == Guid.Empty)
+                if (!request.ProductId.HasValue || request.ProductId.Value == Guid.Empty)
                     errors.Add(new ApiErrorDetailDto("ProductId", "ProductId is required."));
 
-                if (!r.ProductUomId.HasValue || r.ProductUomId.Value == Guid.Empty)
+                if (!request.ProductUomId.HasValue || request.ProductUomId.Value == Guid.Empty)
                     errors.Add(new ApiErrorDetailDto("ProductUomId", "ProductUomId is required."));
                 break;
             }
@@ -984,31 +978,31 @@ public class CanonicalCatalogService : ICanonicalCatalogService
         return errors;
     }
 
-    private static List<ApiErrorDetailDto> ValidateReorderRuleConfigurationRequest(CanonicalReorderRuleConfigurationRequest r)
+    private static List<ApiErrorDetailDto> ValidateReorderRuleConfigurationRequest(CanonicalReorderRuleConfigurationRequest request)
     {
         var errors = new List<ApiErrorDetailDto>();
 
-        if (r.RequestId == Guid.Empty)
+        if (request.RequestId == Guid.Empty)
             errors.Add(new ApiErrorDetailDto("RequestId", ErrorMessages.InvalidRequestId));
 
-        if (string.IsNullOrWhiteSpace(r.SourcePromptId) || r.SourcePromptId.Length > 100)
+        if (string.IsNullOrWhiteSpace(request.SourcePromptId) || request.SourcePromptId.Length > 100)
             errors.Add(new ApiErrorDetailDto("SourcePromptId", ErrorMessages.InvalidSourcePromptId));
 
-        if (string.IsNullOrWhiteSpace(r.IdempotencyKey))
+        if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
             errors.Add(new ApiErrorDetailDto("IdempotencyKey", ErrorMessages.InvalidIdempotencyKey));
 
-        if (r.BranchId == Guid.Empty)
+        if (request.BranchId == Guid.Empty)
             errors.Add(new ApiErrorDetailDto("BranchId", ErrorMessages.InvalidBranchId));
 
-        if (r.ProductId == Guid.Empty)
+        if (request.ProductId == Guid.Empty)
             errors.Add(new ApiErrorDetailDto("ProductId", "ProductId is required."));
 
         var upsertDto = new UpsertReorderRuleRequest(
-            r.ReorderPointBase,
-            r.ReorderQuantityBase,
-            r.MaxQuantityBase,
-            r.IsActive,
-            r.IdempotencyKey);
+            request.ReorderPointBase,
+            request.ReorderQuantityBase,
+            request.MaxQuantityBase,
+            request.IsActive,
+            request.IdempotencyKey);
 
         var validatorErrors = UpsertReorderRuleRequestValidator.Validate(upsertDto);
         errors.AddRange(validatorErrors);

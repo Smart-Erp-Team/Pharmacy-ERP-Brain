@@ -1,9 +1,15 @@
-﻿using System.Data.Common;
+using System.Data.Common;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using PharmacyERP.Application.Common.Interfaces.Context;
 
 namespace PharmacyERP.Infrastructure.Persistence.Interceptors;
 
+/// <summary>
+/// EF Core command interceptor that acts as a defense-in-depth guardrail for PostgreSQL
+/// <c>FORCE ROW LEVEL SECURITY</c>. Rejects any SQL command executed outside an active database
+/// transaction or without a bound <c>OrganizationId</c> (unless explicit system bypass is active),
+/// preventing accidental un-scoped queries when <c>set_config('app.organization_id', ..., true)</c>
+/// has not been applied to the transaction.
+/// </summary>
 public class TenantRlsConnectionInterceptor : DbCommandInterceptor
 {
     private readonly ITenantContext _tenantContext;
@@ -57,17 +63,20 @@ public class TenantRlsConnectionInterceptor : DbCommandInterceptor
 
     private void ValidateRlsAndTransactionGuard(DbCommand command)
     {
+        // Allow UnitOfWork's transaction-local GUC configuration commands (set_config('app.*')) through.
         if (string.IsNullOrWhiteSpace(command.CommandText) ||
             command.CommandText.Contains("set_config('app.", StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
+        // System bypass is reserved for short discovery transactions (login/refresh/enrollment/outbox worker).
         if (_tenantContext.IsSystemBypassEnabled)
         {
             return;
         }
 
+        // Transaction-local RLS GUCs (is_local = true) only take effect inside an explicit transaction.
         if (command.Transaction == null)
         {
             throw new InvalidOperationException("Database commands on tenant-scoped tables must be executed within an active transaction.");

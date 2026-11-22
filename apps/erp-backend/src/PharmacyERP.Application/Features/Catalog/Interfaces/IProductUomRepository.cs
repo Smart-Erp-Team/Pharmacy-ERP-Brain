@@ -1,5 +1,3 @@
-using PharmacyERP.Domain.Entities.Catalog;
-
 namespace PharmacyERP.Application.Features.Catalog.Interfaces;
 
 /// <summary>
@@ -17,6 +15,11 @@ public interface IProductUomRepository
         Guid organizationId,
         Guid productId,
         Guid productUomId,
+        CancellationToken ct = default);
+
+    Task<IReadOnlyList<ProductUom>> GetByIdsAsync(
+        Guid organizationId,
+        IReadOnlyCollection<Guid> productUomIds,
         CancellationToken ct = default);
 
     Task<bool> ExistsByUomCodeAsync(

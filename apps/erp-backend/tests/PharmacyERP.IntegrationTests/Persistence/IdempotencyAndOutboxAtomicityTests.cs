@@ -1,12 +1,6 @@
-﻿using Microsoft.EntityFrameworkCore;
-using Moq;
-using PharmacyERP.Application.Common.Interfaces.Context;
+﻿using Moq;
 using PharmacyERP.Application.Features.Integration.Services.Implementations;
-using PharmacyERP.Domain.Entities.Integration;
-using PharmacyERP.Infrastructure.Persistence.Database;
 using PharmacyERP.Infrastructure.Persistence.Repositories.Integration;
-using PharmacyERP.Infrastructure.Services.Context;
-using Xunit;
 
 namespace PharmacyERP.IntegrationTests.Persistence;
 

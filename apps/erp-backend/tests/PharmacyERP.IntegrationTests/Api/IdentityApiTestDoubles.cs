@@ -1,13 +1,3 @@
-using System.Reflection;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Common.Interfaces.CrossModule;
-using PharmacyERP.Application.Common.Interfaces.Integration;
-using PharmacyERP.Application.Common.Interfaces.Persistence;
-using PharmacyERP.Application.Features.Identity.Interfaces;
-using PharmacyERP.Domain.Entities.Identity;
-using PharmacyERP.Domain.Entities.Integration;
-using PharmacyERP.Domain.Enums;
-
 namespace PharmacyERP.IntegrationTests.Api;
 
 /// <summary>
@@ -78,6 +68,20 @@ internal sealed class IdentityApiTestStore
             return Task.FromResult(Page(query.OrderBy(x => x.Name).ThenBy(x => x.BranchId), page, pageSize));
         }
 
+        public Task<PagedResult<Branch>> GetPagedByIdsAsync(Guid organizationId, IReadOnlyCollection<Guid> branchIds, bool includeInactive, string? search,
+            int page, int pageSize, CancellationToken ct = default)
+        {
+            var query = store.Branches.Where(x => x.OrganizationId == organizationId && branchIds.Contains(x.BranchId));
+            if (!includeInactive) query = query.Where(x => x.IsActive);
+            if (!string.IsNullOrWhiteSpace(search))
+                query = query.Where(x => x.Name.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                    x.BranchCode.Contains(search, StringComparison.OrdinalIgnoreCase));
+            return Task.FromResult(Page(query.OrderBy(x => x.Name).ThenBy(x => x.BranchId), page, pageSize));
+        }
+
+        public Task<int> CountActiveByIdsAsync(Guid organizationId, IReadOnlyCollection<Guid> branchIds, CancellationToken ct = default)
+            => Task.FromResult(store.Branches.Count(x => x.OrganizationId == organizationId && x.IsActive && branchIds.Contains(x.BranchId)));
+
         public Task<Branch?> GetByIdAsync(Guid id, CancellationToken ct = default)
             => Task.FromResult(store.Branches.FirstOrDefault(x => x.BranchId == id));
 
@@ -143,8 +147,29 @@ internal sealed class IdentityApiTestStore
             => Task.FromResult(Attach(store.Users.FirstOrDefault(x => x.OrganizationId == organizationId &&
                 x.NormalizedUsername == normalizedUsername)));
 
+        public Task<(int AccessFailedCount, DateTimeOffset? LockoutEnd)> RecordLoginFailureAsync(
+            Guid organizationId,
+            Guid userId,
+            DateTimeOffset now,
+            int maxAttempts,
+            TimeSpan lockoutDuration,
+            CancellationToken ct = default)
+        {
+            var user = store.Users.FirstOrDefault(x => x.OrganizationId == organizationId && x.UserId == userId);
+            if (user is null) return Task.FromResult<(int, DateTimeOffset?)>((0, null));
+            user.RecordLoginFailure(now, maxAttempts, lockoutDuration);
+            return Task.FromResult((user.AccessFailedCount, user.LockoutEnd));
+        }
+
         public Task<UserAccount?> GetByIdWithAccessAsync(Guid organizationId, Guid userId, CancellationToken ct = default)
             => Task.FromResult(Attach(store.Users.FirstOrDefault(x => x.OrganizationId == organizationId && x.UserId == userId)));
+
+        public Task<(bool IsActive, Guid SecurityStamp)?> GetSecurityStateAsync(Guid organizationId, Guid userId, CancellationToken ct = default)
+        {
+            var user = Attach(store.Users.FirstOrDefault(x => x.OrganizationId == organizationId && x.UserId == userId));
+            return Task.FromResult<(bool IsActive, Guid SecurityStamp)?>(
+                user is null ? null : (user.IsActive && user.Employee.IsActive, user.SecurityStamp));
+        }
 
         public Task<bool> ExistsByUsernameAsync(Guid organizationId, string normalizedUsername, CancellationToken ct = default)
             => Task.FromResult(store.Users.Any(x => x.OrganizationId == organizationId && x.NormalizedUsername == normalizedUsername));
@@ -193,6 +218,12 @@ internal sealed class IdentityApiTestStore
 
     private sealed class BranchEnrollmentRepository(IdentityApiTestStore store) : IBranchEnrollmentRepository
     {
+        public Task<Guid?> FindOrganizationIdByTokenHashAsync(byte[] tokenHash, CancellationToken ct = default)
+        {
+            var enrollment = store.Enrollments.FirstOrDefault(x => x.TokenHash.SequenceEqual(tokenHash));
+            return Task.FromResult(enrollment?.OrganizationId);
+        }
+
         public Task<BranchEnrollment?> GetByTokenHashAsync(byte[] tokenHash, CancellationToken ct = default)
         {
             var enrollment = store.Enrollments.FirstOrDefault(x => x.TokenHash.SequenceEqual(tokenHash));
@@ -215,6 +246,12 @@ internal sealed class IdentityApiTestStore
 
     private sealed class UserRefreshTokenRepository(IdentityApiTestStore store) : IUserRefreshTokenRepository
     {
+        public Task<Guid?> FindOrganizationIdByTokenHashAsync(byte[] tokenHash, CancellationToken ct = default)
+        {
+            var token = store.RefreshTokens.FirstOrDefault(x => x.TokenHash.SequenceEqual(tokenHash));
+            return Task.FromResult(token?.OrganizationId);
+        }
+
         public Task<UserRefreshToken?> GetByTokenHashAsync(byte[] tokenHash, CancellationToken ct = default)
         {
             var token = store.RefreshTokens.FirstOrDefault(x => x.TokenHash.SequenceEqual(tokenHash));

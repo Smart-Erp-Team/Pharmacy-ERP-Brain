@@ -1,11 +1,12 @@
-﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Common.Interfaces.Persistence;
-using PharmacyERP.Infrastructure.Persistence.Database;
 
 namespace PharmacyERP.Infrastructure.Persistence.UoW;
 
+/// <summary>
+/// Manages database transactions over <see cref="PharmacyDbContext"/> and binds transaction-local
+/// PostgreSQL RLS session variables (<c>app.organization_id</c> or <c>app.system_bypass</c>)
+/// immediately upon opening each transaction.
+/// </summary>
 public class UnitOfWork : IUnitOfWork
 {
     private readonly PharmacyDbContext _dbContext;
@@ -31,16 +32,26 @@ public class UnitOfWork : IUnitOfWork
 
         if (_dbContext.Database.IsRelational())
         {
-            if (_tenantContext.IsTenantBound && _tenantContext.OrganizationId.HasValue)
+            try
             {
-                var orgIdString = _tenantContext.OrganizationId.Value.ToString();
-                await _dbContext.Database.ExecuteSqlInterpolatedAsync(
-                    $"SELECT set_config('app.organization_id', {orgIdString}, true);", ct);
+                // Passing is_local = true scopes set_config to the current transaction so pooled Npgsql
+                // connections can never leak tenant context or system bypass to a later request.
+                if (_tenantContext.IsTenantBound && _tenantContext.OrganizationId.HasValue)
+                {
+                    var organizationIdText = _tenantContext.OrganizationId.Value.ToString();
+                    await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+                        $"SELECT set_config('app.organization_id', {organizationIdText}, true);", ct);
+                }
+                else if (_tenantContext.IsSystemBypassAllowed)
+                {
+                    await _dbContext.Database.ExecuteSqlRawAsync(
+                        "SELECT set_config('app.system_bypass', 'true', true);", ct);
+                }
             }
-            else if (_tenantContext.IsSystemBypassAllowed)
+            catch
             {
-                await _dbContext.Database.ExecuteSqlRawAsync(
-                    "SELECT set_config('app.system_bypass', 'true', true);", ct);
+                await RollbackTransactionAsync(CancellationToken.None);
+                throw;
             }
         }
     }
@@ -64,7 +75,7 @@ public class UnitOfWork : IUnitOfWork
         }
         catch
         {
-            await RollbackTransactionAsync(ct);
+            await RollbackTransactionAsync(CancellationToken.None);
             throw;
         }
         finally
@@ -82,11 +93,13 @@ public class UnitOfWork : IUnitOfWork
 
         try
         {
-            await _currentTransaction.RollbackAsync(ct);
+            // Always send ROLLBACK regardless of whether the request CancellationToken is already cancelled.
+            await _currentTransaction.RollbackAsync(CancellationToken.None);
         }
         finally
         {
             await DisposeTransactionAsync();
+            _dbContext.ChangeTracker.Clear();
         }
     }
 

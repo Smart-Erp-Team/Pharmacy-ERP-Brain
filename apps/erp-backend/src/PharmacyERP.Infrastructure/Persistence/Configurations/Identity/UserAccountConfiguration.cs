@@ -1,7 +1,3 @@
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using PharmacyERP.Domain.Entities.Identity;
-
 namespace PharmacyERP.Infrastructure.Persistence.Configurations.Identity;
 
 public sealed class UserAccountConfiguration : IEntityTypeConfiguration<UserAccount>
@@ -22,6 +18,7 @@ public sealed class UserAccountConfiguration : IEntityTypeConfiguration<UserAcco
         builder.Property(x => x.Username).HasColumnName("username").HasColumnType("varchar(80)").HasMaxLength(80).IsRequired();
         builder.Property(x => x.NormalizedUsername).HasColumnName("normalized_username").HasColumnType("varchar(80)").HasMaxLength(80).IsRequired();
         builder.Property(x => x.PasswordHash).HasColumnName("password_hash").HasColumnType("varchar(500)").HasMaxLength(500).IsRequired();
+        builder.Property(x => x.SecurityStamp).HasColumnName("security_stamp").IsRequired();
         builder.Property(x => x.Role).HasColumnName("role").HasConversion<string>().HasColumnType("varchar(30)").HasMaxLength(30).IsRequired();
         builder.Property(x => x.BranchScope).HasColumnName("branch_scope").HasConversion<string>().HasColumnType("varchar(10)").HasMaxLength(10).IsRequired();
         builder.Property(x => x.IsActive).HasColumnName("is_active").IsRequired();
