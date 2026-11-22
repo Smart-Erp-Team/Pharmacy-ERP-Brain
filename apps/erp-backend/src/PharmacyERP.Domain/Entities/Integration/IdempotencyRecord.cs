@@ -1,5 +1,10 @@
-﻿namespace PharmacyERP.Domain.Entities.Integration;
+namespace PharmacyERP.Domain.Entities.Integration;
 
+/// <summary>
+/// Persists the canonical SHA-256 request payload hash and serialized response for an
+/// <c>Idempotency-Key</c> within a given organization, branch, and operation scope so retries
+/// replay the original response while mismatched payloads trigger a conflict error.
+/// </summary>
 public class IdempotencyRecord
 {
     public Guid IdempotencyRecordId { get; private set; }

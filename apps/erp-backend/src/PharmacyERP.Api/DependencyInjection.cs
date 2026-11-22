@@ -60,13 +60,13 @@ public static class DependencyInjection
                         ?? Guid.NewGuid().ToString();
 
                     var details = context.ModelState
-                        .Where(kvp => kvp.Value != null && kvp.Value.Errors.Count > 0)
-                        .SelectMany(kvp => kvp.Value!.Errors.Select(err =>
+                        .Where(entry => entry.Value != null && entry.Value.Errors.Count > 0)
+                        .SelectMany(entry => entry.Value!.Errors.Select(modelError =>
                             new ApiErrorDetailDto(
-                                kvp.Key,
-                                string.IsNullOrWhiteSpace(err.ErrorMessage)
+                                entry.Key,
+                                string.IsNullOrWhiteSpace(modelError.ErrorMessage)
                                     ? "Invalid value."
-                                    : err.ErrorMessage)))
+                                    : modelError.ErrorMessage)))
                         .ToList();
 
                     var envelope = new ApiErrorEnvelopeDto(
@@ -128,7 +128,7 @@ public static class DependencyInjection
                         }
 
                         var stampClaim = principal.FindFirst("security_stamp")?.Value;
-                        if (!Guid.TryParse(orgClaim, out var orgId)
+                        if (!Guid.TryParse(orgClaim, out var organizationId)
                             || !Guid.TryParse(subClaim, out var userId)
                             || !Guid.TryParse(stampClaim, out var securityStamp))
                         {
@@ -136,8 +136,10 @@ public static class DependencyInjection
                             return;
                         }
 
-                        var isValid = await stampValidator.ValidateAsync(orgId, userId, securityStamp, context.HttpContext.RequestAborted);
-                        if (!isValid)
+                        // Reject JWTs whose embedded security_stamp no longer matches the active user record
+                        // (e.g., after role/branch change, password reset, deactivation, or session revocation).
+                        var isSecurityStampValid = await stampValidator.ValidateAsync(organizationId, userId, securityStamp, context.HttpContext.RequestAborted);
+                        if (!isSecurityStampValid)
                         {
                             context.Fail("Token has been revoked or the user account is inactive.");
                         }

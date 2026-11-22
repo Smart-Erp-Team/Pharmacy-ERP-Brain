@@ -1,5 +1,8 @@
 namespace PharmacyERP.Application.Features.Identity.Services.Implementations;
 
+/// <summary>
+/// Manages branch-scoped employee records with tenant RLS enforcement, audit logging, and outbox notifications.
+/// </summary>
 public sealed class EmployeeService : IEmployeeService
 {
     private readonly IEmployeeRepository _employees;
@@ -28,12 +31,13 @@ public sealed class EmployeeService : IEmployeeService
         if (branchId.HasValue && !_currentUser.CanAccessBranch(branchId.Value))
             return IdentityResults.Failure<PagedResult<EmployeeDto>>(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
 
+        // Explicit read transaction binds the tenant GUC for PostgreSQL FORCE ROW LEVEL SECURITY.
         await _unitOfWork.BeginTransactionAsync(ct);
         try
         {
-            var result = await _employees.GetPagedAsync(organizationId, branchId, includeInactive, search, page, pageSize, ct);
+            var pagedEmployees = await _employees.GetPagedAsync(organizationId, branchId, includeInactive, search, page, pageSize, ct);
             await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
-            return Result<PagedResult<EmployeeDto>>.Success(new PagedResult<EmployeeDto>(result.Items.Select(EmployeeDtoMapper.From).ToArray(), page, pageSize, result.TotalCount));
+            return Result<PagedResult<EmployeeDto>>.Success(new PagedResult<EmployeeDto>(pagedEmployees.Items.Select(EmployeeDtoMapper.From).ToArray(), page, pageSize, pagedEmployees.TotalCount));
         }
         catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
@@ -74,10 +78,10 @@ public sealed class EmployeeService : IEmployeeService
             }
             Employee employee;
             try { employee = Employee.Create(organizationId, request.BranchId, request.EmployeeNo, request.FullName, request.Email, request.Phone, request.JobTitle, request.Address.ToValueObject(), request.HiredOn); }
-            catch (Exception ex) when (ex is ArgumentException or IdentityDomainException)
+            catch (Exception exception) when (exception is ArgumentException or IdentityDomainException)
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
-                return IdentityResults.Failure<EmployeeDto>(ErrorCode.VALIDATION_ERROR, ex.Message);
+                return IdentityResults.Failure<EmployeeDto>(ErrorCode.VALIDATION_ERROR, exception.Message);
             }
             await _employees.AddAsync(employee, ct);
             await _audit.LogAsync("employee.created", "identity", "EMPLOYEE", employee.EmployeeId, null,
@@ -108,10 +112,10 @@ public sealed class EmployeeService : IEmployeeService
                 return IdentityResults.Failure<EmployeeDto>(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
             }
             try { employee.UpdateDetails(request.FullName, request.Email, request.Phone, request.JobTitle, request.Address.ToValueObject()); }
-            catch (Exception ex) when (ex is ArgumentException or IdentityDomainException)
+            catch (Exception exception) when (exception is ArgumentException or IdentityDomainException)
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
-                return IdentityResults.Failure<EmployeeDto>(ErrorCode.VALIDATION_ERROR, ex.Message);
+                return IdentityResults.Failure<EmployeeDto>(ErrorCode.VALIDATION_ERROR, exception.Message);
             }
             if (request.IsActive.HasValue) employee.SetActive(request.IsActive.Value);
             await _audit.LogAsync("employee.updated", "identity", "EMPLOYEE", employee.EmployeeId, null,

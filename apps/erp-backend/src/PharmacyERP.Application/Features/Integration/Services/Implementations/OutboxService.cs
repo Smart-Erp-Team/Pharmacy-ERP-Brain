@@ -1,5 +1,9 @@
 namespace PharmacyERP.Application.Features.Integration.Services.Implementations;
 
+/// <summary>
+/// Appends domain integration events to the tenant's transactional outbox using a row-locked
+/// per-organization sequence cursor so event ordering stays strictly monotonic across concurrent writers.
+/// </summary>
 public class OutboxService : IOutboxService
 {
     private static readonly JsonSerializerOptions OutboxJsonOptions = new()
@@ -31,9 +35,11 @@ public class OutboxService : IOutboxService
             throw new InvalidOperationException("OrganizationId is required to enqueue outbox events.");
         }
 
-        var orgId = _tenantContext.OrganizationId.Value;
+        var organizationId = _tenantContext.OrganizationId.Value;
 
-        var cursor = await _repository.LockAndGetCursorAsync(orgId, ct);
+        // Lock the tenant's cursor row (SELECT ... FOR UPDATE) so concurrent transactions allocate
+        // strictly increasing, gap-free event sequences within the organization.
+        var cursor = await _repository.LockAndGetCursorAsync(organizationId, ct);
         if (cursor == null)
         {
             throw new InvalidOperationException("OutboxEventCursor missing. Ensure PlatformProvisioner created the initial cursor.");
@@ -45,7 +51,7 @@ public class OutboxService : IOutboxService
 
         var outboxEvent = new OutboxEvent(
             Guid.NewGuid(),
-            orgId,
+            organizationId,
             branchId,
             nextSequence,
             eventType,

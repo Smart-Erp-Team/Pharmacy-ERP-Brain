@@ -1,5 +1,12 @@
 namespace PharmacyERP.Domain.Entities.Inventory;
 
+/// <summary>
+/// Header of an inventory ledger transaction. Lines may only be added while the transaction is
+/// <see cref="InventoryTransactionStatus.DRAFT"/>; once POSTED (or CANCELLED) it is immutable.
+/// A posted transaction is never edited or deleted — it is undone by posting a separate
+/// <see cref="InventoryTransactionType.REVERSAL"/> transaction that references it via
+/// <see cref="ReversesInventoryTxnId"/>.
+/// </summary>
 public class InventoryTxn
 {
     public Guid InventoryTxnId { get; private set; }
@@ -65,6 +72,7 @@ public class InventoryTxn
     {
         ValidateCreationParameters(organizationId, branchId, transactionNo, idempotencyKey, createdByEmployeeId);
 
+        // A REVERSAL must always point at the transaction it undoes.
         if (transactionType == InventoryTransactionType.REVERSAL && (!reversesInventoryTxnId.HasValue || reversesInventoryTxnId.Value == Guid.Empty))
         {
             throw new ArgumentException("ReversesInventoryTxnId is required for REVERSAL transactions.", nameof(reversesInventoryTxnId));
@@ -94,6 +102,11 @@ public class InventoryTxn
         };
     }
 
+    /// <summary>
+    /// Creates a transaction that is already POSTED, using the same timestamp for
+    /// <see cref="CreatedAt"/> and <see cref="PostedAt"/>. Lines added through
+    /// <see cref="AddLine(InventoryTxnLine)"/> afterwards will be rejected because the transaction is no longer a draft.
+    /// </summary>
     public static InventoryTxn CreatePosted(
         Guid organizationId,
         Guid branchId,
@@ -112,7 +125,7 @@ public class InventoryTxn
     {
         var currentUtc = now ?? DateTimeOffset.UtcNow;
 
-        var txn = CreateDraft(
+        var postedTransaction = CreateDraft(
             organizationId,
             branchId,
             transactionNo,
@@ -128,9 +141,9 @@ public class InventoryTxn
             purchaseOrderId,
             vendorReturnId);
 
-        txn.Status = InventoryTransactionStatus.POSTED;
-        txn.PostedAt = currentUtc;
-        return txn;
+        postedTransaction.Status = InventoryTransactionStatus.POSTED;
+        postedTransaction.PostedAt = currentUtc;
+        return postedTransaction;
     }
 
     public void AddLine(InventoryTxnLine line)
@@ -140,6 +153,10 @@ public class InventoryTxn
         Lines.Add(line);
     }
 
+    /// <summary>
+    /// Creates and appends a line bound to this transaction's organization, branch and type.
+    /// The line validates UOM conversion math and the quantity sign for <see cref="TransactionType"/>.
+    /// </summary>
     public void AddLine(
          Guid productId,
          Guid locationId,
@@ -182,6 +199,8 @@ public class InventoryTxn
         Status = InventoryTransactionStatus.CANCELLED;
     }
 
+    // Ledger immutability guard: posted transactions raise a domain exception (they can only be
+    // undone by a REVERSAL), while cancelled drafts are simply dead and reject any further change.
     private void EnsureDraft()
     {
         if (Status == InventoryTransactionStatus.POSTED)

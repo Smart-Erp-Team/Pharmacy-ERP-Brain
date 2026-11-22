@@ -1,5 +1,8 @@
 namespace PharmacyERP.Application.Features.Catalog.Services.Implementations;
 
+/// <summary>
+/// Manages hierarchical product categories in Cloud mode with idempotency, audit logging, and outbox publishing.
+/// </summary>
 public class ProductCategoryService : IProductCategoryService
 {
     private readonly IProductCategoryRepository _categoryRepository;
@@ -277,6 +280,6 @@ public class ProductCategoryService : IProductCategoryService
         string.Equals(_currentUser.Role, "Pharmacist", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(_currentUser.Role, "Cashier", StringComparison.OrdinalIgnoreCase);
 
-    private static ProductCategoryDto MapToDto(ProductCategory c) =>
-        new(c.CategoryId, c.OrganizationId, c.ParentCategoryId, c.Code, c.Name, c.Description, c.IsActive, c.CreatedAt, c.UpdatedAt);
+    private static ProductCategoryDto MapToDto(ProductCategory category) =>
+        new(category.CategoryId, category.OrganizationId, category.ParentCategoryId, category.Code, category.Name, category.Description, category.IsActive, category.CreatedAt, category.UpdatedAt);
 }

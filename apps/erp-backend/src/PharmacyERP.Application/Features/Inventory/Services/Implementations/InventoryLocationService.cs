@@ -1,5 +1,9 @@
 namespace PharmacyERP.Application.Features.Inventory.Services.Implementations;
 
+/// <summary>
+/// Manages branch inventory locations (sellable, quarantine, scrap) with idempotency,
+/// branch-level access control, audit logging, and outbox notifications.
+/// </summary>
 public class InventoryLocationService : IInventoryLocationService
 {
     private const string CreateIdempotencyScope = "inventory.location.create";
@@ -276,6 +280,6 @@ public class InventoryLocationService : IInventoryLocationService
         }
     }
 
-    private static InventoryLocationDto ToDto(InventoryLocation loc) =>
-        new(loc.LocationId, loc.OrganizationId, loc.BranchId, loc.LocationCode, loc.Name, loc.LocationType, loc.IsSellable, loc.IsActive, loc.UpdatedAt);
+    private static InventoryLocationDto ToDto(InventoryLocation location) =>
+        new(location.LocationId, location.OrganizationId, location.BranchId, location.LocationCode, location.Name, location.LocationType, location.IsSellable, location.IsActive, location.UpdatedAt);
 }

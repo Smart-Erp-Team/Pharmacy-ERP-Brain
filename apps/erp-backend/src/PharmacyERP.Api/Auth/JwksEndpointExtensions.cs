@@ -1,5 +1,9 @@
 namespace PharmacyERP.Api.Auth;
 
+/// <summary>
+/// Registers a startup middleware serving the active RSA public signing key at
+/// <c>GET /.well-known/jwks.json</c> for external token verification.
+/// </summary>
 public static class JwksEndpointExtensions
 {
     public static IServiceCollection AddJwksEndpoint(this IServiceCollection services)

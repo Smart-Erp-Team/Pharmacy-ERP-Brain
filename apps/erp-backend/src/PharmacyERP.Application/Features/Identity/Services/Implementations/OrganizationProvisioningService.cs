@@ -1,5 +1,9 @@
 namespace PharmacyERP.Application.Features.Identity.Services.Implementations;
 
+/// <summary>
+/// Provisions a brand-new tenant organization along with its outbox cursor, initial branch,
+/// default inventory locations, founding employee, and all-branch Admin account in a single transaction.
+/// </summary>
 public sealed class OrganizationProvisioningService : IOrganizationProvisioningService
 {
     private readonly IOrganizationRepository _organizations;
@@ -46,9 +50,9 @@ public sealed class OrganizationProvisioningService : IOrganizationProvisioningS
                 request.InitialAdmin.Username, "pending-hash", UserRole.Admin, BranchScope.ALL);
             admin.UpdatePasswordHash(_passwords.HashPassword(admin, request.InitialAdmin.Password), _clock.UtcNow);
         }
-        catch (Exception ex) when (ex is ArgumentException or PharmacyERP.Domain.Exceptions.IdentityDomainException)
+        catch (Exception exception) when (exception is ArgumentException or PharmacyERP.Domain.Exceptions.IdentityDomainException)
         {
-            return IdentityResults.Failure<OrganizationDto>(ErrorCode.VALIDATION_ERROR, ex.Message);
+            return IdentityResults.Failure<OrganizationDto>(ErrorCode.VALIDATION_ERROR, exception.Message);
         }
 
         try

@@ -135,30 +135,38 @@ public class Product
             UpdatedAt = now
         };
 
-        foreach (var uomDef in initialUoms)
+        foreach (var uomDefinition in initialUoms)
         {
+            // ProductUom.Create enforces per-UOM rules (positive conversion factor, base UOM factor == 1,
+            // sellable UOMs need a non-negative price); cross-UOM rules are checked below.
             var uom = ProductUom.Create(
                 organizationId,
                 resolvedProductId,
-                uomDef.UomCode,
-                uomDef.DisplayName,
-                uomDef.ConversionToBase,
-                uomDef.SaleUnitPrice,
-                uomDef.IsBase,
-                uomDef.IsSellable,
-                uomDef.IsPurchasable);
+                uomDefinition.UomCode,
+                uomDefinition.DisplayName,
+                uomDefinition.ConversionToBase,
+                uomDefinition.SaleUnitPrice,
+                uomDefinition.IsBase,
+                uomDefinition.IsSellable,
+                uomDefinition.IsPurchasable);
 
+            // UOM codes are compared ordinally (case-sensitive), matching the rest of the aggregate.
             if (product.Uoms.Any(existing => string.Equals(existing.UomCode, uom.UomCode, StringComparison.Ordinal)))
                 throw new CatalogDomainException($"Duplicate UOM code '{uom.UomCode}' found in product creation payload.");
 
             product.Uoms.Add(uom);
         }
 
+        // Exactly one active base UOM must exist, and it must match BaseUomCode with a factor of 1.
         product.EnsureSingleActiveBaseUomInvariant();
 
         return product;
     }
 
+    /// <summary>
+    /// Adds a new UOM to this product. Rejects duplicate UOM codes and a second active base UOM;
+    /// per-UOM validation (conversion factor, sellable price) is delegated to <see cref="ProductUom"/>.
+    /// </summary>
     public ProductUom AddUom(
         string uomCode,
         string displayName,
@@ -168,10 +176,11 @@ public class Product
         bool isSellable,
         bool isPurchasable)
     {
-        if (Uoms.Any(u => string.Equals(u.UomCode, uomCode, StringComparison.Ordinal)))
+        // Inactive UOMs still count here: a deactivated code cannot be re-added, only re-activated.
+        if (Uoms.Any(existingUom => string.Equals(existingUom.UomCode, uomCode, StringComparison.Ordinal)))
             throw new CatalogDomainException($"A UOM with code '{uomCode}' already exists for product '{ProductId}'.");
 
-        if (isBase && Uoms.Any(u => u.IsBase && u.IsActive))
+        if (isBase && Uoms.Any(existingUom => existingUom.IsBase && existingUom.IsActive))
             throw new InvalidBaseUomInvariantException("Cannot add a second active base UOM to the product.");
 
         var uom = ProductUom.Create(
@@ -191,9 +200,14 @@ public class Product
         return uom;
     }
 
+    /// <summary>
+    /// Asserts the base UOM invariant: exactly one active base UOM, its code equals <see cref="BaseUomCode"/>,
+    /// and its <see cref="ProductUom.ConversionToBase"/> is exactly 1 (base quantities are expressed in this unit).
+    /// </summary>
+    /// <exception cref="InvalidBaseUomInvariantException">Thrown when any part of the invariant is violated.</exception>
     public void EnsureSingleActiveBaseUomInvariant()
     {
-        var activeBaseUoms = Uoms.Where(u => u.IsBase && u.IsActive).ToList();
+        var activeBaseUoms = Uoms.Where(uom => uom.IsBase && uom.IsActive).ToList();
 
         if (activeBaseUoms.Count != 1)
             throw new InvalidBaseUomInvariantException($"The product must have exactly one active base UOM, found {activeBaseUoms.Count}.");
@@ -212,6 +226,8 @@ public class Product
         if (lotTrackingRequired == LotTrackingRequired)
             return;
 
+        // The policy is frozen once stock balances or posted history exist, because that data was
+        // recorded under the current (lot-tracked or not) policy.
         if (hasStockOrPostedHistory)
             throw new HistoricalUomModificationForbiddenException("Cannot change lot tracking policy for a product that has existing stock balances or posted transaction history.");
 
@@ -224,23 +240,30 @@ public class Product
     /// flush <c>is_base = false</c> within the active transaction before setting the target UOM as base.
     /// Prevents PostgreSQL partial unique index (<c>23505</c>) violations caused by PK-ordered EF Core UPDATE batching.
     /// </summary>
+    /// <returns>
+    /// <c>true</c> when the current base UOM was unset and the caller must flush before calling
+    /// <see cref="ChangeBaseUom"/>; <c>false</c> when no change is needed or there is no current active base UOM.
+    /// </returns>
     public bool BeginBaseUomChange(string newBaseUomCode, bool hasStockOrPostedHistory)
     {
+        // Base-unit quantities already recorded in stock/history are tied to the current base unit,
+        // so the base unit is frozen once stock or posted history exists.
         if (hasStockOrPostedHistory)
             throw new HistoricalUomModificationForbiddenException("Cannot modify base UOM for a product that has existing stock balances or posted transaction history.");
 
         if (string.Equals(BaseUomCode, newBaseUomCode, StringComparison.Ordinal))
             return false;
 
-        var targetUom = Uoms.FirstOrDefault(u => string.Equals(u.UomCode, newBaseUomCode, StringComparison.Ordinal));
+        var targetUom = Uoms.FirstOrDefault(uom => string.Equals(uom.UomCode, newBaseUomCode, StringComparison.Ordinal));
 
         if (targetUom == null || !targetUom.IsActive)
             throw new InvalidBaseUomInvariantException($"Target UOM '{newBaseUomCode}' must be an existing active UOM of this product.");
 
+        // No factor rescaling is performed, so the target must already be 1:1 with the current base.
         if (targetUom.ConversionToBase != 1m)
             throw new InvalidBaseUomInvariantException($"Target base UOM '{newBaseUomCode}' must have ConversionToBase equal to 1.");
 
-        var currentBase = Uoms.FirstOrDefault(u => u.IsBase && u.IsActive);
+        var currentBase = Uoms.FirstOrDefault(uom => uom.IsBase && uom.IsActive);
         if (currentBase == null)
             return false;
 
@@ -263,7 +286,7 @@ public class Product
         if (string.Equals(BaseUomCode, newBaseUomCode, StringComparison.Ordinal))
             return;
 
-        var targetUom = Uoms.FirstOrDefault(u => string.Equals(u.UomCode, newBaseUomCode, StringComparison.Ordinal));
+        var targetUom = Uoms.FirstOrDefault(uom => string.Equals(uom.UomCode, newBaseUomCode, StringComparison.Ordinal));
 
         if (targetUom == null || !targetUom.IsActive)
             throw new InvalidBaseUomInvariantException($"Target UOM '{newBaseUomCode}' must be an existing active UOM of this product.");
@@ -271,7 +294,8 @@ public class Product
         if (targetUom.ConversionToBase != 1m)
             throw new InvalidBaseUomInvariantException($"Target base UOM '{newBaseUomCode}' must have ConversionToBase equal to 1.");
 
-        var currentBase = Uoms.FirstOrDefault(u => u.IsBase && u.IsActive);
+        // May be null when BeginBaseUomChange already unset the previous base UOM.
+        var currentBase = Uoms.FirstOrDefault(uom => uom.IsBase && uom.IsActive);
 
         // Validation passed; apply changes atomically
         currentBase?.UnsetBase();

@@ -1,5 +1,10 @@
 namespace PharmacyERP.Infrastructure.Persistence.Repositories.Inventory;
 
+/// <summary>
+/// Manages <see cref="StockBalance"/> persistence including deadlock-safe batch row locking
+/// (<c>INSERT ... ON CONFLICT DO NOTHING</c> followed by ordered <c>SELECT ... FOR UPDATE</c>)
+/// and two-step paginated canonical inventory queries.
+/// </summary>
 public class StockBalanceRepository : IStockBalanceRepository
 {
     private readonly PharmacyDbContext _context;
@@ -126,21 +131,23 @@ public class StockBalanceRepository : IStockBalanceRepository
 
         if (_context.Database.IsRelational())
         {
-            var locIds = keysToQuery.Select(k => k.LocationId).ToArray();
-            var batchIds = keysToQuery.Select(k => k.BatchId).ToArray();
+            var locationIds = keysToQuery.Select(key => key.LocationId).ToArray();
+            var batchIds = keysToQuery.Select(key => key.BatchId).ToArray();
 
+            // Upsert zero-balance rows first so concurrent adjustments can immediately acquire
+            // deterministic row locks in (location_id, batch_id) order without race-condition duplicates.
             await _context.Database.ExecuteSqlInterpolatedAsync(
                 $@"INSERT INTO inventory.""STOCK_BALANCE""
                    (organization_id, location_id, batch_id, on_hand_qty_base, average_unit_cost, row_version, updated_at)
                    SELECT {organizationId}, k.location_id, k.batch_id, 0, 0, 1, {now}
-                   FROM unnest({locIds}, {batchIds}) AS k(location_id, batch_id)
+                   FROM unnest({locationIds}, {batchIds}) AS k(location_id, batch_id)
                    ON CONFLICT (organization_id, location_id, batch_id) DO NOTHING;", ct);
 
             var lockedBalances = await _context.StockBalances
                 .FromSqlInterpolated(
                     $@"SELECT sb.*
                        FROM inventory.""STOCK_BALANCE"" sb
-                       INNER JOIN unnest({locIds}, {batchIds}) AS k(location_id, batch_id)
+                       INNER JOIN unnest({locationIds}, {batchIds}) AS k(location_id, batch_id)
                            ON sb.location_id = k.location_id AND sb.batch_id = k.batch_id
                        WHERE sb.organization_id = {organizationId}
                        ORDER BY sb.location_id ASC, sb.batch_id ASC
@@ -148,39 +155,39 @@ public class StockBalanceRepository : IStockBalanceRepository
                 .IgnoreQueryFilters()
                 .ToListAsync(ct);
 
-            foreach (var sb in lockedBalances)
+            foreach (var stockBalance in lockedBalances)
             {
-                result[(sb.LocationId, sb.BatchId)] = sb;
+                result[(stockBalance.LocationId, stockBalance.BatchId)] = stockBalance;
             }
 
             return result;
         }
 
-        var locIdSet = keysToQuery.Select(k => k.LocationId).Distinct().ToList();
-        var batchIdSet = keysToQuery.Select(k => k.BatchId).Distinct().ToList();
+        var locationIdSet = keysToQuery.Select(key => key.LocationId).Distinct().ToList();
+        var batchIdSet = keysToQuery.Select(key => key.BatchId).Distinct().ToList();
         var existingRows = await _context.StockBalances
-            .Where(sb => sb.OrganizationId == organizationId && locIdSet.Contains(sb.LocationId) && batchIdSet.Contains(sb.BatchId))
+            .Where(balance => balance.OrganizationId == organizationId && locationIdSet.Contains(balance.LocationId) && batchIdSet.Contains(balance.BatchId))
             .ToListAsync(ct);
 
-        foreach (var sb in existingRows)
+        foreach (var stockBalance in existingRows)
         {
-            result[(sb.LocationId, sb.BatchId)] = sb;
+            result[(stockBalance.LocationId, stockBalance.BatchId)] = stockBalance;
         }
 
-        var missing = new List<StockBalance>();
+        var missingBalances = new List<StockBalance>();
         foreach (var key in keysToQuery)
         {
             if (!result.ContainsKey(key))
             {
-                var created = StockBalance.CreateInitial(organizationId, key.LocationId, key.BatchId, 0m, 0m, now);
-                missing.Add(created);
-                result[key] = created;
+                var createdBalance = StockBalance.CreateInitial(organizationId, key.LocationId, key.BatchId, 0m, 0m, now);
+                missingBalances.Add(createdBalance);
+                result[key] = createdBalance;
             }
         }
 
-        if (missing.Count > 0)
+        if (missingBalances.Count > 0)
         {
-            await _context.StockBalances.AddRangeAsync(missing, ct);
+            await _context.StockBalances.AddRangeAsync(missingBalances, ct);
         }
 
         return result;

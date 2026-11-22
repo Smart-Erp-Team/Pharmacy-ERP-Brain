@@ -1,5 +1,10 @@
 namespace PharmacyERP.Infrastructure.BackgroundServices;
 
+/// <summary>
+/// Background hosted service that polls unpublished tenant outbox events under system bypass
+/// using PostgreSQL <c>FOR UPDATE SKIP LOCKED</c> so multiple worker instances never double-dispatch
+/// the same event, advancing <see cref="OutboxEvent.PublishedAt"/> or recording failures atomically.
+/// </summary>
 public class OutboxPublisherWorker : BackgroundService
 {
     private const int MaxPublishAttempts = 10;
@@ -32,9 +37,9 @@ public class OutboxPublisherWorker : BackgroundService
             {
                 break;
             }
-            catch (Exception ex)
+            catch (Exception exception)
             {
-                _logger.LogError(ex, "Error occurred while processing pending outbox events.");
+                _logger.LogError(exception, "Error occurred while processing pending outbox events.");
 
                 try
                 {
@@ -57,6 +62,7 @@ public class OutboxPublisherWorker : BackgroundService
         var dateTimeProvider = scope.ServiceProvider.GetRequiredService<IDateTimeProvider>();
         var dispatcher = scope.ServiceProvider.GetService<IOutboxEventDispatcher>();
 
+        // The outbox worker processes pending events across all organizations in sequence order.
         tenantContext.AllowSystemBypass();
 
         await unitOfWork.BeginTransactionAsync(ct);
@@ -65,6 +71,7 @@ public class OutboxPublisherWorker : BackgroundService
             List<OutboxEvent> pendingEvents;
             if (dbContext.Database.IsRelational())
             {
+                // FOR UPDATE SKIP LOCKED allows concurrent workers to claim disjoint event batches without blocking.
                 pendingEvents = await dbContext.OutboxEvents
                     .FromSqlInterpolated(
                         $@"SELECT * FROM integration.""OUTBOX_EVENT""
@@ -79,9 +86,9 @@ public class OutboxPublisherWorker : BackgroundService
             {
                 pendingEvents = await dbContext.OutboxEvents
                     .IgnoreQueryFilters()
-                    .Where(e => e.PublishedAt == null && e.AttemptCount < MaxPublishAttempts)
-                    .OrderBy(e => e.OrganizationId)
-                    .ThenBy(e => e.EventSequence)
+                    .Where(outboxEvent => outboxEvent.PublishedAt == null && outboxEvent.AttemptCount < MaxPublishAttempts)
+                    .OrderBy(outboxEvent => outboxEvent.OrganizationId)
+                    .ThenBy(outboxEvent => outboxEvent.EventSequence)
                     .Take(BatchSize)
                     .ToListAsync(ct);
             }
@@ -97,16 +104,16 @@ public class OutboxPublisherWorker : BackgroundService
 
                     outboxEvent.MarkPublished(dateTimeProvider.UtcNow);
                 }
-                catch (Exception ex)
+                catch (Exception exception)
                 {
                     _logger.LogWarning(
-                        ex,
+                        exception,
                         "Failed to publish outbox event {EventId} ({EventType}) for Organization {OrganizationId} Seq {EventSequence}.",
                         outboxEvent.EventId,
                         outboxEvent.EventType,
                         outboxEvent.OrganizationId,
                         outboxEvent.EventSequence);
-                    outboxEvent.RecordPublishFailure(ex.Message ?? "Outbox dispatch failed.");
+                    outboxEvent.RecordPublishFailure(exception.Message ?? "Outbox dispatch failed.");
                 }
             }
 

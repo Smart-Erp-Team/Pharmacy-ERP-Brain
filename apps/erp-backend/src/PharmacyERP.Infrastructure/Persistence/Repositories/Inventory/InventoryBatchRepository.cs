@@ -1,5 +1,9 @@
 namespace PharmacyERP.Infrastructure.Persistence.Repositories.Inventory;
 
+/// <summary>
+/// Persists <see cref="InventoryBatch"/> records with idempotent PostgreSQL batch upserts
+/// (<c>ON CONFLICT DO NOTHING</c>) keyed by deterministic UUIDv5 batch identifiers.
+/// </summary>
 public class InventoryBatchRepository : IInventoryBatchRepository
 {
     private readonly PharmacyDbContext _context;

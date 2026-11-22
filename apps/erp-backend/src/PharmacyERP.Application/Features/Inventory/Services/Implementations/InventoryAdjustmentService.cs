@@ -1,5 +1,10 @@
 namespace PharmacyERP.Application.Features.Inventory.Services.Implementations;
 
+/// <summary>
+/// Posts inventory adjustments (<c>OPENING_BALANCE</c>, <c>ADJUSTMENT_IN</c>, <c>ADJUSTMENT_OUT</c>)
+/// and <c>REVERSAL</c> transactions with idempotency replay, ordered row-level locking,
+/// UOM-to-base conversion math, and automatic retry on transient concurrency/serialization conflicts.
+/// </summary>
 public class InventoryAdjustmentService : IInventoryAdjustmentService
 {
     private const string IdempotencyScope = "inventory.adjustment.post";
@@ -74,9 +79,11 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
             && !string.Equals(_currentUser.Role, UserRole.Admin.ToString(), StringComparison.Ordinal))
             return Result<InventoryTxnDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
 
-        Guid orgId = _tenantContext.OrganizationId.Value;
+        Guid organizationId = _tenantContext.OrganizationId.Value;
         Guid employeeId = _currentUser.EmployeeId.Value;
 
+        // Retry loop handles optimistic concurrency (row_version) and PostgreSQL serialization/deadlock errors
+        // by rolling back cleanly and re-reading fresh stock balances on the next attempt.
         for (int attempt = 1; ; attempt++)
         {
             await _unitOfWork.BeginTransactionAsync(ct);
@@ -94,19 +101,19 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                         return Result<InventoryTxnDto>.Success(idempotencyResult.ReplayedResponse);
                     }
                 }
-                catch (IntegrationDomainException ex) when (string.Equals(ex.Message, "IDEMPOTENCY_MISMATCH", StringComparison.OrdinalIgnoreCase))
+                catch (IntegrationDomainException exception) when (string.Equals(exception.Message, "IDEMPOTENCY_MISMATCH", StringComparison.OrdinalIgnoreCase))
                 {
                     await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                     return Result<InventoryTxnDto>.Failure(ErrorCode.IDEMPOTENCY_MISMATCH, ErrorMessages.IdempotencyMismatch);
                 }
 
                 var now = _dateTimeProvider.UtcNow;
-                string txnNo = $"ADJ-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..12].ToUpperInvariant()}";
+                string transactionNumber = $"ADJ-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..12].ToUpperInvariant()}";
 
-                var txn = InventoryTxn.CreateDraft(
-                    organizationId: orgId,
+                var inventoryTransaction = InventoryTxn.CreateDraft(
+                    organizationId: organizationId,
                     branchId: request.BranchId,
-                    transactionNo: txnNo,
+                    transactionNo: transactionNumber,
                     transactionType: request.TransactionType,
                     idempotencyKey: request.IdempotencyKey,
                     createdByEmployeeId: employeeId,
@@ -119,7 +126,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
 
                 if (request.TransactionType == InventoryTransactionType.REVERSAL)
                 {
-                    var reversalFailure = await ProcessReversalAsync(orgId, request.BranchId, request.ReversesInventoryTxnId!.Value, txn, batchNumbersById, now, ct);
+                    var reversalFailure = await ProcessReversalAsync(organizationId, request.BranchId, request.ReversesInventoryTxnId!.Value, inventoryTransaction, batchNumbersById, now, ct);
                     if (reversalFailure != null)
                     {
                         await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
@@ -128,7 +135,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                 }
                 else
                 {
-                    var standardFailure = await ProcessStandardAdjustmentAsync(orgId, request, txn, batchNumbersById, now, ct);
+                    var standardFailure = await ProcessStandardAdjustmentAsync(organizationId, request, inventoryTransaction, batchNumbersById, now, ct);
                     if (standardFailure != null)
                     {
                         await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
@@ -138,12 +145,12 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
 
                 // Persist DRAFT header and lines first so PostgreSQL's BEFORE INSERT line-immutability trigger
                 // validates parent status = 'DRAFT', then transition to POSTED atomically within the same transaction.
-                await _txnRepo.AddAsync(txn, ct);
+                await _txnRepo.AddAsync(inventoryTransaction, ct);
                 await _unitOfWork.SaveChangesAsync(ct);
 
-                txn.Post(now);
+                inventoryTransaction.Post(now);
 
-                var responseDto = MapToTxnDto(txn, batchNumbersById);
+                var responseDto = MapToTxnDto(inventoryTransaction, batchNumbersById);
 
                 await _outbox.EnqueueAsync(OutboxTopic, request.BranchId, responseDto, ct: ct);
 
@@ -151,7 +158,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                     action: AuditAction,
                     entitySchema: "inventory",
                     entityName: "INVENTORY_TXN",
-                    entityId: txn.InventoryTxnId,
+                    entityId: inventoryTransaction.InventoryTxnId,
                     beforeData: null,
                     afterData: responseDto,
                     branchId: request.BranchId,
@@ -164,7 +171,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
 
                 return Result<InventoryTxnDto>.Success(responseDto);
             }
-            catch (Exception ex) when (attempt < MaxConcurrencyRetryAttempts && IsTransientConcurrencyException(ex))
+            catch (Exception exception) when (attempt < MaxConcurrencyRetryAttempts && IsTransientConcurrencyException(exception))
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 await Task.Delay(Random.Shared.Next(15, 50) * attempt, ct);
@@ -178,89 +185,92 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
     }
 
     private async Task<Result<InventoryTxnDto>?> ProcessReversalAsync(
-        Guid orgId,
+        Guid organizationId,
         Guid branchId,
-        Guid reversesTxnId,
-        InventoryTxn reversalTxn,
+        Guid reversesTransactionId,
+        InventoryTxn reversalTransaction,
         IDictionary<Guid, string> batchNumbersById,
         DateTimeOffset now,
-        CancellationToken ct)
+        CancellationToken cancellationToken)
     {
-        var originalTxn = await _txnRepo.GetByIdWithLinesAsync(orgId, branchId, reversesTxnId, ct);
-        if (originalTxn == null)
+        var originalTransaction = await _txnRepo.GetByIdWithLinesAsync(organizationId, branchId, reversesTransactionId, cancellationToken);
+        if (originalTransaction == null)
         {
             return Result<InventoryTxnDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.NotFound);
         }
 
-        if (originalTxn.Status != InventoryTransactionStatus.POSTED)
+        // Only POSTED non-reversal transactions that have not already been reversed can be reversed.
+        if (originalTransaction.Status != InventoryTransactionStatus.POSTED)
         {
             return Result<InventoryTxnDto>.Failure(ErrorCode.INVALID_STATE_TRANSITION, ErrorMessages.InvalidStateTransition);
         }
 
-        if (originalTxn.TransactionType == InventoryTransactionType.REVERSAL)
+        if (originalTransaction.TransactionType == InventoryTransactionType.REVERSAL)
         {
             return Result<InventoryTxnDto>.Failure(ErrorCode.INVALID_STATE_TRANSITION, ErrorMessages.InvalidStateTransition);
         }
 
-        if (await _txnRepo.HasPostedReversalAsync(orgId, branchId, reversesTxnId, ct))
+        if (await _txnRepo.HasPostedReversalAsync(organizationId, branchId, reversesTransactionId, cancellationToken))
         {
             return Result<InventoryTxnDto>.Failure(ErrorCode.INVALID_STATE_TRANSITION, ErrorMessages.InvalidStateTransition);
         }
 
-        var orderedOriginalLines = originalTxn.Lines
-            .OrderBy(l => l.LocationId)
-            .ThenBy(l => l.BatchId)
+        // Sort deterministically by (LocationId, BatchId) before locking to prevent deadlocks across concurrent writers.
+        var orderedOriginalLines = originalTransaction.Lines
+            .OrderBy(line => line.LocationId)
+            .ThenBy(line => line.BatchId)
             .ToList();
 
         var balanceKeys = orderedOriginalLines
-            .Select(l => (l.LocationId, l.BatchId))
+            .Select(line => (line.LocationId, line.BatchId))
             .Distinct()
             .ToArray();
 
         // Acquire all STOCK_BALANCE row locks in a single ordered FOR UPDATE query.
-        var lockedBalances = await _stockRepo.GetOrCreateForUpdateBatchAsync(orgId, balanceKeys, now, ct);
+        var lockedBalances = await _stockRepo.GetOrCreateForUpdateBatchAsync(organizationId, balanceKeys, now, cancellationToken);
 
-        foreach (var origLine in orderedOriginalLines)
+        foreach (var originalLine in orderedOriginalLines)
         {
-            if (origLine.Batch != null && !string.IsNullOrWhiteSpace(origLine.Batch.BatchNumber))
+            if (originalLine.Batch != null && !string.IsNullOrWhiteSpace(originalLine.Batch.BatchNumber))
             {
-                batchNumbersById[origLine.BatchId] = origLine.Batch.BatchNumber;
+                batchNumbersById[originalLine.BatchId] = originalLine.Batch.BatchNumber;
             }
 
-            decimal invertedDelta = -origLine.QuantityDeltaBase;
-            var stockBalance = lockedBalances[(origLine.LocationId, origLine.BatchId)];
+            // Negate the original base-unit delta to invert its stock effect while preserving the historical UOM snapshot.
+            decimal invertedDeltaBase = -originalLine.QuantityDeltaBase;
+            var stockBalance = lockedBalances[(originalLine.LocationId, originalLine.BatchId)];
 
-            if (invertedDelta > 0m)
+            if (invertedDeltaBase > 0m)
             {
-                stockBalance.ApplyIncomingStock(invertedDelta, origLine.UnitCostBase, now);
-                reversalTxn.AddLine(
-                    origLine.ProductId,
-                    origLine.LocationId,
-                    origLine.BatchId,
-                    origLine.ProductUomId,
-                    origLine.EnteredQty,
-                    origLine.ConversionSnapshot,
-                    invertedDelta,
-                    origLine.UnitCostBase);
+                stockBalance.ApplyIncomingStock(invertedDeltaBase, originalLine.UnitCostBase, now);
+                reversalTransaction.AddLine(
+                    originalLine.ProductId,
+                    originalLine.LocationId,
+                    originalLine.BatchId,
+                    originalLine.ProductUomId,
+                    originalLine.EnteredQty,
+                    originalLine.ConversionSnapshot,
+                    invertedDeltaBase,
+                    originalLine.UnitCostBase);
             }
             else
             {
-                decimal absQty = Math.Abs(invertedDelta);
-                if (stockBalance.OnHandQtyBase < absQty)
+                decimal outboundQtyBase = Math.Abs(invertedDeltaBase);
+                if (stockBalance.OnHandQtyBase < outboundQtyBase)
                 {
                     return Result<InventoryTxnDto>.Failure(ErrorCode.OUT_OF_STOCK, ErrorMessages.OutOfStock);
                 }
 
-                decimal outUnitCost = stockBalance.ApplyOutgoingStock(absQty, now);
-                reversalTxn.AddLine(
-                    origLine.ProductId,
-                    origLine.LocationId,
-                    origLine.BatchId,
-                    origLine.ProductUomId,
-                    origLine.EnteredQty,
-                    origLine.ConversionSnapshot,
-                    invertedDelta,
-                    outUnitCost);
+                decimal outgoingUnitCostBase = stockBalance.ApplyOutgoingStock(outboundQtyBase, now);
+                reversalTransaction.AddLine(
+                    originalLine.ProductId,
+                    originalLine.LocationId,
+                    originalLine.BatchId,
+                    originalLine.ProductUomId,
+                    originalLine.EnteredQty,
+                    originalLine.ConversionSnapshot,
+                    invertedDeltaBase,
+                    outgoingUnitCostBase);
             }
         }
 
@@ -268,50 +278,50 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
     }
 
     private async Task<Result<InventoryTxnDto>?> ProcessStandardAdjustmentAsync(
-        Guid orgId,
+        Guid organizationId,
         CreateInventoryAdjustmentRequest request,
-        InventoryTxn txn,
+        InventoryTxn inventoryTransaction,
         IDictionary<Guid, string> batchNumbersById,
         DateTimeOffset now,
-        CancellationToken ct)
+        CancellationToken cancellationToken)
     {
         // Batch-fetch all reference entities BEFORE acquiring exclusive STOCK_BALANCE FOR UPDATE locks.
-        var distinctLocationIds = request.Lines.Select(l => l.LocationId).Distinct().ToArray();
-        var locationsById = (await _locationRepo.GetByIdsAsync(orgId, request.BranchId, distinctLocationIds, ct))
-            .ToDictionary(l => l.LocationId);
+        var distinctLocationIds = request.Lines.Select(line => line.LocationId).Distinct().ToArray();
+        var locationsById = (await _locationRepo.GetByIdsAsync(organizationId, request.BranchId, distinctLocationIds, cancellationToken))
+            .ToDictionary(location => location.LocationId);
 
         Dictionary<Guid, Product>? productsById = null;
         if (_productRepo != null)
         {
-            var distinctProductIds = request.Lines.Select(l => l.ProductId).Distinct().ToArray();
-            productsById = (await _productRepo.GetByIdsAsync(orgId, distinctProductIds, ct))
-                .ToDictionary(p => p.ProductId);
+            var distinctProductIds = request.Lines.Select(line => line.ProductId).Distinct().ToArray();
+            productsById = (await _productRepo.GetByIdsAsync(organizationId, distinctProductIds, cancellationToken))
+                .ToDictionary(product => product.ProductId);
         }
 
         Dictionary<(Guid ProductId, Guid ProductUomId), ProductUom>? uomsByKey = null;
         if (_productUomRepo != null)
         {
-            var distinctUomIds = request.Lines.Select(l => l.ProductUomId).Distinct().ToArray();
-            uomsByKey = (await _productUomRepo.GetByIdsAsync(orgId, distinctUomIds, ct))
-                .ToDictionary(u => (u.ProductId, u.ProductUomId));
+            var distinctUomIds = request.Lines.Select(line => line.ProductUomId).Distinct().ToArray();
+            uomsByKey = (await _productUomRepo.GetByIdsAsync(organizationId, distinctUomIds, cancellationToken))
+                .ToDictionary(uom => (uom.ProductId, uom.ProductUomId));
         }
 
         var batchRequests = new List<(Guid ProductId, string BatchNumber, DateOnly? ExpiresOn, DateOnly? ManufacturedOn)>(request.Lines.Count);
-        var validatedLines = new List<(CreateInventoryAdjustmentLineRequest LineReq, Guid ComputedBatchId, decimal ConversionFactor)>(request.Lines.Count);
+        var validatedLines = new List<(CreateInventoryAdjustmentLineRequest LineRequest, Guid ComputedBatchId, decimal ConversionFactor)>(request.Lines.Count);
 
-        foreach (var lineReq in request.Lines)
+        foreach (var lineRequest in request.Lines)
         {
-            if (!locationsById.TryGetValue(lineReq.LocationId, out var location) || !location.IsActive)
+            if (!locationsById.TryGetValue(lineRequest.LocationId, out var location) || !location.IsActive)
             {
                 return Result<InventoryTxnDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.LocationNotFound);
             }
 
-            bool isNonLotInput = string.IsNullOrWhiteSpace(lineReq.BatchNumber)
-                || string.Equals(lineReq.BatchNumber, DeterministicBatchIdGenerator.NonLotBatchNumber, StringComparison.Ordinal);
+            bool isNonLotInput = string.IsNullOrWhiteSpace(lineRequest.BatchNumber)
+                || string.Equals(lineRequest.BatchNumber, DeterministicBatchIdGenerator.NonLotBatchNumber, StringComparison.Ordinal);
 
             if (productsById != null)
             {
-                if (!productsById.TryGetValue(lineReq.ProductId, out var product))
+                if (!productsById.TryGetValue(lineRequest.ProductId, out var product))
                 {
                     return Result<InventoryTxnDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductNotFound);
                 }
@@ -323,24 +333,25 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                         return Result<InventoryTxnDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.NonLotMisuse);
                     }
 
-                    if (!lineReq.ExpiresOn.HasValue)
+                    if (!lineRequest.ExpiresOn.HasValue)
                     {
                         return Result<InventoryTxnDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.InvalidBatchDates);
                     }
                 }
                 else
                 {
-                    if (!isNonLotInput || lineReq.ExpiresOn.HasValue)
+                    if (!isNonLotInput || lineRequest.ExpiresOn.HasValue)
                     {
                         return Result<InventoryTxnDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.NonLotMisuse);
                     }
                 }
             }
 
+            // Default conversion factor of 1m supports unit tests constructed without an optional UOM repository.
             decimal conversionFactor = 1m;
             if (uomsByKey != null)
             {
-                if (!uomsByKey.TryGetValue((lineReq.ProductId, lineReq.ProductUomId), out var uom) || !uom.IsActive)
+                if (!uomsByKey.TryGetValue((lineRequest.ProductId, lineRequest.ProductUomId), out var uom) || !uom.IsActive)
                 {
                     return Result<InventoryTxnDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductUomNotFound);
                 }
@@ -353,38 +364,40 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
 
             string effectiveBatchNumber = isNonLotInput
                 ? DeterministicBatchIdGenerator.NonLotBatchNumber
-                : lineReq.BatchNumber!;
-            DateOnly? effectiveExpiresOn = isNonLotInput ? null : lineReq.ExpiresOn;
-            DateOnly? effectiveManufacturedOn = isNonLotInput ? null : lineReq.ManufacturedOn;
+                : lineRequest.BatchNumber!;
+            DateOnly? effectiveExpiresOn = isNonLotInput ? null : lineRequest.ExpiresOn;
+            DateOnly? effectiveManufacturedOn = isNonLotInput ? null : lineRequest.ManufacturedOn;
 
             Guid computedBatchId = effectiveExpiresOn.HasValue
-                ? DeterministicBatchIdGenerator.Generate(orgId, lineReq.ProductId, effectiveBatchNumber, effectiveExpiresOn.Value)
-                : DeterministicBatchIdGenerator.GenerateNonLotBatchId(orgId, lineReq.ProductId);
+                ? DeterministicBatchIdGenerator.Generate(organizationId, lineRequest.ProductId, effectiveBatchNumber, effectiveExpiresOn.Value)
+                : DeterministicBatchIdGenerator.GenerateNonLotBatchId(organizationId, lineRequest.ProductId);
 
-            batchRequests.Add((lineReq.ProductId, effectiveBatchNumber, effectiveExpiresOn, effectiveManufacturedOn));
-            validatedLines.Add((lineReq, computedBatchId, conversionFactor));
+            batchRequests.Add((lineRequest.ProductId, effectiveBatchNumber, effectiveExpiresOn, effectiveManufacturedOn));
+            validatedLines.Add((lineRequest, computedBatchId, conversionFactor));
         }
 
         // Batch-upsert/fetch all distinct batches in one round-trip.
-        var batchesById = await _batchRepo.GetOrCreateBatchesAsync(orgId, batchRequests, ct);
-        foreach (var kvp in batchesById)
+        var batchesById = await _batchRepo.GetOrCreateBatchesAsync(organizationId, batchRequests, cancellationToken);
+        foreach (var entry in batchesById)
         {
-            batchNumbersById[kvp.Key] = kvp.Value.BatchNumber;
+            batchNumbersById[entry.Key] = entry.Value.BatchNumber;
         }
 
         var orderedLines = validatedLines
-            .OrderBy(x => x.LineReq.LocationId)
-            .ThenBy(x => x.ComputedBatchId)
+            .OrderBy(entry => entry.LineRequest.LocationId)
+            .ThenBy(entry => entry.ComputedBatchId)
             .ToList();
 
         var distinctBalanceKeys = orderedLines
-            .Select(x => (x.LineReq.LocationId, x.ComputedBatchId))
+            .Select(entry => (entry.LineRequest.LocationId, entry.ComputedBatchId))
             .Distinct()
             .ToArray();
 
         // Batch-upsert and lock all distinct (LocationId, BatchId) rows in a single ordered FOR UPDATE query.
-        var lockedBalances = await _stockRepo.GetOrCreateForUpdateBatchAsync(orgId, distinctBalanceKeys, now, ct);
+        var lockedBalances = await _stockRepo.GetOrCreateForUpdateBatchAsync(organizationId, distinctBalanceKeys, now, cancellationToken);
 
+        // OPENING_BALANCE is permitted only once per (LocationId, BatchId) when on-hand quantity is zero
+        // and no prior ledger history exists; duplicate lines for the same balance key are also rejected.
         if (request.TransactionType == InventoryTransactionType.OPENING_BALANCE)
         {
             if (distinctBalanceKeys.Length != orderedLines.Count)
@@ -392,39 +405,41 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                 return Result<InventoryTxnDto>.Failure(ErrorCode.INVALID_STATE_TRANSITION, ErrorMessages.InvalidStateTransition);
             }
 
-            foreach (var (locId, bId) in distinctBalanceKeys)
+            foreach (var (locationId, batchId) in distinctBalanceKeys)
             {
-                if (lockedBalances[(locId, bId)].OnHandQtyBase != 0m
-                    || await _txnRepo.HasLedgerHistoryAsync(orgId, locId, bId, ct))
+                if (lockedBalances[(locationId, batchId)].OnHandQtyBase != 0m
+                    || await _txnRepo.HasLedgerHistoryAsync(organizationId, locationId, batchId, cancellationToken))
                 {
                     return Result<InventoryTxnDto>.Failure(ErrorCode.INVALID_STATE_TRANSITION, ErrorMessages.InvalidStateTransition);
                 }
             }
         }
 
-        foreach (var (lineReq, batchId, conversionFactor) in orderedLines)
+        foreach (var (lineRequest, batchId, conversionFactor) in orderedLines)
         {
-            var stockBalance = lockedBalances[(lineReq.LocationId, batchId)];
+            var stockBalance = lockedBalances[(lineRequest.LocationId, batchId)];
 
-            decimal qtyBase = Math.Round(lineReq.EnteredQty * conversionFactor, 4, MidpointRounding.AwayFromZero);
-            decimal unitCostBase = lineReq.UnitCostEntered.HasValue
-                ? Math.Round(lineReq.UnitCostEntered.Value / conversionFactor, 4, MidpointRounding.AwayFromZero)
+            // Convert entered UOM quantity and unit cost into base units:
+            // baseQty = enteredQty * conversionToBase, baseUnitCost = enteredUnitCost / conversionToBase.
+            decimal quantityBase = Math.Round(lineRequest.EnteredQty * conversionFactor, 4, MidpointRounding.AwayFromZero);
+            decimal baseUnitCost = lineRequest.UnitCostEntered.HasValue
+                ? Math.Round(lineRequest.UnitCostEntered.Value / conversionFactor, 4, MidpointRounding.AwayFromZero)
                 : stockBalance.AverageUnitCost;
 
             if (request.TransactionType == InventoryTransactionType.OPENING_BALANCE || request.TransactionType == InventoryTransactionType.ADJUSTMENT_IN)
             {
-                stockBalance.ApplyIncomingStock(qtyBase, unitCostBase, now);
-                txn.AddLine(lineReq.ProductId, lineReq.LocationId, batchId, lineReq.ProductUomId, lineReq.EnteredQty, conversionFactor, qtyBase, unitCostBase);
+                stockBalance.ApplyIncomingStock(quantityBase, baseUnitCost, now);
+                inventoryTransaction.AddLine(lineRequest.ProductId, lineRequest.LocationId, batchId, lineRequest.ProductUomId, lineRequest.EnteredQty, conversionFactor, quantityBase, baseUnitCost);
             }
             else if (request.TransactionType == InventoryTransactionType.ADJUSTMENT_OUT)
             {
-                if (stockBalance.OnHandQtyBase < qtyBase)
+                if (stockBalance.OnHandQtyBase < quantityBase)
                 {
                     return Result<InventoryTxnDto>.Failure(ErrorCode.OUT_OF_STOCK, ErrorMessages.OutOfStock);
                 }
 
-                unitCostBase = stockBalance.ApplyOutgoingStock(qtyBase, now);
-                txn.AddLine(lineReq.ProductId, lineReq.LocationId, batchId, lineReq.ProductUomId, lineReq.EnteredQty, conversionFactor, -qtyBase, unitCostBase);
+                baseUnitCost = stockBalance.ApplyOutgoingStock(quantityBase, now);
+                inventoryTransaction.AddLine(lineRequest.ProductId, lineRequest.LocationId, batchId, lineRequest.ProductUomId, lineRequest.EnteredQty, conversionFactor, -quantityBase, baseUnitCost);
             }
         }
 
@@ -441,6 +456,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                 return true;
             }
 
+            // PostgreSQL SQLSTATE 40001 (serialization_failure) and 40P01 (deadlock_detected) are safe to retry.
             var sqlState = current.GetType().GetProperty("SqlState")?.GetValue(current) as string;
             if (string.Equals(sqlState, "40001", StringComparison.Ordinal) ||
                 string.Equals(sqlState, "40P01", StringComparison.Ordinal))
@@ -452,21 +468,21 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
         return false;
     }
 
-    private static InventoryTxnDto MapToTxnDto(InventoryTxn t, IReadOnlyDictionary<Guid, string> batchNumbersById) =>
+    private static InventoryTxnDto MapToTxnDto(InventoryTxn transaction, IReadOnlyDictionary<Guid, string> batchNumbersById) =>
         new(
-            t.InventoryTxnId, t.OrganizationId, t.BranchId, t.TransactionNo, t.TransactionType, t.Status,
-            t.ReasonCode, t.Note, t.IdempotencyKey, t.CreatedByEmployeeId, t.ReversesInventoryTxnId, t.PostedAt,
-            t.Lines.Select(l => new InventoryTxnLineDto(
-                l.InventoryTxnLineId,
-                l.ProductId,
-                l.LocationId,
-                l.BatchId,
-                batchNumbersById.TryGetValue(l.BatchId, out var resolvedBatchNumber)
+            transaction.InventoryTxnId, transaction.OrganizationId, transaction.BranchId, transaction.TransactionNo, transaction.TransactionType, transaction.Status,
+            transaction.ReasonCode, transaction.Note, transaction.IdempotencyKey, transaction.CreatedByEmployeeId, transaction.ReversesInventoryTxnId, transaction.PostedAt,
+            transaction.Lines.Select(line => new InventoryTxnLineDto(
+                line.InventoryTxnLineId,
+                line.ProductId,
+                line.LocationId,
+                line.BatchId,
+                batchNumbersById.TryGetValue(line.BatchId, out var resolvedBatchNumber)
                     ? resolvedBatchNumber
-                    : (l.Batch?.BatchNumber ?? DeterministicBatchIdGenerator.NonLotBatchNumber),
-                l.ProductUomId,
-                l.EnteredQty,
-                l.ConversionSnapshot,
-                l.QuantityDeltaBase,
-                l.UnitCostBase)).ToList());
+                    : (line.Batch?.BatchNumber ?? DeterministicBatchIdGenerator.NonLotBatchNumber),
+                line.ProductUomId,
+                line.EnteredQty,
+                line.ConversionSnapshot,
+                line.QuantityDeltaBase,
+                line.UnitCostBase)).ToList());
 }

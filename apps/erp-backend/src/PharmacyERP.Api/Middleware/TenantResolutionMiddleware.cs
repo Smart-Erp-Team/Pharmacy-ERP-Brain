@@ -1,5 +1,10 @@
-﻿namespace PharmacyERP.Api.Middleware;
+namespace PharmacyERP.Api.Middleware;
 
+/// <summary>
+/// Binds the scoped <see cref="ITenantContext"/> from the authenticated JWT's <c>organization_id</c>
+/// claim (must run after <c>UseAuthentication</c>). Enables temporary system bypass only for
+/// allow-listed anonymous discovery and provisioning paths when no tenant claim is present.
+/// </summary>
 public class TenantResolutionMiddleware
 {
     private readonly RequestDelegate _next;
@@ -22,13 +27,14 @@ public class TenantResolutionMiddleware
     {
         if (context.User.Identity?.IsAuthenticated == true)
         {
-            var orgIdClaim = context.User.FindFirst("organization_id")?.Value;
-            if (Guid.TryParse(orgIdClaim, out var organizationId) && organizationId != Guid.Empty)
+            var organizationIdClaim = context.User.FindFirst("organization_id")?.Value;
+            if (Guid.TryParse(organizationIdClaim, out var organizationId) && organizationId != Guid.Empty)
             {
                 tenantContext.SetTenant(organizationId);
             }
         }
 
+        // Only unbound requests targeting approved anonymous/provisioning routes may enable system bypass.
         if (!tenantContext.IsTenantBound && IsSystemBypassPath(context.Request.Path.Value))
         {
             tenantContext.AllowSystemBypass();

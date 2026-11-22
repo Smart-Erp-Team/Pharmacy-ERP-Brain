@@ -2,6 +2,11 @@ using Microsoft.Extensions.Caching.Memory;
 
 namespace PharmacyERP.Infrastructure.Auth;
 
+/// <summary>
+/// Validates the <c>security_stamp</c> claim of incoming JWTs against the database with a short
+/// 30-second in-memory cache so deactivated users or rotated privileges take effect rapidly
+/// (and immediately on the local node when <see cref="Invalidate"/> is called after mutations).
+/// </summary>
 public sealed class UserSecurityStampValidator : IUserSecurityStampValidator
 {
     private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(30);
@@ -37,20 +42,24 @@ public sealed class UserSecurityStampValidator : IUserSecurityStampValidator
         _cache.Remove(CacheKey(organizationId, userId));
     }
 
-    private async Task<CachedSecurityState?> LoadSecurityStateAsync(Guid organizationId, Guid userId, CancellationToken ct)
+    private async Task<CachedSecurityState?> LoadSecurityStateAsync(Guid organizationId, Guid userId, CancellationToken cancellationToken)
     {
+        // Create an isolated DI scope because this validator is registered as a singleton for JWT Bearer events.
         using var scope = _scopeFactory.CreateScope();
         var tenantContext = scope.ServiceProvider.GetRequiredService<ITenantContext>();
         var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
         var userRepository = scope.ServiceProvider.GetRequiredService<IUserAccountRepository>();
 
         tenantContext.SetTenant(organizationId);
-        await unitOfWork.BeginTransactionAsync(ct);
+        // Explicit read transaction binds app.organization_id for PostgreSQL FORCE ROW LEVEL SECURITY.
+        await unitOfWork.BeginTransactionAsync(cancellationToken);
         try
         {
-            var result = await userRepository.GetSecurityStateAsync(organizationId, userId, ct);
+            var securityState = await userRepository.GetSecurityStateAsync(organizationId, userId, cancellationToken);
             await unitOfWork.RollbackTransactionAsync(CancellationToken.None);
-            return result.HasValue ? new CachedSecurityState(result.Value.IsActive, result.Value.SecurityStamp) : null;
+            return securityState.HasValue
+                ? new CachedSecurityState(securityState.Value.IsActive, securityState.Value.SecurityStamp)
+                : null;
         }
         catch
         {

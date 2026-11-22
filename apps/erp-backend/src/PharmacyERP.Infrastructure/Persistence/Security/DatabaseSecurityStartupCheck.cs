@@ -3,6 +3,11 @@ using PharmacyERP.Infrastructure.Persistence.Triggers;
 
 namespace PharmacyERP.Infrastructure.Persistence.Security;
 
+/// <summary>
+/// Fail-fast startup hosted service that verifies PostgreSQL is connected using a least-privilege
+/// role (<c>NOSUPERUSER</c>, <c>NOBYPASSRLS</c>) and that every tenant-bound table in the EF Core
+/// model has both <c>ENABLE</c> and <c>FORCE ROW LEVEL SECURITY</c> active.
+/// </summary>
 public sealed class DatabaseSecurityStartupCheck : IHostedService
 {
     private readonly IServiceScopeFactory _scopeFactory;
@@ -51,10 +56,10 @@ public sealed class DatabaseSecurityStartupCheck : IHostedService
         System.Data.Common.DbConnection connection,
         CancellationToken cancellationToken)
     {
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = DatabaseRoleSecuritySql.CurrentRoleSecurityCheckSql;
+        await using var command = connection.CreateCommand();
+        command.CommandText = DatabaseRoleSecuritySql.CurrentRoleSecurityCheckSql;
 
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
         {
             throw new InvalidOperationException("Database role security check failed: could not resolve current_user in pg_roles.");
@@ -78,10 +83,10 @@ public sealed class DatabaseSecurityStartupCheck : IHostedService
     {
         var rlsByTable = new Dictionary<(string Schema, string Table), (bool Enabled, bool Forced)>();
 
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = DatabaseRoleSecuritySql.TableRlsStatusCheckSql;
+        await using var command = connection.CreateCommand();
+        command.CommandText = DatabaseRoleSecuritySql.TableRlsStatusCheckSql;
 
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
             var schema = reader.GetString(0);
@@ -91,15 +96,15 @@ public sealed class DatabaseSecurityStartupCheck : IHostedService
             rlsByTable[(schema, table)] = (enabled, forced);
         }
 
-        var unprotected = expectedTenantTables
-            .Where(t => !rlsByTable.TryGetValue(t, out var status) || !status.Enabled || !status.Forced)
-            .Select(t => $"{t.Schema}.\"{t.Table}\"")
+        var unprotectedTables = expectedTenantTables
+            .Where(tableKey => !rlsByTable.TryGetValue(tableKey, out var status) || !status.Enabled || !status.Forced)
+            .Select(tableKey => $"{tableKey.Schema}.\"{tableKey.Table}\"")
             .ToArray();
 
-        if (unprotected.Length > 0)
+        if (unprotectedTables.Length > 0)
         {
             throw new InvalidOperationException(
-                $"Database RLS security check failed: ENABLE + FORCE ROW LEVEL SECURITY is missing on tenant tables: {string.Join(", ", unprotected)}.");
+                $"Database RLS security check failed: ENABLE + FORCE ROW LEVEL SECURITY is missing on tenant tables: {string.Join(", ", unprotectedTables)}.");
         }
     }
 }

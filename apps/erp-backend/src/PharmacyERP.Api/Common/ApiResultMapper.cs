@@ -1,5 +1,9 @@
 namespace PharmacyERP.Api.Common;
 
+/// <summary>
+/// Maps application-layer <see cref="Result"/> and <see cref="Result{T}"/> outcomes to HTTP
+/// <see cref="IActionResult"/> responses with standardized <see cref="ApiErrorEnvelopeDto"/> error bodies.
+/// </summary>
 internal static class ApiResultMapper
 {
     public static IActionResult ToActionResult(ControllerBase controller, Result result, string traceId)

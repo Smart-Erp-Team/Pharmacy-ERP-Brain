@@ -1,5 +1,9 @@
 namespace PharmacyERP.Application.Features.Catalog.Services.Implementations;
 
+/// <summary>
+/// Manages catalog products in Cloud mode, enforcing historical-usage guards before changing
+/// <c>BaseUomCode</c> or <c>LotTrackingRequired</c> and initializing <c>NON-LOT</c> batches when needed.
+/// </summary>
 public class ProductService : IProductService
 {
     private readonly IProductRepository _productRepository;
@@ -411,37 +415,37 @@ public class ProductService : IProductService
         string.Equals(_currentUser.Role, "Pharmacist", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(_currentUser.Role, "Cashier", StringComparison.OrdinalIgnoreCase);
 
-    private static ProductDto MapToDto(Product p) =>
+    private static ProductDto MapToDto(Product product) =>
         new(
-            p.ProductId,
-            p.OrganizationId,
-            p.CategoryId,
-            p.Sku,
-            p.Barcode,
-            p.Name,
-            p.GenericName,
-            p.BrandName,
-            p.BaseUomCode,
-            p.TaxRate,
-            p.ImageUrl,
-            p.LotTrackingRequired,
-            p.ExpiryAlertDays,
-            p.IsActive,
-            p.Uoms.Select(MapUomToDto).ToList(),
-            p.CreatedAt,
-            p.UpdatedAt);
+            product.ProductId,
+            product.OrganizationId,
+            product.CategoryId,
+            product.Sku,
+            product.Barcode,
+            product.Name,
+            product.GenericName,
+            product.BrandName,
+            product.BaseUomCode,
+            product.TaxRate,
+            product.ImageUrl,
+            product.LotTrackingRequired,
+            product.ExpiryAlertDays,
+            product.IsActive,
+            product.Uoms.Select(MapUomToDto).ToList(),
+            product.CreatedAt,
+            product.UpdatedAt);
 
-    private static ProductUomDto MapUomToDto(ProductUom u) =>
+    private static ProductUomDto MapUomToDto(ProductUom uom) =>
         new(
-            u.ProductUomId,
-            u.ProductId,
-            u.UomCode,
-            u.DisplayName,
-            u.ConversionToBase,
-            u.SaleUnitPrice,
-            u.IsBase,
-            u.IsSellable,
-            u.IsPurchasable,
-            u.IsActive,
-            u.UpdatedAt);
+            uom.ProductUomId,
+            uom.ProductId,
+            uom.UomCode,
+            uom.DisplayName,
+            uom.ConversionToBase,
+            uom.SaleUnitPrice,
+            uom.IsBase,
+            uom.IsSellable,
+            uom.IsPurchasable,
+            uom.IsActive,
+            uom.UpdatedAt);
 }

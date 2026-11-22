@@ -1,5 +1,10 @@
 namespace PharmacyERP.Domain.Entities.Inventory;
 
+/// <summary>
+/// Current on-hand quantity (in base units) and weighted-average unit cost for one batch at one location.
+/// Every mutation increments <see cref="RowVersion"/>, which EF Core maps as a concurrency token
+/// (<c>row_version</c>), so concurrent updates to the same balance surface as concurrency conflicts.
+/// </summary>
 public class StockBalance
 {
     public Guid OrganizationId { get; private set; }
@@ -41,6 +46,7 @@ public class StockBalance
         };
     }
 
+    // Sets the starting quantity/cost directly (no weighted-average math) and keeps RowVersion at its initial value of 1.
     public static StockBalance CreateInitial(Guid organizationId, Guid locationId, Guid batchId, decimal initialQtyBase = 0m, decimal initialCostBase = 0m, DateTimeOffset? now = null)
     {
         var balance = Create(organizationId, locationId, batchId, now ?? DateTimeOffset.UtcNow);
@@ -49,11 +55,17 @@ public class StockBalance
         return balance;
     }
 
+    /// <summary>
+    /// Adds stock and recomputes the weighted-average cost:
+    /// newAverage = (onHand * currentAverage + accepted * incomingCost) / (onHand + accepted),
+    /// with the resulting average and quantity rounded to 4 decimals (midpoint away from zero).
+    /// </summary>
     public void ApplyIncomingStock(decimal acceptedQtyBase, decimal incomingUnitCostBase, DateTimeOffset now)
     {
         if (acceptedQtyBase <= 0m || incomingUnitCostBase < 0m)
             throw new NegativeCostOrQuantityException();
 
+        // Intermediate values are kept unrounded; rounding is applied only to the stored results.
         decimal totalNewQty = OnHandQtyBase + acceptedQtyBase;
         decimal newTotalValue = (OnHandQtyBase * AverageUnitCost) + (acceptedQtyBase * incomingUnitCostBase);
         decimal newWeightedAverageCost = newTotalValue / totalNewQty;
@@ -64,6 +76,11 @@ public class StockBalance
         UpdatedAt = now;
     }
 
+    /// <summary>
+    /// Removes stock and returns the unit cost to record on the outgoing line. Issues are costed at the
+    /// current weighted average, so <see cref="AverageUnitCost"/> itself is left unchanged.
+    /// </summary>
+    /// <exception cref="InsufficientStockException">On-hand quantity is lower than the requested issue.</exception>
     public decimal ApplyOutgoingStock(decimal issueQtyBaseAbs, DateTimeOffset now)
     {
         if (issueQtyBaseAbs <= 0m)

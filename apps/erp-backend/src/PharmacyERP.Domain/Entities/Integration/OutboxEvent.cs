@@ -1,5 +1,9 @@
 namespace PharmacyERP.Domain.Entities.Integration;
 
+/// <summary>
+/// Transactional outbox record written in the same database transaction as business state changes
+/// and asynchronously published in <see cref="EventSequence"/> order per tenant.
+/// </summary>
 public class OutboxEvent
 {
     public Guid EventId { get; private set; }

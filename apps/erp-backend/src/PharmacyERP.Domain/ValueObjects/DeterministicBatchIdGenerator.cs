@@ -5,14 +5,24 @@ using System.Text.Json;
 
 namespace PharmacyERP.Domain.ValueObjects;
 
+/// <summary>
+/// Generates deterministic RFC 4122 UUIDv5 identifiers for inventory batches from their
+/// natural composite key (organization, product, batch number, and optional expiry date).
+/// Deterministic IDs allow idempotent batch creation and consistent non-lot system batch lookup
+/// across services without extra round-trips.
+/// </summary>
 public static class DeterministicBatchIdGenerator
 {
+	// RFC 4122 DNS namespace UUID used as the fixed namespace prefix for UUIDv5 hashing.
 	private static readonly Guid NamespaceId = Guid.Parse("6ba7b810-9dad-11d1-80b4-00c04fd430c8");
 	private static readonly JsonSerializerOptions CanonicalJsonOptions = new()
 	{
 		Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
 	};
 
+	/// <summary>
+	/// Reserved batch number assigned to the single system batch created for non-lot-tracked products.
+	/// </summary>
 	public const string NonLotBatchNumber = "NON-LOT";
 
 	public static Guid Generate(Guid organizationId, Guid productId, string batchNumber, DateOnly? expiresOn)
@@ -25,6 +35,8 @@ public static class DeterministicBatchIdGenerator
 
 		byte[] nameBytes = Encoding.UTF8.GetBytes(jsonPayload);
 
+		// .NET stores the first three Guid components in little-endian order; convert to big-endian
+		// (network byte order) before hashing as required by RFC 4122 section 4.3.
 		byte[] namespaceBytes = NamespaceId.ToByteArray();
 		SwapToNetworkByteOrder(namespaceBytes);
 
@@ -37,10 +49,13 @@ public static class DeterministicBatchIdGenerator
 		byte[] newGuidBytes = new byte[16];
 		Buffer.BlockCopy(hash, 0, newGuidBytes, 0, 16);
 
+		// Stamp RFC 4122 version 5 (SHA-1 name-based) into the high nibble of byte 6.
 		newGuidBytes[6] = (byte)((newGuidBytes[6] & 0x0F) | 0x50);
 
+		// Stamp RFC 4122 variant 1 (10xxxxxx) into the top two bits of byte 8.
 		newGuidBytes[8] = (byte)((newGuidBytes[8] & 0x3F) | 0x80);
 
+		// Convert back from network byte order to .NET's Guid byte layout.
 		SwapToNetworkByteOrder(newGuidBytes);
 
 		return new Guid(newGuidBytes);

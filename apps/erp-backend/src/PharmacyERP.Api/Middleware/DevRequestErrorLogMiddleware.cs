@@ -4,6 +4,11 @@ using System.Text;
 
 namespace PharmacyERP.Api.Middleware;
 
+/// <summary>
+/// Development-only diagnostic middleware that buffers HTTP error responses (<c>&gt;= 400</c>)
+/// and unhandled exceptions, appending structured JSONL entries via <see cref="IDevRequestErrorLogWriter"/>
+/// without altering the client response.
+/// </summary>
 public sealed class DevRequestErrorLogMiddleware
 {
     public const int MaxResponseBodyLength = 2000;

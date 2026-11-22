@@ -1,5 +1,10 @@
 namespace PharmacyERP.Domain.Entities.Identity;
 
+/// <summary>
+/// Login account for an employee. Holds credentials, role/branch scope, lockout state and the
+/// <see cref="SecurityStamp"/>, which is regenerated whenever a security-relevant attribute changes (password,
+/// role/scope, activation) so that previously issued tokens carrying the old stamp can be rejected.
+/// </summary>
 public sealed class UserAccount
 {
     public Guid UserId { get; private set; }
@@ -32,7 +37,23 @@ public sealed class UserAccount
         ValidateRoleAndScope(role, branchScope);
         var now = DateTimeOffset.UtcNow;
         var trimmedUsername = username.Trim();
-        return new UserAccount { UserId = Guid.NewGuid(), OrganizationId = organizationId, EmployeeId = employeeId, Username = trimmedUsername, NormalizedUsername = trimmedUsername.ToUpperInvariant(), PasswordHash = passwordHash, SecurityStamp = Guid.NewGuid(), Role = role, BranchScope = branchScope, IsActive = true, AccessFailedCount = 0, CreatedAt = now, UpdatedAt = now };
+        return new UserAccount
+        {
+            UserId = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            EmployeeId = employeeId,
+            Username = trimmedUsername,
+            // Uppercase invariant form backs case-insensitive username lookups.
+            NormalizedUsername = trimmedUsername.ToUpperInvariant(),
+            PasswordHash = passwordHash,
+            SecurityStamp = Guid.NewGuid(),
+            Role = role,
+            BranchScope = branchScope,
+            IsActive = true,
+            AccessFailedCount = 0,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
     }
 
     public void RecordLoginSuccess(DateTimeOffset now)
@@ -45,6 +66,7 @@ public sealed class UserAccount
         if (maxAttempts < 1) throw new ArgumentOutOfRangeException(nameof(maxAttempts));
         if (lockoutDuration < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(lockoutDuration));
         AccessFailedCount++;
+        // The counter is not reset on lockout; only a successful login or password change clears it.
         if (AccessFailedCount >= maxAttempts) LockoutEnd = now.Add(lockoutDuration);
         UpdatedAt = now;
     }
@@ -52,6 +74,7 @@ public sealed class UserAccount
     public void ChangeRoleAndScope(UserRole newRole, BranchScope newScope)
     {
         ValidateRoleAndScope(newRole, newScope);
+        // Rotate the stamp only on an actual change so tokens issued with the old role/scope stop validating.
         if (Role != newRole || BranchScope != newScope)
         {
             SecurityStamp = Guid.NewGuid();
@@ -65,6 +88,7 @@ public sealed class UserAccount
     {
         if (string.IsNullOrWhiteSpace(newPasswordHash) || newPasswordHash.Length > 500) throw new ArgumentException("Password hash is required and cannot exceed 500 characters.", nameof(newPasswordHash));
         PasswordHash = newPasswordHash;
+        // New stamp invalidates sessions/tokens issued under the old password; lockout state is cleared too.
         SecurityStamp = Guid.NewGuid();
         AccessFailedCount = 0;
         LockoutEnd = null;
@@ -86,6 +110,7 @@ public sealed class UserAccount
 
     public void SetActive(bool isActive)
     {
+        // Rotating on any activation change (including re-activation) forces fresh authentication.
         if (IsActive != isActive)
         {
             SecurityStamp = Guid.NewGuid();
@@ -98,6 +123,7 @@ public sealed class UserAccount
     {
         if (!Enum.IsDefined(role)) throw new ArgumentOutOfRangeException(nameof(role));
         if (!Enum.IsDefined(scope)) throw new ArgumentOutOfRangeException(nameof(scope));
+        // Organization-wide (ALL) branch scope is reserved for admins; other roles need explicit branch access.
         if (scope == BranchScope.ALL && role != UserRole.Admin) throw new InvalidBranchScopeForRoleException();
     }
 }

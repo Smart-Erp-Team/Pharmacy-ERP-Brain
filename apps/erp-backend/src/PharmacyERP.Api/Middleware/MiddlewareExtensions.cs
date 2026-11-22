@@ -4,6 +4,10 @@ using PharmacyERP.Infrastructure.Persistence.Seeding;
 
 namespace PharmacyERP.Api.Middleware;
 
+/// <summary>
+/// Configures the ordered PharmacyERP HTTP middleware pipeline (error logging, exception mapping,
+/// traceparent propagation, CORS, runtime-mode guard, authentication, tenant resolution, and authorization).
+/// </summary>
 public static class MiddlewareExtensions
 {
     public static IApplicationBuilder UsePharmacyErpMiddlewares(this IApplicationBuilder app)

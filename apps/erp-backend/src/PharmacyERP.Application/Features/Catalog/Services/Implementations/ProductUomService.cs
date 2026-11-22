@@ -1,5 +1,9 @@
 namespace PharmacyERP.Application.Features.Catalog.Services.Implementations;
 
+/// <summary>
+/// Manages product units of measure (UOMs) in Cloud mode, protecting <c>ConversionToBase</c>
+/// from modification once referenced by stock balances or ledger history.
+/// </summary>
 public class ProductUomService : IProductUomService
 {
     private readonly IProductUomRepository _uomRepository;
@@ -312,17 +316,17 @@ public class ProductUomService : IProductUomService
         string.Equals(_currentUser.Role, "Pharmacist", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(_currentUser.Role, "Cashier", StringComparison.OrdinalIgnoreCase);
 
-    private static ProductUomDto MapToDto(ProductUom u) =>
+    private static ProductUomDto MapToDto(ProductUom uom) =>
         new(
-            u.ProductUomId,
-            u.ProductId,
-            u.UomCode,
-            u.DisplayName,
-            u.ConversionToBase,
-            u.SaleUnitPrice,
-            u.IsBase,
-            u.IsSellable,
-            u.IsPurchasable,
-            u.IsActive,
-            u.UpdatedAt);
+            uom.ProductUomId,
+            uom.ProductId,
+            uom.UomCode,
+            uom.DisplayName,
+            uom.ConversionToBase,
+            uom.SaleUnitPrice,
+            uom.IsBase,
+            uom.IsSellable,
+            uom.IsPurchasable,
+            uom.IsActive,
+            uom.UpdatedAt);
 }

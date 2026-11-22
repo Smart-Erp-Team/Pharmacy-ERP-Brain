@@ -1,5 +1,9 @@
-﻿namespace PharmacyERP.Application.Features.Integration.Services.Implementations;
+namespace PharmacyERP.Application.Features.Integration.Services.Implementations;
 
+/// <summary>
+/// Persists immutable audit trail records (before/after JSON snapshots) within the caller's
+/// active tenant-scoped database transaction.
+/// </summary>
 public class AuditLogger : IAuditLogger
 {
     private static readonly JsonSerializerOptions AuditJsonOptions = new()
@@ -32,12 +36,12 @@ public class AuditLogger : IAuditLogger
         if (!_tenantContext.OrganizationId.HasValue)
             throw new InvalidOperationException("OrganizationId is required for audit logs.");
 
-        var orgId = _tenantContext.OrganizationId.Value;
+        var organizationId = _tenantContext.OrganizationId.Value;
         var actorType = actorTypeOverride ?? (_currentUser.IsAuthenticated ? AuditActorType.USER : AuditActorType.SYSTEM);
         var beforeJson = beforeData != null ? JsonSerializer.Serialize(beforeData, AuditJsonOptions) : null;
         var afterJson = afterData != null ? JsonSerializer.Serialize(afterData, AuditJsonOptions) : null;
 
-        var logEntry = new AuditLog(orgId, branchId, _currentUser.UserId, _currentUser.EmployeeId, actorType, action,
+        var logEntry = new AuditLog(organizationId, branchId, _currentUser.UserId, _currentUser.EmployeeId, actorType, action,
             entitySchema, entityName, entityId, beforeJson, afterJson, _currentUser.TraceId, _dateTimeProvider.UtcNow, sourcePromptId);
 
         await _repository.AddAsync(logEntry, ct);

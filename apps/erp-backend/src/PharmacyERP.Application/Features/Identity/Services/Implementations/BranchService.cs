@@ -1,5 +1,9 @@
 namespace PharmacyERP.Application.Features.Identity.Services.Implementations;
 
+/// <summary>
+/// Manages branch CRUD, default inventory location seeding on branch creation,
+/// and single-use branch enrollment token issuance/redemption.
+/// </summary>
 public sealed class BranchService : IBranchService
 {
     private readonly IBranchRepository _branches;
@@ -22,22 +26,25 @@ public sealed class BranchService : IBranchService
     {
         if (_tenant.OrganizationId is not Guid organizationId) return IdentityResults.Failure<PagedResult<BranchDto>>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
         if (!ValidPage(page, pageSize)) return IdentityResults.Failure<PagedResult<BranchDto>>(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError);
+
+        // Explicit read transaction ensures TenantRlsConnectionInterceptor sets app.current_tenant_id
+        // for PostgreSQL FORCE ROW LEVEL SECURITY before any SELECT executes.
         await _unitOfWork.BeginTransactionAsync(ct);
         try
         {
-            PagedResult<BranchDto> mapped;
+            PagedResult<BranchDto> mappedPage;
             if (IsAllBranchAdmin())
             {
-                var result = await _branches.GetPagedAsync(organizationId, includeInactive, search, page, pageSize, ct);
-                mapped = new PagedResult<BranchDto>(result.Items.Select(BranchDtoMapper.From).ToArray(), page, pageSize, result.TotalCount);
+                var pagedBranches = await _branches.GetPagedAsync(organizationId, includeInactive, search, page, pageSize, ct);
+                mappedPage = new PagedResult<BranchDto>(pagedBranches.Items.Select(BranchDtoMapper.From).ToArray(), page, pageSize, pagedBranches.TotalCount);
             }
             else
             {
-                var result = await _branches.GetPagedByIdsAsync(organizationId, _currentUser.AuthorizedBranchIds, includeInactive, search, page, pageSize, ct);
-                mapped = new PagedResult<BranchDto>(result.Items.Select(BranchDtoMapper.From).ToArray(), page, pageSize, result.TotalCount);
+                var pagedBranches = await _branches.GetPagedByIdsAsync(organizationId, _currentUser.AuthorizedBranchIds, includeInactive, search, page, pageSize, ct);
+                mappedPage = new PagedResult<BranchDto>(pagedBranches.Items.Select(BranchDtoMapper.From).ToArray(), page, pageSize, pagedBranches.TotalCount);
             }
             await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
-            return Result<PagedResult<BranchDto>>.Success(mapped);
+            return Result<PagedResult<BranchDto>>.Success(mappedPage);
         }
         catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
@@ -71,12 +78,13 @@ public sealed class BranchService : IBranchService
             }
             Branch branch;
             try { branch = Branch.Create(organizationId, request.BranchCode, request.Name, request.Address.ToValueObject()); }
-            catch (Exception ex) when (ex is ArgumentException or IdentityDomainException)
+            catch (Exception exception) when (exception is ArgumentException or IdentityDomainException)
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
-                return IdentityResults.Failure<BranchDto>(ErrorCode.VALIDATION_ERROR, ex.Message);
+                return IdentityResults.Failure<BranchDto>(ErrorCode.VALIDATION_ERROR, exception.Message);
             }
             await _branches.AddAsync(branch, ct);
+            // Seed the three default inventory locations (Sellable, Quarantine, Scrap) atomically with the branch.
             await _locationSeeder.SeedDefaultLocationsAsync(organizationId, branch.BranchId, ct);
             await _audit.LogAsync("branch.created", "identity", "BRANCH", branch.BranchId, null, new { branch.BranchCode, branch.Name }, branch.BranchId, ct: ct);
             await _outbox.EnqueueAsync("identity.branch.created", branch.BranchId, new { branch.BranchId, branch.BranchCode }, ct: ct);
@@ -110,10 +118,10 @@ public sealed class BranchService : IBranchService
                 return IdentityResults.Failure<BranchDto>(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
             }
             try { branch.UpdateDetails(request.Name, request.Address.ToValueObject()); }
-            catch (Exception ex) when (ex is ArgumentException or IdentityDomainException)
+            catch (Exception exception) when (exception is ArgumentException or IdentityDomainException)
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
-                return IdentityResults.Failure<BranchDto>(ErrorCode.VALIDATION_ERROR, ex.Message);
+                return IdentityResults.Failure<BranchDto>(ErrorCode.VALIDATION_ERROR, exception.Message);
             }
             if (request.IsActive.HasValue) branch.SetActive(request.IsActive.Value);
             await _audit.LogAsync("branch.updated", "identity", "BRANCH", branch.BranchId, null, new { branch.Name, branch.IsActive }, branch.BranchId, ct: ct);
@@ -157,13 +165,16 @@ public sealed class BranchService : IBranchService
     public async Task<Result<RedeemBranchEnrollmentResponse>> RedeemEnrollmentAsync(RedeemBranchEnrollmentRequest request, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(request.Token)) return IdentityResults.Failure<RedeemBranchEnrollmentResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidEnrollmentToken);
-        var hash = HashToken(request.Token);
+        var tokenHash = HashToken(request.Token);
+
+        // Anonymous enrollment redemption: discover owning tenant under temporary system bypass,
+        // then switch to strict tenant-scoped RLS for redeeming the one-time token.
         _tenant.AllowSystemBypass();
         await _unitOfWork.BeginTransactionAsync(ct);
         Guid? discoveredOrganizationId;
         try
         {
-            discoveredOrganizationId = await _enrollments.FindOrganizationIdByTokenHashAsync(hash, ct);
+            discoveredOrganizationId = await _enrollments.FindOrganizationIdByTokenHashAsync(tokenHash, ct);
         }
         catch
         {
@@ -177,7 +188,7 @@ public sealed class BranchService : IBranchService
         await _unitOfWork.BeginTransactionAsync(ct);
         try
         {
-            var enrollment = await _enrollments.GetByTokenHashAsync(hash, ct);
+            var enrollment = await _enrollments.GetByTokenHashAsync(tokenHash, ct);
             if (enrollment is null || enrollment.OrganizationId != discoveredOrganizationId.Value || !enrollment.Branch.IsActive)
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);

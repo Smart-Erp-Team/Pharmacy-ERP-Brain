@@ -1,5 +1,9 @@
 namespace PharmacyERP.Infrastructure.Persistence.Repositories.Integration;
 
+/// <summary>
+/// Persists transactional outbox events and row-locks (<c>FOR UPDATE</c>) the per-organization
+/// <see cref="OutboxEventCursor"/> to guarantee monotonic sequence allocation.
+/// </summary>
 public class OutboxRepository : IOutboxRepository
 {
     private readonly PharmacyDbContext _dbContext;

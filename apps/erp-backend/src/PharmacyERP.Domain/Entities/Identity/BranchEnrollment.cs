@@ -1,5 +1,9 @@
 namespace PharmacyERP.Domain.Entities.Identity;
 
+/// <summary>
+/// Represents a single-use, time-limited enrollment token (stored as a 32-byte SHA-256 hash)
+/// issued by an admin to onboard a workstation/device to a specific branch.
+/// </summary>
 public sealed class BranchEnrollment
 {
     private byte[] _tokenHash = Array.Empty<byte>();

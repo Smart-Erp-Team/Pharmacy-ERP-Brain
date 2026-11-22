@@ -2,6 +2,10 @@ using System.IdentityModel.Tokens.Jwt;
 
 namespace PharmacyERP.Infrastructure.Auth;
 
+/// <summary>
+/// Issues RS256-signed JWT access tokens embedding tenant, role, branch-scope, and
+/// <c>security_stamp</c> claims, restricting BranchLocal tokens to the single enrolled branch.
+/// </summary>
 public sealed class JwtTokenGenerator : IJwtTokenGenerator
 {
     private static readonly TimeSpan DefaultLifetime = TimeSpan.FromMinutes(15);

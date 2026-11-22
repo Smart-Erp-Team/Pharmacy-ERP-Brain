@@ -1,5 +1,10 @@
-﻿namespace PharmacyERP.Api.Middleware;
+namespace PharmacyERP.Api.Middleware;
 
+/// <summary>
+/// Propagates or generates a W3C <c>traceparent</c> correlation ID per HTTP request,
+/// exposing it via <c>HttpContext.Items["TraceId"]</c>, <c>HttpContext.TraceIdentifier</c>,
+/// and response headers for end-to-end audit and outbox traceability.
+/// </summary>
 public class TraceparentMiddleware
 {
     private readonly RequestDelegate _next;

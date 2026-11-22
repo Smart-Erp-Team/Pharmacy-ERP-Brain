@@ -1,5 +1,10 @@
-﻿namespace PharmacyERP.Infrastructure.Services.Context;
+namespace PharmacyERP.Infrastructure.Services.Context;
 
+/// <summary>
+/// Scoped holder for the active tenant <see cref="OrganizationId"/> and system-bypass state
+/// consumed by <see cref="PharmacyDbContext"/> query filters, <see cref="UnitOfWork"/>, and
+/// <see cref="TenantRlsConnectionInterceptor"/>.
+/// </summary>
 public class TenantContext : ITenantContext
 {
     public Guid? OrganizationId { get; private set; }

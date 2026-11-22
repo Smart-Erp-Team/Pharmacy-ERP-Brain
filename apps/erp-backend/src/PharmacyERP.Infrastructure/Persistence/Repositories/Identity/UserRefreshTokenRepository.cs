@@ -1,5 +1,9 @@
 namespace PharmacyERP.Infrastructure.Persistence.Repositories.Identity;
 
+/// <summary>
+/// Persists and locks (<c>SELECT ... FOR UPDATE</c>) refresh token rows to serialize concurrent
+/// rotation attempts and support atomic token-family revocation on reuse detection or logout.
+/// </summary>
 public sealed class UserRefreshTokenRepository : IUserRefreshTokenRepository
 {
     private readonly PharmacyDbContext _db;

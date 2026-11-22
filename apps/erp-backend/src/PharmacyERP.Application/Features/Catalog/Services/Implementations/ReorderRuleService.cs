@@ -1,5 +1,8 @@
 namespace PharmacyERP.Application.Features.Catalog.Services.Implementations;
 
+/// <summary>
+/// Manages branch-scoped product reorder point thresholds with advisory-locked upsert concurrency safety.
+/// </summary>
 public class ReorderRuleService : IReorderRuleService
 {
     private readonly IProductReorderRuleRepository _reorderRuleRepository;
@@ -207,15 +210,15 @@ public class ReorderRuleService : IReorderRuleService
         string.Equals(_currentUser.Role, "Pharmacist", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(_currentUser.Role, "Cashier", StringComparison.OrdinalIgnoreCase);
 
-    private static ReorderRuleDto MapToDto(ProductReorderRule r) =>
+    private static ReorderRuleDto MapToDto(ProductReorderRule reorderRule) =>
         new(
-            r.ReorderRuleId,
-            r.OrganizationId,
-            r.BranchId,
-            r.ProductId,
-            r.ReorderPointBase,
-            r.ReorderQuantityBase,
-            r.MaxQuantityBase,
-            r.IsActive,
-            r.UpdatedAt);
+            reorderRule.ReorderRuleId,
+            reorderRule.OrganizationId,
+            reorderRule.BranchId,
+            reorderRule.ProductId,
+            reorderRule.ReorderPointBase,
+            reorderRule.ReorderQuantityBase,
+            reorderRule.MaxQuantityBase,
+            reorderRule.IsActive,
+            reorderRule.UpdatedAt);
 }

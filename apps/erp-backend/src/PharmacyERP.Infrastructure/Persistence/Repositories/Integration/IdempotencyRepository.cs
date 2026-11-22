@@ -1,5 +1,9 @@
 namespace PharmacyERP.Infrastructure.Persistence.Repositories.Integration;
 
+/// <summary>
+/// Persists <see cref="IdempotencyRecord"/> rows and acquires transaction-scoped PostgreSQL
+/// advisory locks to serialize concurrent retries sharing the same idempotency key.
+/// </summary>
 public class IdempotencyRepository : IIdempotencyRepository
 {
     private readonly PharmacyDbContext _dbContext;

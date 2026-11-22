@@ -82,6 +82,7 @@ public class ProductCategory
         if (description != null && description.Length > 250)
             throw new ArgumentException("Description cannot exceed 250 characters.", nameof(description));
 
+        // Only direct self-parenting is detectable here; deeper cycles require loading the hierarchy.
         if (parentCategoryId.HasValue && parentCategoryId.Value == CategoryId)
             throw new CategorySelfParentException();
 

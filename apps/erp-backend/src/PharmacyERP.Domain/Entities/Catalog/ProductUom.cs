@@ -56,6 +56,8 @@ public class ProductUom
         if (displayName.Length > 50)
             throw new ArgumentException("DisplayName cannot exceed 50 characters.", nameof(displayName));
 
+        // ConversionToBase is the number of base units in one of this UOM (base quantity = qty * factor),
+        // so it must be positive, and the base UOM itself must convert 1:1.
         if (conversionToBase <= 0m || (isBase && conversionToBase != 1m))
             throw new InvalidUomConversionFactorException();
 
@@ -100,8 +102,14 @@ public class ProductUom
         UpdatedAt = DateTimeOffset.UtcNow;
     }
 
+    /// <summary>
+    /// Changes <see cref="ConversionToBase"/>. Once the UOM is referenced by stock or documents the factor is
+    /// frozen, because base quantities already derived from it would no longer match; re-submitting the same
+    /// factor is still accepted as a no-op.
+    /// </summary>
     public void UpdateConversionFactor(decimal newConversionToBase, bool isReferencedByStockOrDocuments)
     {
+        // Checked before factor validation so a referenced UOM reports the historical-modification error first.
         if (isReferencedByStockOrDocuments && newConversionToBase != ConversionToBase)
             throw new HistoricalUomModificationForbiddenException("Cannot modify conversion factor for a UOM that has existing stock or document references.");
 
@@ -117,6 +125,7 @@ public class ProductUom
 
     public void Deactivate()
     {
+        // The product must always keep exactly one active base UOM; switch the base first via Product.ChangeBaseUom.
         if (IsBase)
             throw new InvalidBaseUomInvariantException("Cannot deactivate the base UOM of a product without assigning an active replacement.");
 
@@ -136,6 +145,7 @@ public class ProductUom
         UpdatedAt = DateTimeOffset.UtcNow;
     }
 
+    // Internal: base flag changes go through Product (BeginBaseUomChange / ChangeBaseUom), which owns the base-UOM invariant.
     internal void SetAsBase()
     {
         if (!IsActive)

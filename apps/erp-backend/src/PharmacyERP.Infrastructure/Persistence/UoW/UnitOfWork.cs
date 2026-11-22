@@ -2,6 +2,11 @@ using Microsoft.EntityFrameworkCore.Storage;
 
 namespace PharmacyERP.Infrastructure.Persistence.UoW;
 
+/// <summary>
+/// Manages database transactions over <see cref="PharmacyDbContext"/> and binds transaction-local
+/// PostgreSQL RLS session variables (<c>app.organization_id</c> or <c>app.system_bypass</c>)
+/// immediately upon opening each transaction.
+/// </summary>
 public class UnitOfWork : IUnitOfWork
 {
     private readonly PharmacyDbContext _dbContext;
@@ -29,11 +34,13 @@ public class UnitOfWork : IUnitOfWork
         {
             try
             {
+                // Passing is_local = true scopes set_config to the current transaction so pooled Npgsql
+                // connections can never leak tenant context or system bypass to a later request.
                 if (_tenantContext.IsTenantBound && _tenantContext.OrganizationId.HasValue)
                 {
-                    var orgIdString = _tenantContext.OrganizationId.Value.ToString();
+                    var organizationIdText = _tenantContext.OrganizationId.Value.ToString();
                     await _dbContext.Database.ExecuteSqlInterpolatedAsync(
-                        $"SELECT set_config('app.organization_id', {orgIdString}, true);", ct);
+                        $"SELECT set_config('app.organization_id', {organizationIdText}, true);", ct);
                 }
                 else if (_tenantContext.IsSystemBypassAllowed)
                 {

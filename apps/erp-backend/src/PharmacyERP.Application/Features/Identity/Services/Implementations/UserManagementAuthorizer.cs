@@ -1,5 +1,11 @@
 namespace PharmacyERP.Application.Features.Identity.Services.Implementations;
 
+/// <summary>
+/// Enforces hierarchical RBAC and branch-scope rules for user management:
+/// (a) only ALL-branch Admins may manage Admin or ALL-scope users,
+/// (b) ASSIGNED Admins may only manage users whose branches are a subset of their own, and
+/// (c) no user may alter their own role, scope, or active state.
+/// </summary>
 public sealed class UserManagementAuthorizer : IUserManagementAuthorizer
 {
     private readonly ICurrentUser _currentUser;

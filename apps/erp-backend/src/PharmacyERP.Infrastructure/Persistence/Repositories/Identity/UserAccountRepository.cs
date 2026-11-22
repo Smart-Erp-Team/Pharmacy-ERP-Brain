@@ -20,6 +20,7 @@ public sealed class UserAccountRepository : IUserAccountRepository
     {
         if (_db.Database.IsRelational())
         {
+            // Increment failed attempts atomically in SQL so concurrent failed logins cannot lose updates.
             var lockoutUntil = now.Add(lockoutDuration);
             await _db.Database.ExecuteSqlInterpolatedAsync(
                 $@"UPDATE identity.""USER_ACCOUNT""

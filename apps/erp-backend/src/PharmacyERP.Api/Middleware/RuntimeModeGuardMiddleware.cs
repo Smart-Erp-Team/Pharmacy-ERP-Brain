@@ -1,5 +1,10 @@
 namespace PharmacyERP.Api.Middleware;
 
+/// <summary>
+/// Enforces Cloud vs. BranchLocal deployment route boundaries at the HTTP pipeline edge,
+/// returning <c>404 NOT_FOUND</c> for Cloud-only endpoints on BranchLocal nodes and for
+/// BranchLocal-only stock mutations on Cloud nodes.
+/// </summary>
 public class RuntimeModeGuardMiddleware
 {
     private readonly RequestDelegate _next;

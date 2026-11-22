@@ -1,5 +1,9 @@
 namespace PharmacyERP.Application.Features.Identity.Services.Implementations;
 
+/// <summary>
+/// Handles tenant-scoped authentication, refresh-token rotation with reuse detection,
+/// session logout, and current-user context projection.
+/// </summary>
 public sealed class AuthService : IAuthService
 {
     private static readonly TimeSpan RefreshLifetime = TimeSpan.FromDays(30);
@@ -28,6 +32,8 @@ public sealed class AuthService : IAuthService
 
     public async Task<Result<LoginResponse>> LoginAsync(LoginRequest request, CancellationToken ct = default)
     {
+        // Anonymous login has no JWT tenant claim yet: run a short discovery transaction with
+        // AllowSystemBypass() to locate the organization, then switch to tenant-bound RLS below.
         _tenant.AllowSystemBypass();
         await _unitOfWork.BeginTransactionAsync(ct);
         Organization? organization;
@@ -44,6 +50,7 @@ public sealed class AuthService : IAuthService
         if (organization is null)
             return IdentityResults.Failure<LoginResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidCredentials);
 
+        // SetTenant clears IsSystemBypassEnabled so all subsequent reads/writes enforce PostgreSQL FORCE RLS.
         _tenant.SetTenant(organization.OrganizationId);
         await _unitOfWork.BeginTransactionAsync(ct);
         try
@@ -103,13 +110,16 @@ public sealed class AuthService : IAuthService
         if (string.IsNullOrWhiteSpace(request.RefreshToken))
             return IdentityResults.Failure<LoginResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidRefreshToken);
 
-        var hash = HashToken(request.RefreshToken);
+        var tokenHash = HashToken(request.RefreshToken);
+
+        // Anonymous refresh discovery: look up owning organization under temporary system bypass,
+        // then immediately bind the tenant context for strict RLS enforcement during token rotation.
         _tenant.AllowSystemBypass();
         await _unitOfWork.BeginTransactionAsync(ct);
         Guid? discoveredOrganizationId;
         try
         {
-            discoveredOrganizationId = await _tokens.FindOrganizationIdByTokenHashAsync(hash, ct);
+            discoveredOrganizationId = await _tokens.FindOrganizationIdByTokenHashAsync(tokenHash, ct);
         }
         catch
         {
@@ -124,37 +134,46 @@ public sealed class AuthService : IAuthService
         await _unitOfWork.BeginTransactionAsync(ct);
         try
         {
-            var token = await _tokens.GetByTokenHashAsync(hash, ct);
-            if (token is null)
-            {
-                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
-                return IdentityResults.Failure<LoginResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidRefreshToken);
-            }
-            var now = _clock.UtcNow;
-            if (token.ConsumedAt.HasValue)
-            {
-                await _tokens.RevokeFamilyAsync(token.OrganizationId, token.TokenFamilyId, now, ct);
-                await _audit.LogAsync("auth.refresh.reuse_detected", "identity", "USER_REFRESH_TOKEN", token.RefreshTokenId,
-                    null, new { token.TokenFamilyId }, ct: ct);
-                await _unitOfWork.CommitTransactionAsync(ct);
-                return IdentityResults.Failure<LoginResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidRefreshToken);
-            }
-            if (!token.IsActive(now) || !token.UserAccount.IsActive || !token.UserAccount.Employee.IsActive)
+            var refreshToken = await _tokens.GetByTokenHashAsync(tokenHash, ct);
+            if (refreshToken is null)
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<LoginResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidRefreshToken);
             }
 
-            if (!IsAuthorizedForCurrentRuntimeMode(token.UserAccount))
+            var now = _clock.UtcNow;
+
+            // Reuse detection: presenting an already-consumed refresh token signals possible theft,
+            // so revoke the entire token family and commit the revocation + audit event.
+            if (refreshToken.ConsumedAt.HasValue)
+            {
+                await _tokens.RevokeFamilyAsync(refreshToken.OrganizationId, refreshToken.TokenFamilyId, now, ct);
+                await _audit.LogAsync("auth.refresh.reuse_detected", "identity", "USER_REFRESH_TOKEN", refreshToken.RefreshTokenId,
+                    null, new { refreshToken.TokenFamilyId }, ct: ct);
+                await _unitOfWork.CommitTransactionAsync(ct);
+                return IdentityResults.Failure<LoginResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidRefreshToken);
+            }
+
+            var isTokenAndAccountActive = refreshToken.IsActive(now)
+                && refreshToken.UserAccount.IsActive
+                && refreshToken.UserAccount.Employee.IsActive;
+            if (!isTokenAndAccountActive)
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                return IdentityResults.Failure<LoginResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidRefreshToken);
+            }
+
+            if (!IsAuthorizedForCurrentRuntimeMode(refreshToken.UserAccount))
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<LoginResponse>(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
             }
 
-            token.Consume(now);
-            var response = await IssueTokensAsync(token.UserAccount, token.TokenFamilyId, now, ct);
-            await _audit.LogAsync("auth.refresh.succeeded", "identity", "USER_REFRESH_TOKEN", token.RefreshTokenId,
-                null, new { token.TokenFamilyId }, ct: ct);
+            // Refresh token rotation: mark the presented token consumed and issue a successor in the same family.
+            refreshToken.Consume(now);
+            var response = await IssueTokensAsync(refreshToken.UserAccount, refreshToken.TokenFamilyId, now, ct);
+            await _audit.LogAsync("auth.refresh.succeeded", "identity", "USER_REFRESH_TOKEN", refreshToken.RefreshTokenId,
+                null, new { refreshToken.TokenFamilyId }, ct: ct);
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result<LoginResponse>.Success(response);
         }
@@ -175,15 +194,16 @@ public sealed class AuthService : IAuthService
         await _unitOfWork.BeginTransactionAsync(ct);
         try
         {
-            var token = await _tokens.GetByTokenHashAsync(HashToken(request.RefreshToken), ct);
-            if (token is null || token.OrganizationId != organizationId || token.UserId != userId)
+            var refreshToken = await _tokens.GetByTokenHashAsync(HashToken(request.RefreshToken), ct);
+            if (refreshToken is null || refreshToken.OrganizationId != organizationId || refreshToken.UserId != userId)
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidRefreshToken);
             }
-            await _tokens.RevokeFamilyAsync(organizationId, token.TokenFamilyId, _clock.UtcNow, ct);
+
+            await _tokens.RevokeFamilyAsync(organizationId, refreshToken.TokenFamilyId, _clock.UtcNow, ct);
             await _audit.LogAsync("auth.logout", "identity", "USER_ACCOUNT", userId, null,
-                new { token.TokenFamilyId }, ct: ct);
+                new { refreshToken.TokenFamilyId }, ct: ct);
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result.Success();
         }
@@ -204,17 +224,24 @@ public sealed class AuthService : IAuthService
             _currentUser.AuthorizedBranchIds.ToArray(), _currentUser.Scopes.ToArray()));
     }
 
-    private async Task<LoginResponse> IssueTokensAsync(UserAccount user, Guid familyId, DateTimeOffset now, CancellationToken ct)
+    private async Task<LoginResponse> IssueTokensAsync(UserAccount user, Guid tokenFamilyId, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        var branchIds = user.BranchAccesses.Select(x => x.BranchId).Distinct().ToArray();
-        var access = _jwt.GenerateAccessToken(user, branchIds);
-        var refreshText = Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
-        var refresh = UserRefreshToken.Create(user.OrganizationId, user.UserId, HashToken(refreshText), familyId, now, now.Add(RefreshLifetime));
-        await _tokens.AddAsync(refresh, ct);
+        var authorizedBranchIds = user.BranchAccesses.Select(access => access.BranchId).Distinct().ToArray();
+        var accessTokenResult = _jwt.GenerateAccessToken(user, authorizedBranchIds);
+        var refreshTokenText = Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
+        var refreshTokenEntity = UserRefreshToken.Create(
+            user.OrganizationId,
+            user.UserId,
+            HashToken(refreshTokenText),
+            tokenFamilyId,
+            now,
+            now.Add(RefreshLifetime));
+        await _tokens.AddAsync(refreshTokenEntity, cancellationToken);
+
         var effectiveBranchIds = _runtimeMode.CurrentMode == ErpRuntimeMode.BranchLocal && _runtimeMode.EnrolledBranchId is Guid enrolledBranchId
             ? new[] { enrolledBranchId }
-            : branchIds;
-        return new LoginResponse(access.Token, access.ExpiresAt, refreshText,
+            : authorizedBranchIds;
+        return new LoginResponse(accessTokenResult.Token, accessTokenResult.ExpiresAt, refreshTokenText,
             CurrentUserDtoMapper.From(user, effectiveBranchIds, ScopeNames(user.Role)));
     }
 
@@ -229,7 +256,7 @@ public sealed class AuthService : IAuthService
         if (user.Role == UserRole.Admin && user.BranchScope == BranchScope.ALL)
             return true;
 
-        return user.BranchAccesses.Any(a => a.BranchId == enrolledBranchId);
+        return user.BranchAccesses.Any(access => access.BranchId == enrolledBranchId);
     }
 
     private static byte[] HashToken(string value) => SHA256.HashData(Encoding.UTF8.GetBytes(value));
