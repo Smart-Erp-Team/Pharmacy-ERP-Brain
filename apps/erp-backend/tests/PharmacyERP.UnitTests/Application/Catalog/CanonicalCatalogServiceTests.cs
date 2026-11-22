@@ -560,7 +560,7 @@ public class CanonicalCatalogServiceTests
     }
 
     [Fact]
-    public async Task ConfigureProductAsync_UpdateProduct_NeverCallsInitializer_EvenWhenChangingPolicy()
+    public async Task ConfigureProductAsync_UpdateProduct_CallsInitializer_WhenDisablingLotTracking()
     {
         var product = CreateSampleProduct("PAN-500", "Panadol 500mg", lotTracking: true);
         _productRepoMock.Setup(p => p.GetByIdWithUomsAsync(_orgId, product.ProductId, It.IsAny<CancellationToken>())).ReturnsAsync(product);
@@ -575,8 +575,8 @@ public class CanonicalCatalogServiceTests
         var result = await _service.ConfigureProductAsync(request);
 
         Assert.True(result.IsSuccess);
-        // Spec lines 493 and 511 mandate initializer is called ONLY on create
-        _nonLotBatchInitializerMock.Verify(n => n.EnsureNonLotBatchExistsAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        // Stage 1 H-04: Disabling lot tracking via canonical update must ensure NON-LOT sentinel batch exists
+        _nonLotBatchInitializerMock.Verify(n => n.EnsureNonLotBatchExistsAsync(_orgId, product.ProductId, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // =========================================================================
@@ -1256,11 +1256,11 @@ public class CanonicalCatalogServiceTests
 
         var batchInit = provider.GetService<INonLotBatchInitializer>();
         Assert.NotNull(batchInit);
-        Assert.IsType<TemporaryNonLotBatchInitializer>(batchInit);
+        Assert.IsType<PharmacyERP.Infrastructure.Persistence.Repositories.Inventory.NonLotBatchInitializer>(batchInit);
 
         var usageChecker = provider.GetService<IProductInventoryUsageChecker>();
         Assert.NotNull(usageChecker);
-        Assert.IsType<TemporaryProductInventoryUsageChecker>(usageChecker);
+        Assert.IsType<PharmacyERP.Infrastructure.Persistence.Repositories.Inventory.ProductInventoryUsageChecker>(usageChecker);
     }
 
     // =========================================================================

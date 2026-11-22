@@ -50,7 +50,7 @@ public class ProductCategoryRepository : GenericRepository<ProductCategory>, IPr
         var resolvedPage = page < 1 ? 1 : page;
         var resolvedPageSize = pageSize <= 0 ? DefaultPageSize : Math.Min(pageSize, MaxPageSize);
 
-        var query = _dbSet.Where(c => c.OrganizationId == organizationId);
+        var query = _dbSet.AsNoTracking().Where(c => c.OrganizationId == organizationId);
 
         if (!includeInactive)
         {

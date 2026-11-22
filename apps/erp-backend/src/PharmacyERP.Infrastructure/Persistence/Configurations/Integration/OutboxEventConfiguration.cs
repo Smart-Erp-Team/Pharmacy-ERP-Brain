@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using PharmacyERP.Domain.Entities.Integration;
 
@@ -16,7 +16,8 @@ public class OutboxEventConfiguration : IEntityTypeConfiguration<OutboxEvent>
         builder.HasKey(x => x.EventId);
 
         builder.HasIndex(x => new { x.OrganizationId, x.EventSequence }).IsUnique();
-        builder.HasIndex(x => new { x.PublishedAt, x.OccurredAt }).HasFilter("published_at IS NULL");
+        builder.HasIndex(x => new { x.OrganizationId, x.EventSequence }, "IX_OUTBOX_EVENT_pending_org_seq")
+               .HasFilter("published_at IS NULL");
         builder.HasIndex(x => new { x.OrganizationId, x.BranchId, x.EventSequence });
 
         builder.Property(x => x.EventId).HasColumnName("event_id");

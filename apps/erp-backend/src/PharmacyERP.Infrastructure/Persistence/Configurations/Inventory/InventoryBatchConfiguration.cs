@@ -44,6 +44,10 @@ public class InventoryBatchConfiguration : IEntityTypeConfiguration<InventoryBat
         // FEFO Index
         builder.HasIndex(x => new { x.OrganizationId, x.ProductId, x.QualityStatus, x.ExpiresOn, x.BatchId });
 
+        // Org-wide expiry alert query index (when productId is omitted)
+        builder.HasIndex(x => new { x.OrganizationId, x.ExpiresOn, x.BatchNumber })
+            .HasFilter("expires_on IS NOT NULL");
+
         // Check Constraints
         builder.ToTable(t =>
         {

@@ -27,13 +27,16 @@ public sealed class AuthService : IAuthService
     private readonly ITenantContext _tenant;
     private readonly ICurrentUser _currentUser;
     private readonly IDateTimeProvider _clock;
+    private readonly IRuntimeModeProvider _runtimeMode;
 
     public AuthService(IOrganizationRepository organizations, IUserAccountRepository users, IUserRefreshTokenRepository tokens,
         IPasswordHasherService passwords, IJwtTokenGenerator jwt, IUnitOfWork unitOfWork, IAuditLogger audit,
-        IOutboxService outbox, ITenantContext tenant, ICurrentUser currentUser, IDateTimeProvider clock)
+        IOutboxService outbox, ITenantContext tenant, ICurrentUser currentUser, IDateTimeProvider clock,
+        IRuntimeModeProvider runtimeMode)
     {
         _organizations = organizations; _users = users; _tokens = tokens; _passwords = passwords; _jwt = jwt;
-        _unitOfWork = unitOfWork; _audit = audit; _outbox = outbox; _tenant = tenant; _currentUser = currentUser; _clock = clock;
+        _unitOfWork = unitOfWork; _audit = audit; _outbox = outbox; _tenant = tenant; _currentUser = currentUser;
+        _clock = clock; _runtimeMode = runtimeMode;
     }
 
     public async Task<Result<LoginResponse>> LoginAsync(LoginRequest request, CancellationToken ct = default)
@@ -50,7 +53,7 @@ public sealed class AuthService : IAuthService
             await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             throw;
         }
-        await _unitOfWork.RollbackTransactionAsync(ct);
+        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
         if (organization is null)
             return IdentityResults.Failure<LoginResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidCredentials);
 
@@ -62,29 +65,36 @@ public sealed class AuthService : IAuthService
             var user = await _users.GetForLoginAsync(organization.OrganizationId, normalizedUsername, ct);
             if (user is null)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<LoginResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidCredentials);
             }
 
             var now = _clock.UtcNow;
             if (!user.IsActive || !user.Employee.IsActive)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<LoginResponse>(ErrorCode.FORBIDDEN, ErrorMessages.AccountInactive);
             }
             if (user.LockoutEnd > now)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<LoginResponse>(ErrorCode.FORBIDDEN, ErrorMessages.AccountLocked);
             }
 
             if (!_passwords.VerifyPassword(user, user.PasswordHash, request.Password))
             {
-                user.RecordLoginFailure(now, 5, TimeSpan.FromMinutes(15));
+                var (failedCount, lockoutEnd) = await _users.RecordLoginFailureAsync(
+                    organization.OrganizationId, user.UserId, now, 5, TimeSpan.FromMinutes(15), ct);
                 await _audit.LogAsync("auth.login.failed", "identity", "USER_ACCOUNT", user.UserId,
-                    null, new { user.AccessFailedCount, user.LockoutEnd }, branchId: user.Employee.BranchId, ct: ct);
+                    null, new { AccessFailedCount = failedCount, LockoutEnd = lockoutEnd }, branchId: user.Employee.BranchId, ct: ct);
                 await _unitOfWork.CommitTransactionAsync(ct);
                 return IdentityResults.Failure<LoginResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidCredentials);
+            }
+
+            if (!IsAuthorizedForCurrentRuntimeMode(user))
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                return IdentityResults.Failure<LoginResponse>(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
             }
 
             user.RecordLoginSuccess(now);
@@ -96,7 +106,7 @@ public sealed class AuthService : IAuthService
         }
         catch
         {
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             throw;
         }
     }
@@ -109,28 +119,28 @@ public sealed class AuthService : IAuthService
         var hash = HashToken(request.RefreshToken);
         _tenant.AllowSystemBypass();
         await _unitOfWork.BeginTransactionAsync(ct);
-        UserRefreshToken? discovered;
+        Guid? discoveredOrganizationId;
         try
         {
-            discovered = await _tokens.GetByTokenHashAsync(hash, ct);
+            discoveredOrganizationId = await _tokens.FindOrganizationIdByTokenHashAsync(hash, ct);
         }
         catch
         {
             await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             throw;
         }
-        await _unitOfWork.RollbackTransactionAsync(ct);
-        if (discovered is null)
+        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+        if (discoveredOrganizationId is null)
             return IdentityResults.Failure<LoginResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidRefreshToken);
 
-        _tenant.SetTenant(discovered.OrganizationId);
+        _tenant.SetTenant(discoveredOrganizationId.Value);
         await _unitOfWork.BeginTransactionAsync(ct);
         try
         {
             var token = await _tokens.GetByTokenHashAsync(hash, ct);
             if (token is null)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<LoginResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidRefreshToken);
             }
             var now = _clock.UtcNow;
@@ -144,8 +154,14 @@ public sealed class AuthService : IAuthService
             }
             if (!token.IsActive(now) || !token.UserAccount.IsActive || !token.UserAccount.Employee.IsActive)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<LoginResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidRefreshToken);
+            }
+
+            if (!IsAuthorizedForCurrentRuntimeMode(token.UserAccount))
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                return IdentityResults.Failure<LoginResponse>(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
             }
 
             token.Consume(now);
@@ -157,7 +173,7 @@ public sealed class AuthService : IAuthService
         }
         catch
         {
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             throw;
         }
     }
@@ -175,7 +191,7 @@ public sealed class AuthService : IAuthService
             var token = await _tokens.GetByTokenHashAsync(HashToken(request.RefreshToken), ct);
             if (token is null || token.OrganizationId != organizationId || token.UserId != userId)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidRefreshToken);
             }
             await _tokens.RevokeFamilyAsync(organizationId, token.TokenFamilyId, _clock.UtcNow, ct);
@@ -186,7 +202,7 @@ public sealed class AuthService : IAuthService
         }
         catch
         {
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             throw;
         }
     }
@@ -208,8 +224,25 @@ public sealed class AuthService : IAuthService
         var refreshText = Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
         var refresh = UserRefreshToken.Create(user.OrganizationId, user.UserId, HashToken(refreshText), familyId, now, now.Add(RefreshLifetime));
         await _tokens.AddAsync(refresh, ct);
+        var effectiveBranchIds = _runtimeMode.CurrentMode == ErpRuntimeMode.BranchLocal && _runtimeMode.EnrolledBranchId is Guid enrolledBranchId
+            ? new[] { enrolledBranchId }
+            : branchIds;
         return new LoginResponse(access.Token, access.ExpiresAt, refreshText,
-            CurrentUserDtoMapper.From(user, branchIds, ScopeNames(user.Role)));
+            CurrentUserDtoMapper.From(user, effectiveBranchIds, ScopeNames(user.Role)));
+    }
+
+    private bool IsAuthorizedForCurrentRuntimeMode(UserAccount user)
+    {
+        if (_runtimeMode.CurrentMode != ErpRuntimeMode.BranchLocal)
+            return true;
+
+        if (_runtimeMode.EnrolledBranchId is not Guid enrolledBranchId || enrolledBranchId == Guid.Empty)
+            return false;
+
+        if (user.Role == UserRole.Admin && user.BranchScope == BranchScope.ALL)
+            return true;
+
+        return user.BranchAccesses.Any(a => a.BranchId == enrolledBranchId);
     }
 
     private static byte[] HashToken(string value) => SHA256.HashData(Encoding.UTF8.GetBytes(value));

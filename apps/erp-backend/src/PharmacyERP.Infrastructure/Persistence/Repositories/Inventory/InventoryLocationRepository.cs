@@ -32,6 +32,43 @@ public class InventoryLocationRepository : IInventoryLocationRepository
             .FirstOrDefaultAsync(l => l.OrganizationId == organizationId && l.LocationId == locationId, ct);
     }
 
+    public async Task<IReadOnlyList<InventoryLocation>> GetByIdsAsync(
+        Guid organizationId,
+        Guid branchId,
+        IReadOnlyCollection<Guid> locationIds,
+        CancellationToken ct = default)
+    {
+        if (locationIds.Count == 0)
+        {
+            return Array.Empty<InventoryLocation>();
+        }
+
+        return await _context.InventoryLocations
+            .AsNoTracking()
+            .Where(l => l.OrganizationId == organizationId && l.BranchId == branchId && locationIds.Contains(l.LocationId))
+            .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlySet<string>> GetExistingCodesAsync(
+        Guid organizationId,
+        Guid branchId,
+        IReadOnlyCollection<string> locationCodes,
+        CancellationToken ct = default)
+    {
+        if (locationCodes.Count == 0)
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        var existing = await _context.InventoryLocations
+            .AsNoTracking()
+            .Where(l => l.OrganizationId == organizationId && l.BranchId == branchId && locationCodes.Contains(l.LocationCode))
+            .Select(l => l.LocationCode)
+            .ToListAsync(ct);
+
+        return existing.ToHashSet(StringComparer.Ordinal);
+    }
+
     public async Task<bool> ExistsByCodeAsync(Guid organizationId, Guid branchId, string locationCode, Guid? excludeLocationId = null, CancellationToken ct = default)
     {
         var query = _context.InventoryLocations
@@ -48,6 +85,7 @@ public class InventoryLocationRepository : IInventoryLocationRepository
     public async Task<PagedResult<InventoryLocation>> GetPagedAsync(Guid organizationId, Guid branchId, bool? isSellable, bool includeInactive, int page, int pageSize, CancellationToken ct = default)
     {
         var query = _context.InventoryLocations
+            .AsNoTracking()
             .Where(l => l.OrganizationId == organizationId && l.BranchId == branchId);
 
         if (isSellable.HasValue)
@@ -67,7 +105,7 @@ public class InventoryLocationRepository : IInventoryLocationRepository
             .Take(pageSize)
             .ToListAsync(ct);
 
-        return new PagedResult<InventoryLocation>(items, totalCount, page, pageSize);
+        return new PagedResult<InventoryLocation>(Items: items, Page: page, PageSize: pageSize, TotalCount: totalCount);
     }
 
     public async Task AddRangeAsync(IEnumerable<InventoryLocation> locations, CancellationToken ct = default)

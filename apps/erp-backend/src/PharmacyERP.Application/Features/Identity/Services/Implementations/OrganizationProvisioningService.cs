@@ -79,7 +79,7 @@ public sealed class OrganizationProvisioningService : IOrganizationProvisioningS
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 throw;
             }
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             if (exists)
                 return IdentityResults.Failure<OrganizationDto>(ErrorCode.CONFLICT, ErrorMessages.DuplicateOrganizationCode);
 
@@ -105,7 +105,7 @@ public sealed class OrganizationProvisioningService : IOrganizationProvisioningS
         }
         catch
         {
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             throw;
         }
     }

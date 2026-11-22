@@ -44,10 +44,10 @@ public sealed class EmployeeService : IEmployeeService
         try
         {
             var result = await _employees.GetPagedAsync(organizationId, branchId, includeInactive, search, page, pageSize, ct);
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             return Result<PagedResult<EmployeeDto>>.Success(new PagedResult<EmployeeDto>(result.Items.Select(EmployeeDtoMapper.From).ToArray(), page, pageSize, result.TotalCount));
         }
-        catch { await _unitOfWork.RollbackTransactionAsync(ct); throw; }
+        catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
 
     public async Task<Result<EmployeeDto>> GetByIdAsync(Guid employeeId, CancellationToken ct = default)
@@ -57,12 +57,12 @@ public sealed class EmployeeService : IEmployeeService
         try
         {
             var employee = await _employees.GetByIdAsync(organizationId, employeeId, ct);
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             if (employee is null) return IdentityResults.Failure<EmployeeDto>(ErrorCode.NOT_FOUND, ErrorMessages.NotFound);
             if (!_currentUser.CanAccessBranch(employee.BranchId)) return IdentityResults.Failure<EmployeeDto>(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
             return Result<EmployeeDto>.Success(EmployeeDtoMapper.From(employee));
         }
-        catch { await _unitOfWork.RollbackTransactionAsync(ct); throw; }
+        catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
 
     public async Task<Result<EmployeeDto>> CreateAsync(CreateEmployeeRequest request, CancellationToken ct = default)
@@ -76,19 +76,19 @@ public sealed class EmployeeService : IEmployeeService
             var branch = await _branches.GetByIdAsync(organizationId, request.BranchId, ct);
             if (branch is null || !branch.IsActive)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<EmployeeDto>(ErrorCode.NOT_FOUND, ErrorMessages.NotFound);
             }
             if (await _employees.ExistsByEmployeeNoAsync(organizationId, request.BranchId, request.EmployeeNo, ct))
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<EmployeeDto>(ErrorCode.CONFLICT, ErrorMessages.DuplicateEmployeeNo);
             }
             Employee employee;
             try { employee = Employee.Create(organizationId, request.BranchId, request.EmployeeNo, request.FullName, request.Email, request.Phone, request.JobTitle, request.Address.ToValueObject(), request.HiredOn); }
             catch (Exception ex) when (ex is ArgumentException or IdentityDomainException)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<EmployeeDto>(ErrorCode.VALIDATION_ERROR, ex.Message);
             }
             await _employees.AddAsync(employee, ct);
@@ -98,7 +98,7 @@ public sealed class EmployeeService : IEmployeeService
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result<EmployeeDto>.Success(EmployeeDtoMapper.From(employee));
         }
-        catch { await _unitOfWork.RollbackTransactionAsync(ct); throw; }
+        catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
 
     public async Task<Result<EmployeeDto>> UpdateAsync(Guid employeeId, UpdateEmployeeRequest request, CancellationToken ct = default)
@@ -111,18 +111,18 @@ public sealed class EmployeeService : IEmployeeService
             var employee = await _employees.GetByIdAsync(organizationId, employeeId, ct);
             if (employee is null)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<EmployeeDto>(ErrorCode.NOT_FOUND, ErrorMessages.NotFound);
             }
             if (!_currentUser.CanAccessBranch(employee.BranchId))
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<EmployeeDto>(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
             }
             try { employee.UpdateDetails(request.FullName, request.Email, request.Phone, request.JobTitle, request.Address.ToValueObject()); }
             catch (Exception ex) when (ex is ArgumentException or IdentityDomainException)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<EmployeeDto>(ErrorCode.VALIDATION_ERROR, ex.Message);
             }
             if (request.IsActive.HasValue) employee.SetActive(request.IsActive.Value);
@@ -132,7 +132,7 @@ public sealed class EmployeeService : IEmployeeService
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result<EmployeeDto>.Success(EmployeeDtoMapper.From(employee));
         }
-        catch { await _unitOfWork.RollbackTransactionAsync(ct); throw; }
+        catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
 
     private bool IsAdmin() => string.Equals(_currentUser.Role, UserRole.Admin.ToString(), StringComparison.Ordinal);

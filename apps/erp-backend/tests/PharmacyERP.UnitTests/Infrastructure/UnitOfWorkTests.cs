@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using PharmacyERP.Infrastructure.Persistence.Database;
 using PharmacyERP.Infrastructure.Persistence.Triggers;
@@ -66,5 +66,30 @@ public class UnitOfWorkTests
         Assert.Contains("current_setting('app.organization_id', true)", sql);
         Assert.Contains("current_setting('app.system_bypass', true)", sql);
         Assert.Contains("prevent_audit_log_mutation", sql);
+        Assert.Contains("catalog.\"PRODUCT_CATEGORY\"", sql);
+        Assert.Contains("inventory.\"INVENTORY_LOCATION\"", sql);
+        Assert.Contains("inventory.\"INVENTORY_BATCH\"", sql);
+        Assert.DoesNotContain("STORAGE_LOCATION", sql);
+        Assert.DoesNotContain("PRODUCT_BATCH", sql);
+    }
+
+    [Fact]
+    public void RlsAndAuditProtectionSql_TenantBoundTables_MatchesAllEfEntitiesWithOrganizationId()
+    {
+        var tenantContext = new TenantContext();
+        var options = new DbContextOptionsBuilder<PharmacyDbContext>()
+            .UseNpgsql("Host=localhost;Database=erp_db;Username=erp_app")
+            .Options;
+
+        using var dbContext = new PharmacyDbContext(options, tenantContext);
+
+        var modelTables = RlsAndAuditProtectionSql.GetTenantBoundTablesFromModel(dbContext.Model);
+        var configuredTables = RlsAndAuditProtectionSql.TenantBoundTables
+            .OrderBy(t => t.Schema, StringComparer.Ordinal)
+            .ThenBy(t => t.Table, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(20, modelTables.Count);
+        Assert.Equal(modelTables, configuredTables);
     }
 }

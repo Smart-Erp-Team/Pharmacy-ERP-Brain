@@ -3,12 +3,15 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Identity;
 using PharmacyERP.Application.Common.Interfaces.Context;
+using PharmacyERP.Application.Common.Interfaces.Integration;
 using PharmacyERP.Application.Common.Interfaces.Persistence;
 using PharmacyERP.Application.Features.Identity.Interfaces;
 using PharmacyERP.Application.Features.Catalog.Interfaces;
 using PharmacyERP.Application.Features.Integration.Interfaces;
+using PharmacyERP.Infrastructure.BackgroundServices;
 using PharmacyERP.Infrastructure.Persistence.Database;
 using PharmacyERP.Infrastructure.Persistence.Interceptors;
+using PharmacyERP.Infrastructure.Persistence.Security;
 using PharmacyERP.Infrastructure.Persistence.Repositories;
 using PharmacyERP.Infrastructure.Persistence.Repositories.Catalog;
 using PharmacyERP.Infrastructure.Persistence.Repositories.Integration;
@@ -28,6 +31,7 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructureServices(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddHttpContextAccessor();
+        services.AddMemoryCache();
 
         services.AddScoped<ITenantContext, TenantContext>();
         services.AddScoped<ICurrentUser, CurrentUser>();
@@ -36,8 +40,12 @@ public static class DependencyInjection
 
         services.AddScoped<TenantRlsConnectionInterceptor>();
 
-        var connectionString = configuration.GetConnectionString("DefaultConnection")
-            ?? "Host=localhost;Database=pharmacy_erp;Username=postgres;Password=postgres";
+        var connectionString = configuration.GetConnectionString("DefaultConnection");
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException(
+                "Database connection string 'ConnectionStrings:DefaultConnection' is required and must be supplied via environment variables, user-secrets, or a secret vault.");
+        }
 
         services.AddDbContext<PharmacyDbContext>((sp, options) =>
         {
@@ -45,6 +53,13 @@ public static class DependencyInjection
             options.UseNpgsql(connectionString)
                    .AddInterceptors(rlsInterceptor);
         });
+
+        services.AddHostedService<DatabaseSecurityStartupCheck>();
+        services.AddScoped<IOutboxEventDispatcher, LoggingOutboxEventDispatcher>();
+        if (configuration.GetValue<bool>("Outbox:WorkerEnabled", true))
+        {
+            services.AddHostedService<OutboxPublisherWorker>();
+        }
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped(typeof(IGenericRepository<>), typeof(GenericRepository<>));
@@ -65,6 +80,7 @@ public static class DependencyInjection
         services.AddScoped<IBranchEnrollmentRepository, BranchEnrollmentRepository>();
         services.AddScoped<IUserRefreshTokenRepository, UserRefreshTokenRepository>();
         services.AddSingleton<JwksKeyProvider>();
+        services.AddSingleton<IUserSecurityStampValidator, UserSecurityStampValidator>();
         services.AddScoped<Microsoft.AspNetCore.Identity.PasswordHasher<PharmacyERP.Domain.Entities.Identity.UserAccount>>();
         services.AddScoped<IPasswordHasherService, PasswordHasherService>();
         services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();

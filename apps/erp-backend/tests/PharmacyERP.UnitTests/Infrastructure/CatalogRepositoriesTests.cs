@@ -538,7 +538,12 @@ public class CatalogRepositoriesTests
     public void DependencyInjection_RegistersAllFourCatalogRepositoriesAsScoped()
     {
         var services = new ServiceCollection();
-        var configuration = new ConfigurationBuilder().Build();
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DefaultConnection"] = "Host=localhost;Database=erp_db;Username=erp_app"
+            })
+            .Build();
 
         services.AddInfrastructureServices(configuration);
 

@@ -26,6 +26,9 @@ public class StockBalanceConfiguration : IEntityTypeConfiguration<StockBalance>
         // Batch Reconciliation Index
         builder.HasIndex(x => new { x.OrganizationId, x.BatchId, x.LocationId });
 
+        // Incremental canonical sync index (updatedSince)
+        builder.HasIndex(x => new { x.OrganizationId, x.UpdatedAt });
+
         // Check Constraints
         builder.ToTable(t =>
         {

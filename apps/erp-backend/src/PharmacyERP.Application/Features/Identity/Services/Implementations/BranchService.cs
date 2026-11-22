@@ -48,21 +48,13 @@ public sealed class BranchService : IBranchService
             }
             else
             {
-                var results = new List<Branch>();
-                foreach (var id in _currentUser.AuthorizedBranchIds)
-                {
-                    var branch = await _branches.GetByIdAsync(organizationId, id, ct);
-                    if (branch is null || (!includeInactive && !branch.IsActive)) continue;
-                    if (!string.IsNullOrWhiteSpace(search) && !branch.Name.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase) && !branch.BranchCode.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)) continue;
-                    results.Add(branch);
-                }
-                var ordered = results.OrderBy(x => x.Name).ThenBy(x => x.BranchId).ToArray();
-                mapped = new PagedResult<BranchDto>(ordered.Skip((page - 1) * pageSize).Take(pageSize).Select(BranchDtoMapper.From).ToArray(), page, pageSize, ordered.Length);
+                var result = await _branches.GetPagedByIdsAsync(organizationId, _currentUser.AuthorizedBranchIds, includeInactive, search, page, pageSize, ct);
+                mapped = new PagedResult<BranchDto>(result.Items.Select(BranchDtoMapper.From).ToArray(), page, pageSize, result.TotalCount);
             }
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             return Result<PagedResult<BranchDto>>.Success(mapped);
         }
-        catch { await _unitOfWork.RollbackTransactionAsync(ct); throw; }
+        catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
 
     public async Task<Result<BranchDto>> GetByIdAsync(Guid branchId, CancellationToken ct = default)
@@ -72,31 +64,31 @@ public sealed class BranchService : IBranchService
         try
         {
             var branch = await _branches.GetByIdAsync(organizationId, branchId, ct);
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             if (branch is null) return IdentityResults.Failure<BranchDto>(ErrorCode.NOT_FOUND, ErrorMessages.NotFound);
             if (!_currentUser.CanAccessBranch(branchId)) return IdentityResults.Failure<BranchDto>(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
             return Result<BranchDto>.Success(BranchDtoMapper.From(branch));
         }
-        catch { await _unitOfWork.RollbackTransactionAsync(ct); throw; }
+        catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
 
     public async Task<Result<BranchDto>> CreateAsync(CreateBranchRequest request, CancellationToken ct = default)
     {
-        if (!IsAdmin()) return IdentityResults.Failure<BranchDto>(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
+        if (!IsAllBranchAdmin()) return IdentityResults.Failure<BranchDto>(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
         if (_tenant.OrganizationId is not Guid organizationId) return IdentityResults.Failure<BranchDto>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
         await _unitOfWork.BeginTransactionAsync(ct);
         try
         {
             if (await _branches.ExistsByCodeAsync(organizationId, request.BranchCode, ct))
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<BranchDto>(ErrorCode.CONFLICT, ErrorMessages.DuplicateBranchCode);
             }
             Branch branch;
             try { branch = Branch.Create(organizationId, request.BranchCode, request.Name, request.Address.ToValueObject()); }
             catch (Exception ex) when (ex is ArgumentException or IdentityDomainException)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<BranchDto>(ErrorCode.VALIDATION_ERROR, ex.Message);
             }
             await _branches.AddAsync(branch, ct);
@@ -106,7 +98,7 @@ public sealed class BranchService : IBranchService
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result<BranchDto>.Success(BranchDtoMapper.From(branch));
         }
-        catch { await _unitOfWork.RollbackTransactionAsync(ct); throw; }
+        catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
 
     public async Task<Result<BranchDto>> UpdateAsync(Guid branchId, UpdateBranchRequest request, CancellationToken ct = default)
@@ -119,13 +111,23 @@ public sealed class BranchService : IBranchService
             var branch = await _branches.GetByIdAsync(organizationId, branchId, ct);
             if (branch is null)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<BranchDto>(ErrorCode.NOT_FOUND, ErrorMessages.NotFound);
+            }
+            if (!_currentUser.CanAccessBranch(branchId))
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                return IdentityResults.Failure<BranchDto>(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
+            }
+            if (request.IsActive.HasValue && request.IsActive.Value != branch.IsActive && !IsAllBranchAdmin())
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                return IdentityResults.Failure<BranchDto>(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
             }
             try { branch.UpdateDetails(request.Name, request.Address.ToValueObject()); }
             catch (Exception ex) when (ex is ArgumentException or IdentityDomainException)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<BranchDto>(ErrorCode.VALIDATION_ERROR, ex.Message);
             }
             if (request.IsActive.HasValue) branch.SetActive(request.IsActive.Value);
@@ -134,7 +136,7 @@ public sealed class BranchService : IBranchService
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result<BranchDto>.Success(BranchDtoMapper.From(branch));
         }
-        catch { await _unitOfWork.RollbackTransactionAsync(ct); throw; }
+        catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
 
     public async Task<Result<EnrollmentTokenResponse>> IssueEnrollmentTokenAsync(Guid branchId, CancellationToken ct = default)
@@ -147,8 +149,13 @@ public sealed class BranchService : IBranchService
             var branch = await _branches.GetByIdAsync(organizationId, branchId, ct);
             if (branch is null || !branch.IsActive)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<EnrollmentTokenResponse>(ErrorCode.NOT_FOUND, ErrorMessages.NotFound);
+            }
+            if (!_currentUser.CanAccessBranch(branchId))
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                return IdentityResults.Failure<EnrollmentTokenResponse>(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
             }
             var now = _clock.UtcNow;
             var clearToken = Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
@@ -159,7 +166,7 @@ public sealed class BranchService : IBranchService
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result<EnrollmentTokenResponse>.Success(new EnrollmentTokenResponse(clearToken, enrollment.ExpiresAt));
         }
-        catch { await _unitOfWork.RollbackTransactionAsync(ct); throw; }
+        catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
 
     public async Task<Result<RedeemBranchEnrollmentResponse>> RedeemEnrollmentAsync(RedeemBranchEnrollmentRequest request, CancellationToken ct = default)
@@ -168,34 +175,34 @@ public sealed class BranchService : IBranchService
         var hash = HashToken(request.Token);
         _tenant.AllowSystemBypass();
         await _unitOfWork.BeginTransactionAsync(ct);
-        BranchEnrollment? discovered;
+        Guid? discoveredOrganizationId;
         try
         {
-            discovered = await _enrollments.GetByTokenHashAsync(hash, ct);
+            discoveredOrganizationId = await _enrollments.FindOrganizationIdByTokenHashAsync(hash, ct);
         }
         catch
         {
             await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             throw;
         }
-        await _unitOfWork.RollbackTransactionAsync(ct);
-        if (discovered is null) return IdentityResults.Failure<RedeemBranchEnrollmentResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidEnrollmentToken);
+        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+        if (discoveredOrganizationId is null) return IdentityResults.Failure<RedeemBranchEnrollmentResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidEnrollmentToken);
 
-        _tenant.SetTenant(discovered.OrganizationId);
+        _tenant.SetTenant(discoveredOrganizationId.Value);
         await _unitOfWork.BeginTransactionAsync(ct);
         try
         {
             var enrollment = await _enrollments.GetByTokenHashAsync(hash, ct);
-            if (enrollment is null || enrollment.OrganizationId != discovered.OrganizationId || !enrollment.Branch.IsActive)
+            if (enrollment is null || enrollment.OrganizationId != discoveredOrganizationId.Value || !enrollment.Branch.IsActive)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<RedeemBranchEnrollmentResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidEnrollmentToken);
             }
             var now = _clock.UtcNow;
             try { enrollment.Redeem(now); }
             catch (EnrollmentTokenInvalidOrExpiredException)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<RedeemBranchEnrollmentResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidEnrollmentToken);
             }
             var credential = Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
@@ -207,11 +214,11 @@ public sealed class BranchService : IBranchService
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result<RedeemBranchEnrollmentResponse>.Success(new RedeemBranchEnrollmentResponse(enrollment.OrganizationId, enrollment.BranchId, credential, 0, expiry));
         }
-        catch { await _unitOfWork.RollbackTransactionAsync(ct); throw; }
+        catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
 
     private bool IsAdmin() => string.Equals(_currentUser.Role, UserRole.Admin.ToString(), StringComparison.Ordinal);
-    private bool IsAllBranchAdmin() => IsAdmin() && string.Equals(_currentUser.BranchScope, BranchScope.ALL.ToString(), StringComparison.Ordinal);
+    private bool IsAllBranchAdmin() => IsAdmin() && string.Equals(_currentUser.BranchScope, BranchScope.ALL.ToString(), StringComparison.OrdinalIgnoreCase);
     private static bool ValidPage(int page, int pageSize) => page > 0 && pageSize is > 0 and <= 200;
     private static byte[] HashToken(string value) => SHA256.HashData(Encoding.UTF8.GetBytes(value));
     private static string Base64UrlEncode(byte[] value) => Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');

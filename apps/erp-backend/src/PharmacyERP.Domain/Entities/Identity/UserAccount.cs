@@ -11,6 +11,7 @@ public sealed class UserAccount
     public string Username { get; private set; } = string.Empty;
     public string NormalizedUsername { get; private set; } = string.Empty;
     public string PasswordHash { get; private set; } = string.Empty;
+    public Guid SecurityStamp { get; private set; }
     public UserRole Role { get; private set; }
     public BranchScope BranchScope { get; private set; }
     public bool IsActive { get; private set; }
@@ -34,7 +35,7 @@ public sealed class UserAccount
         ValidateRoleAndScope(role, branchScope);
         var now = DateTimeOffset.UtcNow;
         var trimmedUsername = username.Trim();
-        return new UserAccount { UserId = Guid.NewGuid(), OrganizationId = organizationId, EmployeeId = employeeId, Username = trimmedUsername, NormalizedUsername = trimmedUsername.ToUpperInvariant(), PasswordHash = passwordHash, Role = role, BranchScope = branchScope, IsActive = true, AccessFailedCount = 0, CreatedAt = now, UpdatedAt = now };
+        return new UserAccount { UserId = Guid.NewGuid(), OrganizationId = organizationId, EmployeeId = employeeId, Username = trimmedUsername, NormalizedUsername = trimmedUsername.ToUpperInvariant(), PasswordHash = passwordHash, SecurityStamp = Guid.NewGuid(), Role = role, BranchScope = branchScope, IsActive = true, AccessFailedCount = 0, CreatedAt = now, UpdatedAt = now };
     }
 
     public void RecordLoginSuccess(DateTimeOffset now)
@@ -53,19 +54,45 @@ public sealed class UserAccount
 
     public void ChangeRoleAndScope(UserRole newRole, BranchScope newScope)
     {
-        ValidateRoleAndScope(newRole, newScope); Role = newRole; BranchScope = newScope; UpdatedAt = DateTimeOffset.UtcNow;
+        ValidateRoleAndScope(newRole, newScope);
+        if (Role != newRole || BranchScope != newScope)
+        {
+            SecurityStamp = Guid.NewGuid();
+        }
+        Role = newRole;
+        BranchScope = newScope;
+        UpdatedAt = DateTimeOffset.UtcNow;
     }
 
     public void UpdatePasswordHash(string newPasswordHash, DateTimeOffset now)
     {
         if (string.IsNullOrWhiteSpace(newPasswordHash) || newPasswordHash.Length > 500) throw new ArgumentException("Password hash is required and cannot exceed 500 characters.", nameof(newPasswordHash));
-        PasswordHash = newPasswordHash; AccessFailedCount = 0; LockoutEnd = null; UpdatedAt = now;
+        PasswordHash = newPasswordHash;
+        SecurityStamp = Guid.NewGuid();
+        AccessFailedCount = 0;
+        LockoutEnd = null;
+        UpdatedAt = now;
     }
 
-    public void Deactivate() { IsActive = false; UpdatedAt = DateTimeOffset.UtcNow; }
+    public void RotateSecurityStamp(DateTimeOffset now)
+    {
+        SecurityStamp = Guid.NewGuid();
+        UpdatedAt = now;
+    }
+
+    public void Deactivate()
+    {
+        IsActive = false;
+        SecurityStamp = Guid.NewGuid();
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
 
     public void SetActive(bool isActive)
     {
+        if (IsActive != isActive)
+        {
+            SecurityStamp = Guid.NewGuid();
+        }
         IsActive = isActive;
         UpdatedAt = DateTimeOffset.UtcNow;
     }

@@ -1,4 +1,4 @@
-﻿using System.Data.Common;
+using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 using Moq;
 using Moq.Protected;
@@ -43,6 +43,13 @@ public class IntegrationModelAndInterceptorTests
 
         var auditEntity = model.FindEntityType(typeof(AuditLog))!;
         Assert.NotEmpty(auditEntity.GetDeclaredQueryFilters());
+
+        var outboxEntity = model.FindEntityType(typeof(OutboxEvent))!;
+        var outboxIndexes = outboxEntity.GetIndexes().ToList();
+        Assert.Contains(outboxIndexes, i => i.IsUnique && i.GetFilter() == null
+            && i.Properties.Select(p => p.Name).SequenceEqual(new[] { nameof(OutboxEvent.OrganizationId), nameof(OutboxEvent.EventSequence) }));
+        Assert.Contains(outboxIndexes, i => !i.IsUnique && i.GetFilter() == "published_at IS NULL"
+            && i.GetDatabaseName() == "IX_OUTBOX_EVENT_pending_org_seq");
     }
 
     [Fact]
@@ -55,7 +62,7 @@ public class IntegrationModelAndInterceptorTests
 
         var commandMock = new Mock<DbCommand>();
         commandMock.Setup(x => x.CommandText).Returns("SELECT * FROM PRODUCTS");
-        commandMock.Protected().Setup<DbTransaction>("DbTransaction").Returns((DbTransaction?)null);
+        commandMock.Protected().Setup<DbTransaction?>("DbTransaction").Returns((DbTransaction?)null);
 
         Assert.Throws<InvalidOperationException>(() =>
             interceptor.ScalarExecuting(commandMock.Object, null!, default));

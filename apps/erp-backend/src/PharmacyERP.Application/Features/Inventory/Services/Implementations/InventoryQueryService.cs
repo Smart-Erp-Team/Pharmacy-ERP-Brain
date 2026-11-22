@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using PharmacyERP.Application.Common.Constants;
 using PharmacyERP.Application.Common.DTOs;
 using PharmacyERP.Application.Common.Interfaces.Context;
+using PharmacyERP.Application.Common.Interfaces.Persistence;
 using PharmacyERP.Application.Features.Inventory.DTOs;
 using PharmacyERP.Application.Features.Inventory.Interfaces;
 using PharmacyERP.Application.Features.Inventory.Services.Interfaces;
@@ -18,6 +19,8 @@ public class InventoryQueryService : IInventoryQueryService
 {
     private readonly IStockBalanceRepository _stockRepo;
     private readonly IInventoryTxnRepository _txnRepo;
+    private readonly IInventoryBatchRepository _batchRepo;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly ITenantContext _tenantContext;
     private readonly ICurrentUser _currentUser;
     private readonly IDateTimeProvider _dateTimeProvider;
@@ -25,64 +28,178 @@ public class InventoryQueryService : IInventoryQueryService
     public InventoryQueryService(
         IStockBalanceRepository stockRepo,
         IInventoryTxnRepository txnRepo,
+        IInventoryBatchRepository batchRepo,
+        IUnitOfWork unitOfWork,
         ITenantContext tenantContext,
         ICurrentUser currentUser,
         IDateTimeProvider dateTimeProvider)
     {
         _stockRepo = stockRepo;
         _txnRepo = txnRepo;
+        _batchRepo = batchRepo;
+        _unitOfWork = unitOfWork;
         _tenantContext = tenantContext;
         _currentUser = currentUser;
         _dateTimeProvider = dateTimeProvider;
     }
 
+    public async Task<Result<PagedResult<InventoryBatchDto>>> GetBatchesAsync(
+        Guid? productId,
+        BatchQualityStatus? status,
+        DateOnly? expiringBefore,
+        int page,
+        int pageSize,
+        CancellationToken ct = default)
+    {
+        if (!_tenantContext.OrganizationId.HasValue || _tenantContext.OrganizationId.Value == Guid.Empty)
+            return Result<PagedResult<InventoryBatchDto>>.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
+
+        Guid orgId = _tenantContext.OrganizationId.Value;
+        var ownsTransaction = !_unitOfWork.HasActiveTransaction;
+
+        try
+        {
+            if (ownsTransaction)
+            {
+                await _unitOfWork.BeginTransactionAsync(ct);
+            }
+
+            var pagedBatches = await _batchRepo.GetPagedAsync(orgId, productId, status, expiringBefore, page, pageSize, ct);
+            var dtos = pagedBatches.Items.Select(b => new InventoryBatchDto(
+                b.BatchId,
+                b.OrganizationId,
+                b.ProductId,
+                b.BatchNumber,
+                b.ManufacturedOn,
+                b.ExpiresOn,
+                b.QualityStatus,
+                b.UpdatedAt)).ToList();
+
+            return Result<PagedResult<InventoryBatchDto>>.Success(
+                new PagedResult<InventoryBatchDto>(
+                    Items: dtos,
+                    Page: pagedBatches.Page,
+                    PageSize: pagedBatches.PageSize,
+                    TotalCount: pagedBatches.TotalCount));
+        }
+        finally
+        {
+            if (ownsTransaction && _unitOfWork.HasActiveTransaction)
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+            }
+        }
+    }
+
     public async Task<Result<IReadOnlyList<StockBalanceDto>>> GetBalancesAsync(Guid branchId, Guid? productId, Guid? locationId, Guid? batchId, CancellationToken ct = default)
     {
+        if (!_tenantContext.OrganizationId.HasValue || _tenantContext.OrganizationId.Value == Guid.Empty)
+            return Result<IReadOnlyList<StockBalanceDto>>.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
+
         if (!_currentUser.CanAccessBranch(branchId))
             return Result<IReadOnlyList<StockBalanceDto>>.Failure(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
 
-        Guid orgId = _tenantContext.OrganizationId ?? Guid.Empty;
+        Guid orgId = _tenantContext.OrganizationId.Value;
+        var ownsTransaction = !_unitOfWork.HasActiveTransaction;
 
-        var balances = await _stockRepo.GetBalancesWithDetailsAsync(orgId, branchId, productId, locationId, batchId, ct);
-        var bizDate = _dateTimeProvider.GetOrganizationBusinessDate("UTC");
+        try
+        {
+            if (ownsTransaction)
+            {
+                await _unitOfWork.BeginTransactionAsync(ct);
+            }
 
-        var dtos = balances.Select(b => MapToStockBalanceDto(b, bizDate)).ToList();
-        return Result<IReadOnlyList<StockBalanceDto>>.Success(dtos);
+            var balances = await _stockRepo.GetBalancesWithDetailsAsync(orgId, branchId, productId, locationId, batchId, ct);
+            var bizDate = _dateTimeProvider.GetOrganizationBusinessDate("UTC");
+
+            var dtos = balances.Select(b => MapToStockBalanceDto(b, bizDate)).ToList();
+            return Result<IReadOnlyList<StockBalanceDto>>.Success(dtos);
+        }
+        finally
+        {
+            if (ownsTransaction && _unitOfWork.HasActiveTransaction)
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+            }
+        }
     }
 
     public async Task<Result<InventorySummaryDto>> GetProductSummaryAsync(Guid branchId, Guid productId, CancellationToken ct = default)
     {
+        if (!_tenantContext.OrganizationId.HasValue || _tenantContext.OrganizationId.Value == Guid.Empty)
+            return Result<InventorySummaryDto>.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
+
         if (!_currentUser.CanAccessBranch(branchId))
             return Result<InventorySummaryDto>.Failure(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
 
-        Guid orgId = _tenantContext.OrganizationId ?? Guid.Empty;
+        Guid orgId = _tenantContext.OrganizationId.Value;
+        var ownsTransaction = !_unitOfWork.HasActiveTransaction;
 
-        var balances = await _stockRepo.GetBalancesWithDetailsAsync(orgId, branchId, productId, null, null, ct);
-        var bizDate = _dateTimeProvider.GetOrganizationBusinessDate("UTC");
+        try
+        {
+            if (ownsTransaction)
+            {
+                await _unitOfWork.BeginTransactionAsync(ct);
+            }
 
-        var dtos = balances.Select(b => MapToStockBalanceDto(b, bizDate)).ToList();
+            var balances = await _stockRepo.GetBalancesWithDetailsAsync(orgId, branchId, productId, null, null, ct);
+            var bizDate = _dateTimeProvider.GetOrganizationBusinessDate("UTC");
 
-        decimal totalOnHand = dtos.Sum(d => d.OnHandQtyBase);
-        decimal totalAvailable = dtos.Sum(d => d.AvailableQtyBase);
-        decimal weightedCost = totalOnHand > 0 ? dtos.Sum(d => d.OnHandQtyBase * d.AverageUnitCost) / totalOnHand : 0m;
+            var dtos = balances.Select(b => MapToStockBalanceDto(b, bizDate)).ToList();
 
-        string baseUom = dtos.FirstOrDefault()?.BaseUomCode ?? "PCS";
+            decimal totalOnHand = dtos.Sum(d => d.OnHandQtyBase);
+            decimal totalAvailable = dtos.Sum(d => d.AvailableQtyBase);
+            decimal weightedCost = totalOnHand > 0 ? dtos.Sum(d => d.OnHandQtyBase * d.AverageUnitCost) / totalOnHand : 0m;
 
-        return Result<InventorySummaryDto>.Success(new InventorySummaryDto(
-            orgId, branchId, productId, baseUom, totalOnHand, totalAvailable, Math.Round(weightedCost, 4), dtos));
+            string baseUom = dtos.FirstOrDefault()?.BaseUomCode ?? "PCS";
+
+            return Result<InventorySummaryDto>.Success(new InventorySummaryDto(
+                orgId, branchId, productId, baseUom, totalOnHand, totalAvailable, Math.Round(weightedCost, 4), dtos));
+        }
+        finally
+        {
+            if (ownsTransaction && _unitOfWork.HasActiveTransaction)
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+            }
+        }
     }
 
     public async Task<Result<PagedResult<InventoryTxnDto>>> GetTransactionsAsync(Guid branchId, InventoryTransactionType? type, Guid? productId, DateTimeOffset? fromDate, DateTimeOffset? toDate, int page, int pageSize, CancellationToken ct = default)
     {
+        if (!_tenantContext.OrganizationId.HasValue || _tenantContext.OrganizationId.Value == Guid.Empty)
+            return Result<PagedResult<InventoryTxnDto>>.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
+
         if (!_currentUser.CanAccessBranch(branchId))
             return Result<PagedResult<InventoryTxnDto>>.Failure(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
 
-        Guid orgId = _tenantContext.OrganizationId ?? Guid.Empty;
+        Guid orgId = _tenantContext.OrganizationId.Value;
+        var ownsTransaction = !_unitOfWork.HasActiveTransaction;
 
-        var pagedTxns = await _txnRepo.GetPagedAsync(orgId, branchId, type, productId, fromDate, toDate, page, pageSize, ct);
-        var dtos = pagedTxns.Items.Select(MapToTxnDto).ToList();
+        try
+        {
+            if (ownsTransaction)
+            {
+                await _unitOfWork.BeginTransactionAsync(ct);
+            }
 
-        return Result<PagedResult<InventoryTxnDto>>.Success(new PagedResult<InventoryTxnDto>(dtos, pagedTxns.TotalCount, page, pageSize));
+            var pagedTxns = await _txnRepo.GetPagedAsync(orgId, branchId, type, productId, fromDate, toDate, page, pageSize, ct);
+            var dtos = pagedTxns.Items.Select(MapToTxnDto).ToList();
+
+            return Result<PagedResult<InventoryTxnDto>>.Success(
+                new PagedResult<InventoryTxnDto>(
+                    Items: dtos,
+                    Page: pagedTxns.Page,
+                    PageSize: pagedTxns.PageSize,
+                    TotalCount: pagedTxns.TotalCount));
+        }
+        finally
+        {
+            if (ownsTransaction && _unitOfWork.HasActiveTransaction)
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+            }
+        }
     }
 
     private static StockBalanceDto MapToStockBalanceDto(StockBalance b, DateOnly bizDate)

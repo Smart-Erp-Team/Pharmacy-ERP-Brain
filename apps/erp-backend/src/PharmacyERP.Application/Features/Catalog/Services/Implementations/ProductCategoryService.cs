@@ -144,13 +144,13 @@ public class ProductCategoryService : IProductCategoryService
 
                 if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
                 {
-                    await _unitOfWork.RollbackTransactionAsync(ct);
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                     return Result<ProductCategoryDto>.Success(idempotencyResult.ReplayedResponse);
                 }
             }
             catch (IntegrationDomainException ex) when (string.Equals(ex.Message, "IDEMPOTENCY_MISMATCH", StringComparison.OrdinalIgnoreCase))
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<ProductCategoryDto>.Failure(ErrorCode.IDEMPOTENCY_MISMATCH, ErrorMessages.IdempotencyMismatch);
             }
 
@@ -159,7 +159,7 @@ public class ProductCategoryService : IProductCategoryService
                 var parentExistsAndActive = await _categoryRepository.ExistsAndActiveAsync(orgId, request.ParentCategoryId.Value, ct);
                 if (!parentExistsAndActive)
                 {
-                    await _unitOfWork.RollbackTransactionAsync(ct);
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                     return Result<ProductCategoryDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.CategoryNotFoundOrInactive);
                 }
             }
@@ -167,7 +167,7 @@ public class ProductCategoryService : IProductCategoryService
             var codeExists = await _categoryRepository.ExistsByCodeAsync(orgId, request.Code, null, ct);
             if (codeExists)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<ProductCategoryDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.DuplicateCategoryCode);
             }
 
@@ -187,7 +187,7 @@ public class ProductCategoryService : IProductCategoryService
         }
         catch (Exception)
         {
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             throw;
         }
     }
@@ -212,27 +212,28 @@ public class ProductCategoryService : IProductCategoryService
         await _unitOfWork.BeginTransactionAsync(ct);
         try
         {
+            var idempotencyPayload = new { CategoryId = categoryId, Request = request };
             try
             {
-                var idempotencyResult = await _idempotencyService.CheckAsync<UpdateProductCategoryRequest, ProductCategoryDto>(
-                    "catalog.category.update", request.IdempotencyKey, null, request, ct);
+                var idempotencyResult = await _idempotencyService.CheckAsync<object, ProductCategoryDto>(
+                    "catalog.category.update", request.IdempotencyKey, null, idempotencyPayload, ct);
 
                 if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
                 {
-                    await _unitOfWork.RollbackTransactionAsync(ct);
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                     return Result<ProductCategoryDto>.Success(idempotencyResult.ReplayedResponse);
                 }
             }
             catch (IntegrationDomainException ex) when (string.Equals(ex.Message, "IDEMPOTENCY_MISMATCH", StringComparison.OrdinalIgnoreCase))
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<ProductCategoryDto>.Failure(ErrorCode.IDEMPOTENCY_MISMATCH, ErrorMessages.IdempotencyMismatch);
             }
 
             var category = await _categoryRepository.GetByIdAsync(orgId, categoryId, ct);
             if (category == null)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<ProductCategoryDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductCategoryNotFound);
             }
 
@@ -240,14 +241,14 @@ public class ProductCategoryService : IProductCategoryService
             {
                 if (request.ParentCategoryId.Value == categoryId)
                 {
-                    await _unitOfWork.RollbackTransactionAsync(ct);
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                     return Result<ProductCategoryDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.CategorySelfParent);
                 }
 
                 var parentExistsAndActive = await _categoryRepository.ExistsAndActiveAsync(orgId, request.ParentCategoryId.Value, ct);
                 if (!parentExistsAndActive)
                 {
-                    await _unitOfWork.RollbackTransactionAsync(ct);
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                     return Result<ProductCategoryDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.CategoryNotFoundOrInactive);
                 }
             }
@@ -265,14 +266,14 @@ public class ProductCategoryService : IProductCategoryService
             await _outboxService.EnqueueAsync("catalog.category.updated", null, new { CategoryId = category.CategoryId, category.Code, category.Name, category.IsActive }, "1.0", ct);
 
             var dto = MapToDto(category);
-            await _idempotencyService.PersistResponseAsync("catalog.category.update", request.IdempotencyKey, null, request, dto, ct);
+            await _idempotencyService.PersistResponseAsync("catalog.category.update", request.IdempotencyKey, null, idempotencyPayload, dto, ct);
 
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result<ProductCategoryDto>.Success(dto);
         }
         catch (Exception)
         {
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             throw;
         }
     }

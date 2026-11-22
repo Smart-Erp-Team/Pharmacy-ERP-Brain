@@ -1,7 +1,13 @@
 ﻿using System.Net;
 using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using PharmacyERP.Application.Features.Integration.DTOs;
+using PharmacyERP.Infrastructure.Persistence.Security;
 using Xunit;
 
 namespace PharmacyERP.IntegrationTests.Api;
@@ -13,7 +19,22 @@ public class CanonicalCapabilitiesEndpointTests : IClassFixture<WebApplicationFa
     public CanonicalCapabilitiesEndpointTests(WebApplicationFactory<PharmacyERP.Api.Program> factory)
     {
         // This creates a test server in-memory that hosts our actual API pipeline
-        _client = factory.CreateClient();
+        _client = factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("ConnectionStrings:DefaultConnection", "Host=localhost;Database=erp_test_unused;Username=erp_app;Password=test-only");
+            builder.UseSetting("Outbox:WorkerEnabled", "false");
+            builder.ConfigureLogging(logging => logging.ClearProviders());
+            builder.ConfigureTestServices(services =>
+            {
+                var descriptors = services
+                    .Where(d => d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(DatabaseSecurityStartupCheck))
+                    .ToList();
+                foreach (var descriptor in descriptors)
+                {
+                    services.Remove(descriptor);
+                }
+            });
+        }).CreateClient();
     }
 
     [Fact]

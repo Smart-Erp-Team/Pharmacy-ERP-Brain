@@ -1,4 +1,4 @@
-﻿using PharmacyERP.Domain.Entities.Integration;
+using PharmacyERP.Domain.Entities.Integration;
 using PharmacyERP.Domain.Enums;
 using PharmacyERP.Domain.Exceptions;
 using Xunit;
@@ -27,12 +27,16 @@ public class IntegrationEntitiesTests
     [Fact]
     public void OutboxEvent_Lifecycle_RecordsFailureAndMarksPublished()
     {
+        var occurredAt = new DateTimeOffset(2026, 11, 21, 10, 0, 0, TimeSpan.Zero);
         var evt = new OutboxEvent(
             Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(),
-            1, "inventory.stock.adjusted", "{\"qty\":5}", "trace-123");
+            1, "inventory.stock.adjusted", "{\"qty\":5}", "trace-123", "2.0", occurredAt);
+
+        Assert.Equal("2.0", evt.SchemaVersion);
+        Assert.Equal(occurredAt, evt.OccurredAt);
 
         var longError = new string('E', 600);
-        evt.RecordPublishFailure(longError, DateTimeOffset.UtcNow);
+        evt.RecordPublishFailure(longError);
 
         Assert.Equal(1, evt.AttemptCount);
         Assert.Equal(500, evt.LastError!.Length);

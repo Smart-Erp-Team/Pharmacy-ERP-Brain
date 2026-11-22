@@ -107,34 +107,35 @@ public class ProductUomService : IProductUomService
         await _unitOfWork.BeginTransactionAsync(ct);
         try
         {
+            var idempotencyPayload = new { ProductId = productId, Request = request };
             try
             {
-                var idempotencyResult = await _idempotencyService.CheckAsync<CreateProductUomRequest, ProductUomDto>(
-                    "catalog.uom.create", request.IdempotencyKey, null, request, ct);
+                var idempotencyResult = await _idempotencyService.CheckAsync<object, ProductUomDto>(
+                    "catalog.uom.create", request.IdempotencyKey, null, idempotencyPayload, ct);
 
                 if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
                 {
-                    await _unitOfWork.RollbackTransactionAsync(ct);
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                     return Result<ProductUomDto>.Success(idempotencyResult.ReplayedResponse);
                 }
             }
             catch (IntegrationDomainException ex) when (string.Equals(ex.Message, "IDEMPOTENCY_MISMATCH", StringComparison.OrdinalIgnoreCase))
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<ProductUomDto>.Failure(ErrorCode.IDEMPOTENCY_MISMATCH, ErrorMessages.IdempotencyMismatch);
             }
 
             var product = await _productRepository.GetByIdWithUomsAsync(orgId, productId, ct);
             if (product == null)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<ProductUomDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductNotFound);
             }
 
             var uomCodeExists = await _uomRepository.ExistsByUomCodeAsync(orgId, productId, request.UomCode, null, ct);
             if (uomCodeExists)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<ProductUomDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.DuplicateUomCode);
             }
 
@@ -152,12 +153,12 @@ public class ProductUomService : IProductUomService
             }
             catch (CatalogDomainException ex)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<ProductUomDto>.Failure(ErrorCode.VALIDATION_ERROR, ex.Message);
             }
             catch (ArgumentException ex)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<ProductUomDto>.Failure(ErrorCode.VALIDATION_ERROR, ex.Message);
             }
 
@@ -173,14 +174,14 @@ public class ProductUomService : IProductUomService
                 ct);
 
             var dto = MapToDto(uom);
-            await _idempotencyService.PersistResponseAsync("catalog.uom.create", request.IdempotencyKey, null, request, dto, ct);
+            await _idempotencyService.PersistResponseAsync("catalog.uom.create", request.IdempotencyKey, null, idempotencyPayload, dto, ct);
 
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result<ProductUomDto>.Success(dto);
         }
         catch (Exception)
         {
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             throw;
         }
     }
@@ -205,27 +206,28 @@ public class ProductUomService : IProductUomService
         await _unitOfWork.BeginTransactionAsync(ct);
         try
         {
+            var idempotencyPayload = new { ProductId = productId, UomId = uomId, Request = request };
             try
             {
-                var idempotencyResult = await _idempotencyService.CheckAsync<UpdateProductUomRequest, ProductUomDto>(
-                    "catalog.uom.update", request.IdempotencyKey, null, request, ct);
+                var idempotencyResult = await _idempotencyService.CheckAsync<object, ProductUomDto>(
+                    "catalog.uom.update", request.IdempotencyKey, null, idempotencyPayload, ct);
 
                 if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
                 {
-                    await _unitOfWork.RollbackTransactionAsync(ct);
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                     return Result<ProductUomDto>.Success(idempotencyResult.ReplayedResponse);
                 }
             }
             catch (IntegrationDomainException ex) when (string.Equals(ex.Message, "IDEMPOTENCY_MISMATCH", StringComparison.OrdinalIgnoreCase))
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<ProductUomDto>.Failure(ErrorCode.IDEMPOTENCY_MISMATCH, ErrorMessages.IdempotencyMismatch);
             }
 
             var uom = await _uomRepository.GetByIdAsync(orgId, productId, uomId, ct);
             if (uom == null)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<ProductUomDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductUomNotFound);
             }
 
@@ -234,7 +236,7 @@ public class ProductUomService : IProductUomService
                 var isReferenced = await _usageChecker.HasAnyStockOrDocumentReferenceForUomAsync(orgId, productId, uomId, ct);
                 if (isReferenced)
                 {
-                    await _unitOfWork.RollbackTransactionAsync(ct);
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                     return Result<ProductUomDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.HistoricalUomModificationForbidden);
                 }
 
@@ -244,7 +246,7 @@ public class ProductUomService : IProductUomService
                 }
                 catch (CatalogDomainException ex)
                 {
-                    await _unitOfWork.RollbackTransactionAsync(ct);
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                     return Result<ProductUomDto>.Failure(ErrorCode.VALIDATION_ERROR, ex.Message);
                 }
             }
@@ -260,12 +262,12 @@ public class ProductUomService : IProductUomService
             }
             catch (CatalogDomainException ex)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<ProductUomDto>.Failure(ErrorCode.VALIDATION_ERROR, ex.Message);
             }
             catch (ArgumentException ex)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<ProductUomDto>.Failure(ErrorCode.VALIDATION_ERROR, ex.Message);
             }
 
@@ -284,7 +286,7 @@ public class ProductUomService : IProductUomService
                 }
                 catch (CatalogDomainException ex)
                 {
-                    await _unitOfWork.RollbackTransactionAsync(ct);
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                     return Result<ProductUomDto>.Failure(ErrorCode.VALIDATION_ERROR, ex.Message);
                 }
             }
@@ -300,14 +302,14 @@ public class ProductUomService : IProductUomService
                 ct);
 
             var dto = MapToDto(uom);
-            await _idempotencyService.PersistResponseAsync("catalog.uom.update", request.IdempotencyKey, null, request, dto, ct);
+            await _idempotencyService.PersistResponseAsync("catalog.uom.update", request.IdempotencyKey, null, idempotencyPayload, dto, ct);
 
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result<ProductUomDto>.Success(dto);
         }
         catch (Exception)
         {
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             throw;
         }
     }

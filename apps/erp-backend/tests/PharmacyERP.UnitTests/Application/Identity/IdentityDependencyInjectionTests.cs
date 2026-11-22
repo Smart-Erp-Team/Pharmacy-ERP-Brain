@@ -18,6 +18,7 @@ public sealed class IdentityDependencyInjectionTests
         AssertScoped<IAuthService, AuthService>(services);
         AssertScoped<IBranchService, BranchService>(services);
         AssertScoped<IEmployeeService, EmployeeService>(services);
+        AssertScoped<IUserManagementAuthorizer, UserManagementAuthorizer>(services);
         AssertScoped<IUserService, UserService>(services);
     }
 

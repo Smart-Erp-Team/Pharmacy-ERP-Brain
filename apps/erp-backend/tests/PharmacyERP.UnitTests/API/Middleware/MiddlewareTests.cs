@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
@@ -204,6 +204,78 @@ public class MiddlewareTests
         Assert.Equal((int)HttpStatusCode.InternalServerError, context.Response.StatusCode);
         Assert.NotNull(errorEnvelope);
         Assert.Equal("INTERNAL_SERVER_ERROR", errorEnvelope.Error.Code);
+    }
+
+    [Fact]
+    public async Task ExceptionHandlingMiddleware_CatchesValidationException_Returns422WithFieldDetails()
+    {
+        var context = new DefaultHttpContext();
+        context.Response.Body = new MemoryStream();
+        context.Items["TraceId"] = "val-trace-id";
+
+        var loggerMock = new Mock<ILogger<ExceptionHandlingMiddleware>>();
+        var valEx = new PharmacyERP.Application.Common.Exceptions.ValidationException(
+            new Dictionary<string, string[]> { ["Sku"] = new[] { "SKU is required." } });
+        var middleware = new ExceptionHandlingMiddleware(_ => throw valEx, loggerMock.Object);
+
+        await middleware.InvokeAsync(context);
+
+        context.Response.Body.Seek(0, SeekOrigin.Begin);
+        var responseText = await new StreamReader(context.Response.Body).ReadToEndAsync();
+        var errorEnvelope = JsonSerializer.Deserialize<ApiErrorEnvelopeDto>(responseText);
+
+        Assert.Equal((int)HttpStatusCode.UnprocessableEntity, context.Response.StatusCode);
+        Assert.NotNull(errorEnvelope);
+        Assert.Equal("VALIDATION_ERROR", errorEnvelope.Error.Code);
+        Assert.Single(errorEnvelope.Error.Details);
+        Assert.Equal("Sku", errorEnvelope.Error.Details[0].Field);
+    }
+
+    [Fact]
+    public async Task ExceptionHandlingMiddleware_CatchesInvalidOperationException_ReturnsSanitized500()
+    {
+        var context = new DefaultHttpContext();
+        context.Response.Body = new MemoryStream();
+
+        var loggerMock = new Mock<ILogger<ExceptionHandlingMiddleware>>();
+        var middleware = new ExceptionHandlingMiddleware(
+            _ => throw new InvalidOperationException("Internal DB transaction state fault."),
+            loggerMock.Object);
+
+        await middleware.InvokeAsync(context);
+
+        context.Response.Body.Seek(0, SeekOrigin.Begin);
+        var responseText = await new StreamReader(context.Response.Body).ReadToEndAsync();
+        var errorEnvelope = JsonSerializer.Deserialize<ApiErrorEnvelopeDto>(responseText);
+
+        Assert.Equal((int)HttpStatusCode.InternalServerError, context.Response.StatusCode);
+        Assert.NotNull(errorEnvelope);
+        Assert.Equal("INTERNAL_SERVER_ERROR", errorEnvelope.Error.Code);
+        Assert.DoesNotContain("transaction state", errorEnvelope.Error.Message);
+    }
+
+    [Fact]
+    public async Task RuntimeModeGuardMiddleware_BlocksCatalogWritesOnBranchLocalMode_Returns404()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Path = "/api/v1/products";
+        context.Request.Method = HttpMethods.Post;
+        context.Response.Body = new MemoryStream();
+
+        var runtimeModeMock = new Mock<IRuntimeModeProvider>();
+        runtimeModeMock.SetupGet(x => x.CurrentMode).Returns(ErpRuntimeMode.BranchLocal);
+
+        var nextCalled = false;
+        var middleware = new RuntimeModeGuardMiddleware(_ =>
+        {
+            nextCalled = true;
+            return Task.CompletedTask;
+        });
+
+        await middleware.InvokeAsync(context, runtimeModeMock.Object);
+
+        Assert.False(nextCalled);
+        Assert.Equal((int)HttpStatusCode.NotFound, context.Response.StatusCode);
     }
 
     private class TestDomainException : DomainException

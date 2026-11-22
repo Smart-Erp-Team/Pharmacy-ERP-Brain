@@ -135,7 +135,10 @@ public sealed class IdentityApplicationServiceTests
         var tenant = new TenantContext();
         var currentUser = new Mock<ICurrentUser>();
         var clock = new Mock<IDateTimeProvider>();
+        var runtimeMode = new Mock<IRuntimeModeProvider>();
+        runtimeMode.SetupGet(x => x.CurrentMode).Returns(ErpRuntimeMode.Cloud);
 
+        tokens.Setup(x => x.FindOrganizationIdByTokenHashAsync(It.IsAny<byte[]>(), It.IsAny<CancellationToken>())).ReturnsAsync(organizationId);
         tokens.Setup(x => x.GetByTokenHashAsync(It.IsAny<byte[]>(), It.IsAny<CancellationToken>())).ReturnsAsync(token);
         tokens.Setup(x => x.RevokeFamilyAsync(organizationId, familyId, Now, It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         clock.SetupGet(x => x.UtcNow).Returns(Now);
@@ -143,7 +146,7 @@ public sealed class IdentityApplicationServiceTests
         outbox.SetReturnsDefault(Task.CompletedTask);
 
         var service = new AuthService(organizations.Object, users.Object, tokens.Object, passwordHasher.Object, jwt.Object,
-            unitOfWork.Object, audit.Object, outbox.Object, tenant, currentUser.Object, clock.Object);
+            unitOfWork.Object, audit.Object, outbox.Object, tenant, currentUser.Object, clock.Object, runtimeMode.Object);
 
         var result = await service.RefreshAsync(new RefreshTokenRequest { RefreshToken = "already-consumed-secret" });
 
@@ -176,6 +179,7 @@ public sealed class IdentityApplicationServiceTests
         var clock = new Mock<IDateTimeProvider>();
 
         currentUser.SetupGet(x => x.Role).Returns(nameof(UserRole.Admin));
+        currentUser.SetupGet(x => x.BranchScope).Returns(nameof(BranchScope.ALL));
         users.Setup(x => x.GetByIdWithAccessAsync(organizationId, user.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
         passwordHasher.Setup(x => x.HashPassword(user, "NewPassword123!")).Returns("new-password-hash");
         tokens.Setup(x => x.RevokeAllUserTokensAsync(organizationId, user.UserId, Now, It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
@@ -184,13 +188,144 @@ public sealed class IdentityApplicationServiceTests
         outbox.SetReturnsDefault(Task.CompletedTask);
 
         var service = new UserService(users.Object, employees.Object, branches.Object, tokens.Object, passwordHasher.Object,
-            unitOfWork.Object, audit.Object, outbox.Object, tenant, currentUser.Object, clock.Object);
+            unitOfWork.Object, audit.Object, outbox.Object, tenant, currentUser.Object, clock.Object,
+            new UserManagementAuthorizer(currentUser.Object));
 
         var result = await service.ResetPasswordAsync(user.UserId, new ResetPasswordRequest { NewPassword = "NewPassword123!" });
 
         Assert.True(result.IsSuccess);
         Assert.Equal("new-password-hash", user.PasswordHash);
         tokens.Verify(x => x.RevokeAllUserTokensAsync(organizationId, user.UserId, Now, It.IsAny<CancellationToken>()), Times.Once);
+        unitOfWork.Verify(x => x.CommitTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task AssignedAdmin_CannotPromoteSelfToAllScope_OrTakeOverOrgOwner()
+    {
+        var organizationId = Guid.NewGuid();
+        var branchA = Guid.NewGuid();
+        var branchB = Guid.NewGuid();
+
+        var ownerEmployee = Employee.Create(organizationId, branchB, "EMP-OWNER", "Org Owner", null, null, "Owner", Address(), new DateOnly(2020, 1, 1));
+        var owner = UserAccount.Create(organizationId, ownerEmployee.EmployeeId, "owner", "hash", UserRole.Admin, BranchScope.ALL);
+        SetNavigation(owner, nameof(UserAccount.Employee), ownerEmployee);
+
+        var assignedAdminEmployee = Employee.Create(organizationId, branchA, "EMP-ADMIN-A", "Branch A Admin", null, null, "Admin", Address(), new DateOnly(2020, 1, 1));
+        var assignedAdmin = UserAccount.Create(organizationId, assignedAdminEmployee.EmployeeId, "admin_a", "hash", UserRole.Admin, BranchScope.ASSIGNED);
+        assignedAdmin.BranchAccesses.Add(UserBranchAccess.Create(organizationId, assignedAdmin.UserId, branchA));
+        SetNavigation(assignedAdmin, nameof(UserAccount.Employee), assignedAdminEmployee);
+
+        var users = new Mock<IUserAccountRepository>();
+        var employees = new Mock<IEmployeeRepository>();
+        var branches = new Mock<IBranchRepository>();
+        var tokens = new Mock<IUserRefreshTokenRepository>();
+        var passwordHasher = new Mock<IPasswordHasherService>();
+        var unitOfWork = NewUnitOfWorkMock();
+        var audit = new Mock<IAuditLogger>();
+        var outbox = new Mock<IOutboxService>();
+        var tenant = new TenantContext();
+        tenant.SetTenant(organizationId);
+        var currentUser = new Mock<ICurrentUser>();
+        var clock = new Mock<IDateTimeProvider>();
+
+        currentUser.SetupGet(x => x.UserId).Returns(assignedAdmin.UserId);
+        currentUser.SetupGet(x => x.Role).Returns(nameof(UserRole.Admin));
+        currentUser.SetupGet(x => x.BranchScope).Returns(nameof(BranchScope.ASSIGNED));
+        currentUser.SetupGet(x => x.AuthorizedBranchIds).Returns(new HashSet<Guid> { branchA });
+        currentUser.Setup(x => x.CanAccessBranch(It.IsAny<Guid>())).Returns<Guid>(id => id == branchA);
+        clock.SetupGet(x => x.UtcNow).Returns(Now);
+        users.Setup(x => x.GetByIdWithAccessAsync(organizationId, assignedAdmin.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(assignedAdmin);
+        users.Setup(x => x.GetByIdWithAccessAsync(organizationId, owner.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(owner);
+
+        var service = new UserService(users.Object, employees.Object, branches.Object, tokens.Object, passwordHasher.Object,
+            unitOfWork.Object, audit.Object, outbox.Object, tenant, currentUser.Object, clock.Object,
+            new UserManagementAuthorizer(currentUser.Object));
+
+        // 1. Self-promotion to ALL scope is forbidden
+        var selfPromote = await service.UpdateAsync(assignedAdmin.UserId, new UpdateUserRequest
+        {
+            Role = UserRole.Admin,
+            BranchScope = BranchScope.ALL,
+            BranchIds = Array.Empty<Guid>()
+        });
+        Assert.False(selfPromote.IsSuccess);
+        Assert.Equal(ErrorCode.FORBIDDEN, selfPromote.ErrorCode);
+
+        // 2. Taking over org owner via password reset is forbidden
+        var ownerReset = await service.ResetPasswordAsync(owner.UserId, new ResetPasswordRequest { NewPassword = "AttackerPassword123!" });
+        Assert.False(ownerReset.IsSuccess);
+        Assert.Equal(ErrorCode.FORBIDDEN, ownerReset.ErrorCode);
+
+        // 3. Deactivating org owner is forbidden
+        var ownerDeactivate = await service.UpdateAsync(owner.UserId, new UpdateUserRequest
+        {
+            Role = UserRole.Admin,
+            BranchScope = BranchScope.ALL,
+            BranchIds = Array.Empty<Guid>(),
+            IsActive = false
+        });
+        Assert.False(ownerDeactivate.IsSuccess);
+        Assert.Equal(ErrorCode.FORBIDDEN, ownerDeactivate.ErrorCode);
+
+        // 4. Revoking org owner sessions is forbidden
+        var ownerRevoke = await service.RevokeSessionsAsync(owner.UserId);
+        Assert.False(ownerRevoke.IsSuccess);
+        Assert.Equal(ErrorCode.FORBIDDEN, ownerRevoke.ErrorCode);
+
+        unitOfWork.Verify(x => x.CommitTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_RoleOrScopeChange_RevokesAllUserRefreshTokens()
+    {
+        var organizationId = Guid.NewGuid();
+        var branchA = Guid.NewGuid();
+        var branch = Branch.Create(organizationId, "BR-A", "Branch A", Address());
+        typeof(Branch).GetProperty(nameof(Branch.BranchId))!.SetValue(branch, branchA);
+
+        var employee = Employee.Create(organizationId, branchA, "EMP-2", "Cashier", null, null, "Cashier", Address(), new DateOnly(2020, 1, 1));
+        var target = UserAccount.Create(organizationId, employee.EmployeeId, "cashier1", "hash", UserRole.Cashier, BranchScope.ASSIGNED);
+        target.BranchAccesses.Add(UserBranchAccess.Create(organizationId, target.UserId, branchA));
+        SetNavigation(target, nameof(UserAccount.Employee), employee);
+
+        var users = new Mock<IUserAccountRepository>();
+        var employees = new Mock<IEmployeeRepository>();
+        var branches = new Mock<IBranchRepository>();
+        var tokens = new Mock<IUserRefreshTokenRepository>();
+        var passwordHasher = new Mock<IPasswordHasherService>();
+        var unitOfWork = NewUnitOfWorkMock();
+        var audit = new Mock<IAuditLogger>();
+        var outbox = new Mock<IOutboxService>();
+        var tenant = new TenantContext();
+        tenant.SetTenant(organizationId);
+        var currentUser = new Mock<ICurrentUser>();
+        var clock = new Mock<IDateTimeProvider>();
+
+        currentUser.SetupGet(x => x.UserId).Returns(Guid.NewGuid());
+        currentUser.SetupGet(x => x.Role).Returns(nameof(UserRole.Admin));
+        currentUser.SetupGet(x => x.BranchScope).Returns(nameof(BranchScope.ALL));
+        clock.SetupGet(x => x.UtcNow).Returns(Now);
+        users.Setup(x => x.GetByIdWithAccessAsync(organizationId, target.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(target);
+        branches.Setup(x => x.GetByIdAsync(organizationId, branchA, It.IsAny<CancellationToken>())).ReturnsAsync(branch);
+        branches.Setup(x => x.CountActiveByIdsAsync(organizationId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        users.Setup(x => x.ReplaceBranchAccessAsync(organizationId, target.UserId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        tokens.Setup(x => x.RevokeAllUserTokensAsync(organizationId, target.UserId, Now, It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        audit.SetReturnsDefault(Task.CompletedTask);
+        outbox.SetReturnsDefault(Task.CompletedTask);
+
+        var service = new UserService(users.Object, employees.Object, branches.Object, tokens.Object, passwordHasher.Object,
+            unitOfWork.Object, audit.Object, outbox.Object, tenant, currentUser.Object, clock.Object,
+            new UserManagementAuthorizer(currentUser.Object));
+
+        var result = await service.UpdateAsync(target.UserId, new UpdateUserRequest
+        {
+            Role = UserRole.Pharmacist,
+            BranchScope = BranchScope.ASSIGNED,
+            BranchIds = new[] { branchA }
+        });
+
+        Assert.True(result.IsSuccess);
+        tokens.Verify(x => x.RevokeAllUserTokensAsync(organizationId, target.UserId, Now, It.IsAny<CancellationToken>()), Times.Once);
         unitOfWork.Verify(x => x.CommitTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 

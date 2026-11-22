@@ -14,7 +14,7 @@ public sealed class OrganizationRepository : IOrganizationRepository
     public Task<Organization?> GetActiveByCodeAsync(string organizationCode, CancellationToken ct = default)
     {
         var code = organizationCode.Trim();
-        return _db.Organizations.IgnoreQueryFilters()
+        return _db.Organizations.IgnoreQueryFilters().AsNoTracking()
             .FirstOrDefaultAsync(x => x.IsActive && x.OrganizationCode.ToUpper() == code.ToUpper(), ct);
     }
 

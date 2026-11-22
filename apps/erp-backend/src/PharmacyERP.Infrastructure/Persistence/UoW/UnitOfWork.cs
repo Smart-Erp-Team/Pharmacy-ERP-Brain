@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using PharmacyERP.Application.Common.Interfaces.Context;
 using PharmacyERP.Application.Common.Interfaces.Persistence;
@@ -31,16 +31,24 @@ public class UnitOfWork : IUnitOfWork
 
         if (_dbContext.Database.IsRelational())
         {
-            if (_tenantContext.IsTenantBound && _tenantContext.OrganizationId.HasValue)
+            try
             {
-                var orgIdString = _tenantContext.OrganizationId.Value.ToString();
-                await _dbContext.Database.ExecuteSqlInterpolatedAsync(
-                    $"SELECT set_config('app.organization_id', {orgIdString}, true);", ct);
+                if (_tenantContext.IsTenantBound && _tenantContext.OrganizationId.HasValue)
+                {
+                    var orgIdString = _tenantContext.OrganizationId.Value.ToString();
+                    await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+                        $"SELECT set_config('app.organization_id', {orgIdString}, true);", ct);
+                }
+                else if (_tenantContext.IsSystemBypassAllowed)
+                {
+                    await _dbContext.Database.ExecuteSqlRawAsync(
+                        "SELECT set_config('app.system_bypass', 'true', true);", ct);
+                }
             }
-            else if (_tenantContext.IsSystemBypassAllowed)
+            catch
             {
-                await _dbContext.Database.ExecuteSqlRawAsync(
-                    "SELECT set_config('app.system_bypass', 'true', true);", ct);
+                await RollbackTransactionAsync(CancellationToken.None);
+                throw;
             }
         }
     }
@@ -64,7 +72,7 @@ public class UnitOfWork : IUnitOfWork
         }
         catch
         {
-            await RollbackTransactionAsync(ct);
+            await RollbackTransactionAsync(CancellationToken.None);
             throw;
         }
         finally
@@ -82,11 +90,13 @@ public class UnitOfWork : IUnitOfWork
 
         try
         {
-            await _currentTransaction.RollbackAsync(ct);
+            // Always send ROLLBACK regardless of whether the request CancellationToken is already cancelled.
+            await _currentTransaction.RollbackAsync(CancellationToken.None);
         }
         finally
         {
             await DisposeTransactionAsync();
+            _dbContext.ChangeTracker.Clear();
         }
     }
 

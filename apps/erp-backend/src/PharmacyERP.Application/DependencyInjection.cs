@@ -25,6 +25,7 @@ public static class DependencyInjection
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IBranchService, BranchService>();
         services.AddScoped<IEmployeeService, EmployeeService>();
+        services.AddScoped<IUserManagementAuthorizer, UserManagementAuthorizer>();
         services.AddScoped<IUserService, UserService>();
 
         // Catalog Services

@@ -31,4 +31,36 @@ public sealed class BranchRepository : GenericRepository<Branch>, IBranchReposit
             .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
         return new PagedResult<Branch>(items, page, pageSize, total);
     }
+
+    public async Task<PagedResult<Branch>> GetPagedByIdsAsync(Guid organizationId, IReadOnlyCollection<Guid> branchIds, bool includeInactive, string? search, int page, int pageSize, CancellationToken ct = default)
+    {
+        if (branchIds.Count == 0)
+        {
+            return new PagedResult<Branch>(Array.Empty<Branch>(), page, pageSize, 0);
+        }
+
+        var query = _dbSet.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && branchIds.Contains(x.BranchId));
+        if (!includeInactive) query = query.Where(x => x.IsActive);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            query = query.Where(x => x.Name.Contains(term) || x.BranchCode.Contains(term));
+        }
+        var total = await query.CountAsync(ct);
+        var items = await query.OrderBy(x => x.Name).ThenBy(x => x.BranchId)
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        return new PagedResult<Branch>(items, page, pageSize, total);
+    }
+
+    public Task<int> CountActiveByIdsAsync(Guid organizationId, IReadOnlyCollection<Guid> branchIds, CancellationToken ct = default)
+    {
+        if (branchIds.Count == 0)
+        {
+            return Task.FromResult(0);
+        }
+
+        return _dbSet.AsNoTracking()
+            .CountAsync(x => x.OrganizationId == organizationId && x.IsActive && branchIds.Contains(x.BranchId), ct);
+    }
 }

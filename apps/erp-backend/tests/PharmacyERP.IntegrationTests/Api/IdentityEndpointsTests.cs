@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using PharmacyERP.Application.Common.Interfaces.CrossModule;
 using PharmacyERP.Application.Common.Interfaces.Integration;
 using PharmacyERP.Application.Common.Interfaces.Persistence;
@@ -17,6 +18,7 @@ using PharmacyERP.Application.Features.Identity.Interfaces;
 using PharmacyERP.Domain.Entities.Identity;
 using PharmacyERP.Domain.Entities.Integration;
 using PharmacyERP.Infrastructure.Auth;
+using PharmacyERP.Infrastructure.Persistence.Security;
 
 namespace PharmacyERP.IntegrationTests.Api;
 
@@ -28,7 +30,13 @@ public sealed class IdentityEndpointsTests : IClassFixture<WebApplicationFactory
     public IdentityEndpointsTests(WebApplicationFactory<PharmacyERP.Api.Program> factory)
     {
         _factory = factory;
-        _client = factory.WithWebHostBuilder(builder => builder.ConfigureLogging(logging => logging.ClearProviders())).CreateClient();
+        _client = factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("ConnectionStrings:DefaultConnection", "Host=localhost;Database=erp_test_unused;Username=erp_app;Password=test-only");
+            builder.UseSetting("Outbox:WorkerEnabled", "false");
+            builder.ConfigureLogging(logging => logging.ClearProviders());
+            builder.ConfigureTestServices(RemoveDatabaseStartupCheck);
+        }).CreateClient();
     }
 
     public void Dispose() => _client.Dispose();
@@ -69,9 +77,12 @@ public sealed class IdentityEndpointsTests : IClassFixture<WebApplicationFactory
         var store = new IdentityApiTestStore();
         await using var testFactory = _factory.WithWebHostBuilder(builder =>
         {
+            builder.UseSetting("ConnectionStrings:DefaultConnection", "Host=localhost;Database=erp_test_unused;Username=erp_app;Password=test-only");
+            builder.UseSetting("Outbox:WorkerEnabled", "false");
             builder.ConfigureLogging(logging => logging.ClearProviders());
             builder.ConfigureTestServices(services =>
             {
+            RemoveDatabaseStartupCheck(services);
             services.RemoveAll<IOrganizationRepository>();
             services.RemoveAll<IBranchRepository>();
             services.RemoveAll<IEmployeeRepository>();
@@ -258,5 +269,14 @@ public sealed class IdentityEndpointsTests : IClassFixture<WebApplicationFactory
             signingCredentials: keyProvider.CreateSigningCredentials());
         token.Header["kid"] = keyProvider.KeyId;
         return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private static void RemoveDatabaseStartupCheck(IServiceCollection services)
+    {
+        var descriptors = services
+            .Where(d => d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(DatabaseSecurityStartupCheck))
+            .ToList();
+        foreach (var descriptor in descriptors)
+            services.Remove(descriptor);
     }
 }

@@ -11,6 +11,22 @@ public class ProductReorderRuleRepository : GenericRepository<ProductReorderRule
     {
     }
 
+    public async Task AcquireUpsertLockAsync(
+        Guid organizationId,
+        Guid branchId,
+        Guid productId,
+        CancellationToken ct = default)
+    {
+        if (!_dbContext.Database.IsRelational())
+        {
+            return;
+        }
+
+        var lockKey = $"reorder-rule:{organizationId:N}:{branchId:N}:{productId:N}";
+        await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({lockKey}, 0));", ct);
+    }
+
     public async Task<ProductReorderRule?> GetByBranchAndProductAsync(
         Guid organizationId,
         Guid branchId,
@@ -18,9 +34,21 @@ public class ProductReorderRuleRepository : GenericRepository<ProductReorderRule
         CancellationToken ct = default)
     {
         return await _dbSet
-            .FirstOrDefaultAsync(r => r.OrganizationId == organizationId 
-                                   && r.BranchId == branchId 
+            .FirstOrDefaultAsync(r => r.OrganizationId == organizationId
+                                   && r.BranchId == branchId
+                                   && r.ProductId == productId, ct);
+    }
+
+    public async Task<ProductReorderRule?> GetByBranchAndProductReadOnlyAsync(
+        Guid organizationId,
+        Guid branchId,
+        Guid productId,
+        CancellationToken ct = default)
+    {
+        return await _dbSet
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.OrganizationId == organizationId
+                                   && r.BranchId == branchId
                                    && r.ProductId == productId, ct);
     }
 }
-

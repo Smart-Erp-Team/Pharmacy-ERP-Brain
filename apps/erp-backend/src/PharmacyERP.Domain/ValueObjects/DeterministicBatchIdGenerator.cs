@@ -1,6 +1,7 @@
 using System;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 
 namespace PharmacyERP.Domain.ValueObjects;
@@ -8,16 +9,20 @@ namespace PharmacyERP.Domain.ValueObjects;
 public static class DeterministicBatchIdGenerator
 {
 	private static readonly Guid NamespaceId = Guid.Parse("6ba7b810-9dad-11d1-80b4-00c04fd430c8");
+	private static readonly JsonSerializerOptions CanonicalJsonOptions = new()
+	{
+		Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+	};
 
 	public const string NonLotBatchNumber = "NON-LOT";
 
 	public static Guid Generate(Guid organizationId, Guid productId, string batchNumber, DateOnly? expiresOn)
 	{
-		string batchJson = JsonSerializer.Serialize(batchNumber);
+		string batchJson = JsonSerializer.Serialize(batchNumber, CanonicalJsonOptions);
 
 		string expiresOnJson = expiresOn.HasValue ? $"\"{expiresOn.Value:yyyy-MM-dd}\"" : "null";
 
-		string jsonPayload = $"{{\"organizationId\":\"{organizationId:d}\",\"productId\":\"{productId:d}\",\"batchNumber\":{batchJson},\"expiresOn\":{expiresOnJson}}}";
+		string jsonPayload = $"{{\"organization_id\":\"{organizationId:d}\",\"product_id\":\"{productId:d}\",\"batch_number\":{batchJson},\"expires_on\":{expiresOnJson}}}";
 
 		byte[] nameBytes = Encoding.UTF8.GetBytes(jsonPayload);
 

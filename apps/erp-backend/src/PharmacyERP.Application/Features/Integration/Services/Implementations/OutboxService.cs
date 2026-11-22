@@ -1,4 +1,4 @@
-﻿using System.Text.Encodings.Web;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using PharmacyERP.Application.Common.Interfaces.Context;
@@ -47,7 +47,8 @@ public class OutboxService : IOutboxService
             throw new InvalidOperationException("OutboxEventCursor missing. Ensure PlatformProvisioner created the initial cursor.");
         }
 
-        var nextSequence = cursor.AllocateNextSequence(_dateTimeProvider.UtcNow);
+        var now = _dateTimeProvider.UtcNow;
+        var nextSequence = cursor.AllocateNextSequence(now);
         var payloadJson = JsonSerializer.Serialize(payload, OutboxJsonOptions);
 
         var outboxEvent = new OutboxEvent(
@@ -57,7 +58,9 @@ public class OutboxService : IOutboxService
             nextSequence,
             eventType,
             payloadJson,
-            _currentUser.TraceId
+            _currentUser.TraceId,
+            schemaVersion,
+            now
         );
 
         await _repository.AddEventAsync(outboxEvent, ct);

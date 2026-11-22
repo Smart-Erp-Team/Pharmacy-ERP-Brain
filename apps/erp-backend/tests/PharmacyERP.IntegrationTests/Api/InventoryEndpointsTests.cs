@@ -4,6 +4,8 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
 using PharmacyERP.Application.Common.DTOs;
 using PharmacyERP.Application.Features.Integration.DTOs;
 using PharmacyERP.Application.Features.Inventory.DTOs;
@@ -12,16 +14,28 @@ using Xunit;
 
 namespace PharmacyERP.IntegrationTests.Api;
 
-public class InventoryEndpointsTests : IClassFixture<CustomWebApplicationFactory>
+public class InventoryEndpointsTests : IClassFixture<CustomWebApplicationFactory>, IDisposable
 {
+    private readonly WebApplicationFactory<PharmacyERP.Api.Program> _branchLocalFactory;
     private readonly HttpClient _client;
 
     public InventoryEndpointsTests(CustomWebApplicationFactory factory)
     {
-        _client = factory.CreateClient(); 
+        _branchLocalFactory = factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("ERP_RUNTIME_MODE", "BranchLocal");
+            builder.UseSetting("ENROLLED_BRANCH_ID", factory.DefaultBranchId.ToString());
+        });
+        _client = _branchLocalFactory.CreateClient();
     }
 
-    [Fact]
+    public void Dispose()
+    {
+        _client.Dispose();
+        _branchLocalFactory.Dispose();
+    }
+
+    [PharmacyERP.IntegrationTests.Api.SkipWhenPostgresUnavailableFact]
     public async Task CompleteInventoryLifecycle_ShouldWorkAsExpected()
     {
         var branchId = Guid.NewGuid();

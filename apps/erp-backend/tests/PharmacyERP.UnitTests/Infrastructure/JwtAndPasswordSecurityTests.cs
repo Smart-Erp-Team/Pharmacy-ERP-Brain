@@ -100,5 +100,22 @@ public sealed class JwtAndPasswordSecurityTests
         Assert.Equal(new[] { enrolledBranch.ToString() }, root.GetProperty("branch_ids").EnumerateArray().Select(x => x.GetString()));
         Assert.Equal("ASSIGNED", root.GetProperty("branch_scope").GetString());
         Assert.True(generated.ExpiresAt - now <= TimeSpan.FromHours(24));
+        Assert.False(string.IsNullOrWhiteSpace(root.GetProperty("security_stamp").GetString()));
+    }
+
+    [Fact]
+    public void Jwt_BranchLocalMode_RejectsUserWithoutEnrolledBranchAccess()
+    {
+        using var keys = new JwksKeyProvider();
+        var now = DateTimeOffset.UtcNow;
+        var enrolledBranch = Guid.NewGuid();
+        var otherBranch = Guid.NewGuid();
+        var runtime = new Mock<IRuntimeModeProvider>();
+        runtime.SetupGet(x => x.CurrentMode).Returns(ErpRuntimeMode.BranchLocal);
+        runtime.SetupGet(x => x.EnrolledBranchId).Returns(enrolledBranch);
+        var generator = new JwtTokenGenerator(keys, runtime.Object, Clock(now), Configuration());
+
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            generator.GenerateAccessToken(CreateUser(UserRole.Pharmacist, BranchScope.ASSIGNED), new[] { otherBranch }));
     }
 }

@@ -1,4 +1,4 @@
-﻿using System.Text.Encodings.Web;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using PharmacyERP.Application.Common.Interfaces.Context;
@@ -51,6 +51,7 @@ public class IdempotencyService : IIdempotencyService
 
         var orgId = _tenantContext.OrganizationId.Value;
         var payloadHash = CanonicalJsonHasher.ComputeSha256Hex(requestPayload);
+        await _repository.AcquireLockAsync(orgId, branchId, operationScope, idempotencyKey, ct);
         var existingRecord = await _repository.GetAsync(orgId, branchId, operationScope, idempotencyKey, ct);
 
         if (existingRecord != null)

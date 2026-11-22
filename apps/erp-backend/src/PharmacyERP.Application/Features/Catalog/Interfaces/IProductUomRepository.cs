@@ -19,6 +19,11 @@ public interface IProductUomRepository
         Guid productUomId,
         CancellationToken ct = default);
 
+    Task<IReadOnlyList<ProductUom>> GetByIdsAsync(
+        Guid organizationId,
+        IReadOnlyCollection<Guid> productUomIds,
+        CancellationToken ct = default);
+
     Task<bool> ExistsByUomCodeAsync(
         Guid organizationId,
         Guid productId,

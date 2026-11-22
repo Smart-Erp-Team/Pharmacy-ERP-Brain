@@ -169,13 +169,13 @@ public class CanonicalCatalogService : ICanonicalCatalogService
 
                 if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
                 {
-                    await _unitOfWork.RollbackTransactionAsync(ct);
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                     return Result<CanonicalWriteResultDto>.Success(idempotencyResult.ReplayedResponse);
                 }
             }
             catch (IntegrationDomainException ex) when (string.Equals(ex.Message, "IDEMPOTENCY_MISMATCH", StringComparison.OrdinalIgnoreCase))
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<CanonicalWriteResultDto>.Failure(ErrorCode.IDEMPOTENCY_MISMATCH, ErrorMessages.IdempotencyMismatch);
             }
 
@@ -189,14 +189,14 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                     var catExists = await _categoryRepository.ExistsAndActiveAsync(orgId, request.CategoryId!.Value, ct);
                     if (!catExists)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.CategoryNotFoundOrInactive);
                     }
 
                     var skuExists = await _productRepository.ExistsBySkuAsync(orgId, request.Sku!, null, ct);
                     if (skuExists)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.DuplicateSku);
                     }
 
@@ -205,7 +205,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                         var barcodeExists = await _productRepository.ExistsByBarcodeAsync(orgId, request.Barcode, null, ct);
                         if (barcodeExists)
                         {
-                            await _unitOfWork.RollbackTransactionAsync(ct);
+                            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                             return Result<CanonicalWriteResultDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.DuplicateBarcode);
                         }
                     }
@@ -273,7 +273,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                     var product = await _productRepository.GetByIdWithUomsAsync(orgId, request.ProductId!.Value, ct);
                     if (product == null)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductNotFound);
                     }
 
@@ -298,7 +298,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                         var catExists = await _categoryRepository.ExistsAndActiveAsync(orgId, request.CategoryId.Value, ct);
                         if (!catExists)
                         {
-                            await _unitOfWork.RollbackTransactionAsync(ct);
+                            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                             return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.CategoryNotFoundOrInactive);
                         }
                     }
@@ -308,7 +308,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                         var skuExists = await _productRepository.ExistsBySkuAsync(orgId, request.Sku, product.ProductId, ct);
                         if (skuExists)
                         {
-                            await _unitOfWork.RollbackTransactionAsync(ct);
+                            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                             return Result<CanonicalWriteResultDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.DuplicateSku);
                         }
                     }
@@ -318,7 +318,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                         var barcodeExists = await _productRepository.ExistsByBarcodeAsync(orgId, request.Barcode, product.ProductId, ct);
                         if (barcodeExists)
                         {
-                            await _unitOfWork.RollbackTransactionAsync(ct);
+                            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                             return Result<CanonicalWriteResultDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.DuplicateBarcode);
                         }
                     }
@@ -331,17 +331,27 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                         var hasHistory = await _usageChecker.HasAnyStockOrPostedHistoryForProductAsync(orgId, product.ProductId, ct);
                         if (hasHistory)
                         {
-                            await _unitOfWork.RollbackTransactionAsync(ct);
+                            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                             return Result<CanonicalWriteResultDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.HistoricalUomModificationForbidden);
                         }
 
                         if (modifyingLotTracking)
                         {
                             product.ChangeLotTrackingPolicy(request.LotTrackingRequired!.Value, hasHistory);
+
+                            if (!product.LotTrackingRequired)
+                            {
+                                await _nonLotBatchInitializer.EnsureNonLotBatchExistsAsync(orgId, product.ProductId, ct);
+                            }
                         }
 
                         if (modifyingBaseUom)
                         {
+                            if (product.BeginBaseUomChange(request.BaseUomCode!, hasHistory))
+                            {
+                                await _unitOfWork.SaveChangesAsync(ct);
+                            }
+
                             product.ChangeBaseUom(request.BaseUomCode!, hasHistory);
                         }
                     }
@@ -393,14 +403,14 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                     var product = await _productRepository.GetByIdWithUomsAsync(orgId, request.ProductId!.Value, ct);
                     if (product == null)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductNotFound);
                     }
 
                     var uomExists = await _productUomRepository.ExistsByUomCodeAsync(orgId, product.ProductId, request.UomCode!, null, ct);
                     if (uomExists)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.DuplicateUomCode);
                     }
 
@@ -443,14 +453,14 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                     var product = await _productRepository.GetByIdWithUomsAsync(orgId, request.ProductId!.Value, ct);
                     if (product == null)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductNotFound);
                     }
 
                     var uom = await _productUomRepository.GetByIdAsync(orgId, product.ProductId, request.ProductUomId!.Value, ct);
                     if (uom == null)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductUomNotFound);
                     }
 
@@ -469,7 +479,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                         var hasUsage = await _usageChecker.HasAnyStockOrDocumentReferenceForUomAsync(orgId, product.ProductId, uom.ProductUomId, ct);
                         if (hasUsage)
                         {
-                            await _unitOfWork.RollbackTransactionAsync(ct);
+                            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                             return Result<CanonicalWriteResultDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.HistoricalUomModificationForbidden);
                         }
 
@@ -478,7 +488,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
 
                     if (request.IsActive.HasValue && !request.IsActive.Value && uom.IsBase)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.CannotDeactivateBaseUom);
                     }
 
@@ -522,20 +532,20 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                     var product = await _productRepository.GetByIdWithUomsAsync(orgId, request.ProductId!.Value, ct);
                     if (product == null)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductNotFound);
                     }
 
                     var uom = await _productUomRepository.GetByIdAsync(orgId, product.ProductId, request.ProductUomId!.Value, ct);
                     if (uom == null)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductUomNotFound);
                     }
 
                     if (uom.IsBase)
                     {
-                        await _unitOfWork.RollbackTransactionAsync(ct);
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                         return Result<CanonicalWriteResultDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.CannotDeactivateBaseUom);
                     }
 
@@ -555,7 +565,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
 
                 default:
                 {
-                    await _unitOfWork.RollbackTransactionAsync(ct);
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                     return Result<CanonicalWriteResultDto>.Failure(ErrorCode.MALFORMED_REQUEST, ErrorMessages.InvalidConfigurationAction);
                 }
             }
@@ -574,7 +584,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
         }
         catch (CatalogDomainException ex)
         {
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             var errorCode = ex switch
             {
                 HistoricalUomModificationForbiddenException => ErrorCode.CONFLICT,
@@ -585,7 +595,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
         }
         catch (Exception)
         {
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             throw;
         }
     }
@@ -622,30 +632,31 @@ public class CanonicalCatalogService : ICanonicalCatalogService
 
                 if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
                 {
-                    await _unitOfWork.RollbackTransactionAsync(ct);
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                     return Result<CanonicalWriteResultDto>.Success(idempotencyResult.ReplayedResponse);
                 }
             }
             catch (IntegrationDomainException ex) when (string.Equals(ex.Message, "IDEMPOTENCY_MISMATCH", StringComparison.OrdinalIgnoreCase))
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<CanonicalWriteResultDto>.Failure(ErrorCode.IDEMPOTENCY_MISMATCH, ErrorMessages.IdempotencyMismatch);
             }
 
             var branch = await _branchRepository.GetByIdAsync(orgId, request.BranchId, ct);
             if (branch == null)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.NotFound);
             }
 
             var product = await _productRepository.GetByIdAsync(orgId, request.ProductId, ct);
             if (product == null)
             {
-                await _unitOfWork.RollbackTransactionAsync(ct);
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductNotFound);
             }
 
+            await _reorderRuleRepository.AcquireUpsertLockAsync(orgId, request.BranchId, request.ProductId, ct);
             var existingRule = await _reorderRuleRepository.GetByBranchAndProductAsync(orgId, request.BranchId, request.ProductId, ct);
             Guid targetEntityId;
 
@@ -723,7 +734,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
         }
         catch (CatalogDomainException ex)
         {
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             var errorCode = ex switch
             {
                 HistoricalUomModificationForbiddenException => ErrorCode.CONFLICT,
@@ -734,7 +745,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
         }
         catch (Exception)
         {
-            await _unitOfWork.RollbackTransactionAsync(ct);
+            await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             throw;
         }
     }

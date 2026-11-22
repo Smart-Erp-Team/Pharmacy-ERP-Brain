@@ -222,6 +222,35 @@ public class Product
     }
 
     /// <summary>
+    /// Validates a base UOM swap and clears <c>IsBase</c> on the current active base UOM so callers can
+    /// flush <c>is_base = false</c> within the active transaction before setting the target UOM as base.
+    /// Prevents PostgreSQL partial unique index (<c>23505</c>) violations caused by PK-ordered EF Core UPDATE batching.
+    /// </summary>
+    public bool BeginBaseUomChange(string newBaseUomCode, bool hasStockOrPostedHistory)
+    {
+        if (hasStockOrPostedHistory)
+            throw new HistoricalUomModificationForbiddenException("Cannot modify base UOM for a product that has existing stock balances or posted transaction history.");
+
+        if (string.Equals(BaseUomCode, newBaseUomCode, StringComparison.Ordinal))
+            return false;
+
+        var targetUom = Uoms.FirstOrDefault(u => string.Equals(u.UomCode, newBaseUomCode, StringComparison.Ordinal));
+
+        if (targetUom == null || !targetUom.IsActive)
+            throw new InvalidBaseUomInvariantException($"Target UOM '{newBaseUomCode}' must be an existing active UOM of this product.");
+
+        if (targetUom.ConversionToBase != 1m)
+            throw new InvalidBaseUomInvariantException($"Target base UOM '{newBaseUomCode}' must have ConversionToBase equal to 1.");
+
+        var currentBase = Uoms.FirstOrDefault(u => u.IsBase && u.IsActive);
+        if (currentBase == null)
+            return false;
+
+        currentBase.UnsetBase();
+        return true;
+    }
+
+    /// <summary>
     /// Changes the base UOM to an existing active UOM of this product that has a conversion factor of 1.
     /// CONSERVATIVE SPEC IMPLEMENTATION NOTE:
     /// The requirement that the target UOM must already possess ConversionToBase == 1m (with no automatic

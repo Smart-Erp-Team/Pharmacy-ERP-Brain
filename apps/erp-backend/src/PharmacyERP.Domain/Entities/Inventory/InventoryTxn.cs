@@ -70,6 +70,11 @@ public class InventoryTxn
     {
         ValidateCreationParameters(organizationId, branchId, transactionNo, idempotencyKey, createdByEmployeeId);
 
+        if (transactionType == InventoryTransactionType.REVERSAL && (!reversesInventoryTxnId.HasValue || reversesInventoryTxnId.Value == Guid.Empty))
+        {
+            throw new ArgumentException("ReversesInventoryTxnId is required for REVERSAL transactions.", nameof(reversesInventoryTxnId));
+        }
+
         var currentUtc = now ?? DateTimeOffset.UtcNow;
 
         return new InventoryTxn
@@ -153,18 +158,18 @@ public class InventoryTxn
         EnsureDraft();
 
         var line = InventoryTxnLine.Create(
-            OrganizationId,
-            BranchId,
-            InventoryTxnId,
-            productId,
-            locationId,
-            batchId,
-            productUomId,
-            enteredQty,
-            conversionSnapshot,
-            quantityDeltaBase,
-            unitCostBase,
-            TransactionType);
+            organizationId: OrganizationId,
+            inventoryTxnId: InventoryTxnId,
+            branchId: BranchId,
+            productId: productId,
+            locationId: locationId,
+            batchId: batchId,
+            productUomId: productUomId,
+            enteredQty: enteredQty,
+            conversionSnapshot: conversionSnapshot,
+            quantityDeltaBase: quantityDeltaBase,
+            unitCostBase: unitCostBase,
+            transactionType: TransactionType);
 
         Lines.Add(line);
     }

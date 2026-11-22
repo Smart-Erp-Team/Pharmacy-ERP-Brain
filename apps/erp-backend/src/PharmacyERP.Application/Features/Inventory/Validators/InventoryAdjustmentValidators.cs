@@ -11,7 +11,6 @@ public static class InventoryAdjustmentValidators
     {
         if (req.BranchId == Guid.Empty) return (false, "BranchId is required.");
         if (string.IsNullOrWhiteSpace(req.IdempotencyKey)) return (false, "IdempotencyKey is required.");
-        if (req.Lines == null || !req.Lines.Any()) return (false, "Adjustment must contain at least one line.");
 
         var allowedTypes = new[]
         {
@@ -23,6 +22,16 @@ public static class InventoryAdjustmentValidators
 
         if (!allowedTypes.Contains(req.TransactionType))
             return (false, $"TransactionType {req.TransactionType} is not supported on adjustment endpoint.");
+
+        if (req.TransactionType == InventoryTransactionType.REVERSAL)
+        {
+            if (!req.ReversesInventoryTxnId.HasValue || req.ReversesInventoryTxnId.Value == Guid.Empty)
+                return (false, "ReversesInventoryTxnId is required for REVERSAL transactions.");
+
+            return (true, null);
+        }
+
+        if (req.Lines == null || !req.Lines.Any()) return (false, "Adjustment must contain at least one line.");
 
         foreach (var line in req.Lines)
         {

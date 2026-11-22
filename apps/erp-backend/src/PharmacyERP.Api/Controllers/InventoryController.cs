@@ -1,15 +1,16 @@
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using PharmacyERP.Application.Common.DTOs;
-using PharmacyERP.Application.Common.Interfaces.Context;
-using PharmacyERP.Application.Features.Inventory.DTOs;
-using PharmacyERP.Application.Features.Inventory.Interfaces;
-using PharmacyERP.Application.Features.Inventory.Services.Interfaces;
-using PharmacyERP.Domain.Enums;
+#nullable enable
 using System;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using PharmacyERP.Api.Common;
+using PharmacyERP.Api.Filters;
+using PharmacyERP.Application.Common.Constants;
+using PharmacyERP.Application.Common.Interfaces.Context;
+using PharmacyERP.Application.Features.Inventory.DTOs;
+using PharmacyERP.Application.Features.Inventory.Services.Interfaces;
+using PharmacyERP.Domain.Enums;
 
 namespace PharmacyERP.Api.Controllers;
 
@@ -19,22 +20,19 @@ public class InventoryController : ControllerBase
 {
     private readonly IInventoryQueryService _queryService;
     private readonly IInventoryAdjustmentService _adjustmentService;
-    private readonly IInventoryBatchRepository _batchRepo;
     private readonly ICurrentUser _currentUser;
 
     public InventoryController(
         IInventoryQueryService queryService,
         IInventoryAdjustmentService adjustmentService,
-        IInventoryBatchRepository batchRepo,
         ICurrentUser currentUser)
     {
         _queryService = queryService;
         _adjustmentService = adjustmentService;
-        _batchRepo = batchRepo;
         _currentUser = currentUser;
     }
 
-    [HttpGet("batches")] 
+    [HttpGet("batches")]
     [Authorize]
     public async Task<IActionResult> GetBatches(
         [FromQuery] Guid? productId,
@@ -44,72 +42,56 @@ public class InventoryController : ControllerBase
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
     {
-        var orgId = _currentUser.OrganizationId ?? Guid.Empty;
-        var pagedBatches = await _batchRepo.GetPagedAsync(orgId, productId, status, expiringBefore, page, pageSize, ct);
-        var dtos = pagedBatches.Items.Select(b => new InventoryBatchDto(
-            b.BatchId, b.OrganizationId, b.ProductId, b.BatchNumber,
-            b.ManufacturedOn, b.ExpiresOn, b.QualityStatus, b.UpdatedAt)).ToList();
-        return Ok(new PagedResult<InventoryBatchDto>(dtos, pagedBatches.Page, pagedBatches.PageSize, pagedBatches.TotalCount));
+        var result = await _queryService.GetBatchesAsync(productId, status, expiringBefore, page, pageSize, ct);
+        return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
     }
 
-    [HttpGet("balances")] 
+    [HttpGet("balances")]
     [Authorize]
     public async Task<IActionResult> GetBalances(
         [FromQuery] Guid branchId,
         [FromQuery] Guid? productId,
         [FromQuery] Guid? locationId,
         [FromQuery] Guid? batchId,
-        CancellationToken ct)
+        CancellationToken ct = default)
     {
         var result = await _queryService.GetBalancesAsync(branchId, productId, locationId, batchId, ct);
-        return HandleResult(result);
+        return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
     }
 
-    [HttpGet("transactions")] 
+    [HttpGet("transactions")]
     [Authorize]
     public async Task<IActionResult> GetTransactions(
         [FromQuery] Guid branchId,
+        [FromQuery] InventoryTransactionType? type = null,
+        [FromQuery] Guid? productId = null,
+        [FromQuery] DateTimeOffset? fromDate = null,
+        [FromQuery] DateTimeOffset? toDate = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
     {
         var result = await _queryService.GetTransactionsAsync(
-            branchId, null, null, null, null, page, pageSize, ct);
-        return HandleResult(result);
+            branchId, type, productId, fromDate, toDate, page, pageSize, ct);
+        return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
     }
 
+    [AllowHeaderIdempotencyKey]
     [HttpPost("adjustments")]
-    [Authorize(Roles = "Admin,Pharmacist")] 
+    [Authorize(Roles = "Admin,Pharmacist")]
     public async Task<IActionResult> PostAdjustment(
         [FromBody] CreateInventoryAdjustmentRequest request,
-        [FromHeader(Name = "Idempotency-Key")] string idempotencyKey, 
-        CancellationToken ct)
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken ct = default)
     {
-        var requestWithKey = request with { IdempotencyKey = idempotencyKey };
-        var result = await _adjustmentService.PostAdjustmentAsync(requestWithKey, ct);
-        return HandleResult(result);
-    }
-
-    private IActionResult HandleResult<T>(Result<T> result)
-    {
-        if (result.IsSuccess) return Ok(result.Value);
-        
-        var statusCode = result.ErrorCode switch
+        if (request == null)
         {
-            ErrorCode.NOT_FOUND => 404,
-            ErrorCode.FORBIDDEN_BRANCH => 403,
-            ErrorCode.UNAUTHORIZED => 401,
-            ErrorCode.OUT_OF_STOCK => 409,
-            ErrorCode.FORBIDDEN => 403,
-            ErrorCode.VALIDATION_ERROR => 422,
-            _ => 400
-        };
+            return ApiResultMapper.ToErrorResult(this, ErrorCode.MALFORMED_REQUEST, ErrorMessages.MalformedRequest, _currentUser.TraceId);
+        }
 
-        return StatusCode(statusCode, new ApiErrorEnvelopeDto(
-            new ApiErrorBodyDto(
-                result.ErrorCode?.ToString() ?? ErrorCode.MALFORMED_REQUEST.ToString(),
-                result.ErrorMessage ?? string.Empty,
-                result.ErrorDetails ?? Array.Empty<ApiErrorDetailDto>(),
-                _currentUser.TraceId)));
+        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey : request.IdempotencyKey ?? string.Empty;
+        var requestWithKey = request with { IdempotencyKey = effectiveKey };
+        var result = await _adjustmentService.PostAdjustmentAsync(requestWithKey, ct);
+        return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
     }
 }

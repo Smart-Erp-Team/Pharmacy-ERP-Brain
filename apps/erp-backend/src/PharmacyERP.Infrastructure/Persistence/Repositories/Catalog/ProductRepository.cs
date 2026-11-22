@@ -21,6 +21,19 @@ public class ProductRepository : GenericRepository<Product>, IProductRepository
             .FirstOrDefaultAsync(p => p.OrganizationId == organizationId && p.ProductId == productId, ct);
     }
 
+    public async Task<IReadOnlyList<Product>> GetByIdsAsync(Guid organizationId, IReadOnlyCollection<Guid> productIds, CancellationToken ct = default)
+    {
+        if (productIds.Count == 0)
+        {
+            return Array.Empty<Product>();
+        }
+
+        return await _dbSet
+            .AsNoTracking()
+            .Where(p => p.OrganizationId == organizationId && productIds.Contains(p.ProductId))
+            .ToListAsync(ct);
+    }
+
     public async Task<Product?> GetByIdWithUomsAsync(Guid organizationId, Guid productId, CancellationToken ct = default)
     {
         return await _dbSet
@@ -69,6 +82,7 @@ public class ProductRepository : GenericRepository<Product>, IProductRepository
         var resolvedPageSize = pageSize <= 0 ? DefaultPageSize : Math.Min(pageSize, MaxPageSize);
 
         var query = _dbSet
+            .AsNoTrackingWithIdentityResolution()
             .Include(p => p.Uoms)
             .Include(p => p.Category)
             .Where(p => p.OrganizationId == organizationId);
@@ -120,6 +134,7 @@ public class ProductRepository : GenericRepository<Product>, IProductRepository
         var take = limit <= 0 ? 50 : Math.Min(limit, 1000);
 
         var query = _dbSet
+            .AsNoTrackingWithIdentityResolution()
             .Include(p => p.Uoms)
             .Include(p => p.Category)
             .Where(p => p.OrganizationId == organizationId);
@@ -151,6 +166,7 @@ public class ProductRepository : GenericRepository<Product>, IProductRepository
         var take = limit <= 0 ? 50 : Math.Min(limit, 1000);
 
         var query = _dbSet
+            .AsNoTrackingWithIdentityResolution()
             .Include(p => p.Uoms)
             .Include(p => p.Category)
             .Where(p => p.OrganizationId == organizationId);
