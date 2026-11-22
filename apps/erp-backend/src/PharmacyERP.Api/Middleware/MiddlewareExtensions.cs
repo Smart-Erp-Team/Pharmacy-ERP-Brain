@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Builder;
 
 namespace PharmacyERP.Api.Middleware;
 
@@ -8,6 +8,7 @@ public static class MiddlewareExtensions
     {
         app.UseMiddleware<ExceptionHandlingMiddleware>();
         app.UseMiddleware<TraceparentMiddleware>();
+        app.UseCors(DependencyInjection.DefaultCorsPolicyName);
         app.UseMiddleware<RuntimeModeGuardMiddleware>();
         app.UseHttpsRedirection();
         app.UseAuthentication();

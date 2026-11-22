@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
@@ -14,9 +15,42 @@ namespace PharmacyERP.Api;
 
 public static class DependencyInjection
 {
+    public const string DefaultCorsPolicyName = "DefaultCorsPolicy";
+
     public static IServiceCollection AddApiServices(this IServiceCollection services)
     {
         services.AddHttpContextAccessor();
+        services.AddCors();
+        services.AddOptions<CorsOptions>()
+            .Configure<IConfiguration>((options, configuration) =>
+            {
+                options.AddPolicy(DefaultCorsPolicyName, policy =>
+                {
+                    var allowedOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()?
+                        .Where(origin => !string.IsNullOrWhiteSpace(origin))
+                        .Select(origin => origin.Trim())
+                        .ToArray();
+
+                    if (allowedOrigins is null
+                        || allowedOrigins.Length == 0
+                        || allowedOrigins.Any(origin => string.Equals(origin, "*", StringComparison.Ordinal)))
+                    {
+                        policy
+                            .SetIsOriginAllowed(_ => true)
+                            .AllowAnyHeader()
+                            .AllowAnyMethod()
+                            .AllowCredentials();
+                    }
+                    else
+                    {
+                        policy
+                            .WithOrigins(allowedOrigins)
+                            .AllowAnyHeader()
+                            .AllowAnyMethod()
+                            .AllowCredentials();
+                    }
+                });
+            });
         services.AddControllers()
             .AddJsonOptions(options =>
             {
