@@ -11,6 +11,7 @@ using PharmacyERP.Application.Features.Integration.Interfaces;
 using PharmacyERP.Infrastructure.BackgroundServices;
 using PharmacyERP.Infrastructure.Persistence.Database;
 using PharmacyERP.Infrastructure.Persistence.Interceptors;
+using PharmacyERP.Infrastructure.Persistence.Seeding;
 using PharmacyERP.Infrastructure.Persistence.Security;
 using PharmacyERP.Infrastructure.Persistence.Repositories;
 using PharmacyERP.Infrastructure.Persistence.Repositories.Catalog;
@@ -97,6 +98,9 @@ public static class DependencyInjection
         services.AddScoped<INonLotBatchInitializer2, NonLotBatchInitializer>();
         services.AddScoped<IProductInventoryUsageChecker, ProductInventoryUsageChecker>();
         services.AddScoped<IProductInventoryUsageChecker2, ProductInventoryUsageChecker>();
+
+        // Development Data Seeder
+        services.AddScoped<DevDatabaseSeeder>();
 
         return services;
     }
