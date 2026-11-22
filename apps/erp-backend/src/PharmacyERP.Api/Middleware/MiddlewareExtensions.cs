@@ -34,6 +34,11 @@ public static class MiddlewareExtensions
             seeder?.SeedAsync().GetAwaiter().GetResult();
         }
 
+        if (!isTestHost && environment is not null && environment.IsDevelopment())
+        {
+            app.UseMiddleware<DevRequestErrorLogMiddleware>();
+        }
+
         app.UseMiddleware<ExceptionHandlingMiddleware>();
         app.UseMiddleware<TraceparentMiddleware>();
         app.UseCors(DependencyInjection.DefaultCorsPolicyName);

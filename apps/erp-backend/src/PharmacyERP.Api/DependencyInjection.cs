@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using PharmacyERP.Api.Auth;
+using PharmacyERP.Api.Logging;
 using PharmacyERP.Application.Common.Constants;
 using PharmacyERP.Application.Common.DTOs;
 using PharmacyERP.Application.Features.Identity.Interfaces;
@@ -20,6 +21,7 @@ public static class DependencyInjection
     public static IServiceCollection AddApiServices(this IServiceCollection services)
     {
         services.AddHttpContextAccessor();
+        services.AddSingleton<IDevRequestErrorLogWriter, FileDevRequestErrorLogWriter>();
         services.AddCors();
         services.AddOptions<CorsOptions>()
             .Configure<IConfiguration>((options, configuration) =>

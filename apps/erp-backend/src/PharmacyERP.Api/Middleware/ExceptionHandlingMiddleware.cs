@@ -13,6 +13,8 @@ namespace PharmacyERP.Api.Middleware;
 
 public class ExceptionHandlingMiddleware
 {
+    public const string HandledExceptionItemKey = "__PharmacyErp_HandledException";
+
     private readonly RequestDelegate _next;
     private readonly ILogger<ExceptionHandlingMiddleware> _logger;
 
@@ -34,6 +36,7 @@ public class ExceptionHandlingMiddleware
         }
         catch (Exception ex)
         {
+            context.Items[HandledExceptionItemKey] = ex;
             _logger.LogError(ex, "An unhandled exception occurred during request processing.");
             await HandleExceptionAsync(context, ex);
         }
