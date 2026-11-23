@@ -482,3 +482,7 @@ $RECYCLE.BIN/
 *.swp
 
 _audit_docs/
+
+# Ensure shared backend AI rules, skills, and workflows are always tracked in Git
+!.agent/
+!.agent/**
