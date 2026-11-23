@@ -1,54 +1,138 @@
-version: '3.8'
-
 services:
-  # Mock server for Frontend and AI teams to start immediately without waiting for Backend
-  mocks:
-    image: clue/json-server
-    ports:
-      - "8080:80"
-    volumes:
-      # Mount the fixtures directory to serve the mock JSON data
-      - ../contracts/fixtures/db.json:/data/db.json
-
-  # ERP System of Record Database (PostgreSQL)
+  # 1. ERP System of Record Database (PostgreSQL)
   erp_db:
-    image: postgres:15
+    image: postgres:16-alpine
+    container_name: pharmacy-erp-db
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: erp_db
+      POSTGRES_DB: ${POSTGRES_DB:-erp_db}
     ports:
       - "5432:5432"
+    volumes:
+      - erp_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-erp_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pharmacy-net
 
-  # AI Brain Derived Intelligence Database (PostgreSQL)
+  # 2. AI Brain Derived Intelligence Database (PostgreSQL)
   brain_db:
     image: postgres:16-alpine
+    container_name: pharmacy-brain-db
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: brain_db
+      POSTGRES_DB: ${BRAIN_DB:-brain_db}
     ports:
       - "5433:5432"
+    volumes:
+      - brain_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${BRAIN_DB:-brain_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pharmacy-net
 
-  # Event bus and cache for the MVP
+  # 3. Event Bus and Cache (Redis)
   redis:
     image: redis:alpine
+    container_name: pharmacy-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - pharmacy-net
 
-  # AI Brain HTTP service
+  # 4. .NET 10 ERP Backend API
+  erp-backend:
+    build:
+      context: ..
+      dockerfile: apps/erp-backend/Dockerfile
+    container_name: pharmacy-backend
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ConnectionStrings__DefaultConnection: Host=erp_db;Port=5432;Database=${POSTGRES_DB:-erp_db};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres};
+    depends_on:
+      erp_db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - pharmacy-net
+
+  # 5. React + Vite Frontend
+  erp-frontend:
+    build:
+      context: ..
+      dockerfile: apps/erp-frontend/Dockerfile
+    container_name: pharmacy-frontend
+    restart: unless-stopped
+    depends_on:
+      - erp-backend
+    networks:
+      - pharmacy-net
+
+  # 6. AI Brain HTTP Service
   brain_api:
     build:
       context: ../apps/brain
       dockerfile: Dockerfile
+    container_name: pharmacy-brain
+    restart: unless-stopped
     environment:
       APP_ENV: development
       LOG_LEVEL: INFO
-    ports:
-      - "8000:8000"
+      API_PREFIX: /api/v1
+      # Uncomment after provisioning least-privilege `brain_app` role in brain_db:
+      # BRAIN_DB_URL: postgresql+psycopg://brain_app:${BRAIN_APP_PASSWORD:-brain_app_pass}@brain_db:5432/${BRAIN_DB:-brain_db}
+    depends_on:
+      brain_db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=2)"]
       interval: 15s
       timeout: 3s
       retries: 3
       start_period: 10s
+    networks:
+      - pharmacy-net
+
+  # 7. Central Nginx API Gateway
+  gateway:
+    image: nginx:alpine
+    container_name: pharmacy-gateway
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - erp-frontend
+      - erp-backend
+      - brain_api
+    networks:
+      - pharmacy-net
+
+networks:
+  pharmacy-net:
+    driver: bridge
+
+volumes:
+  erp_db_data:
+  brain_db_data:

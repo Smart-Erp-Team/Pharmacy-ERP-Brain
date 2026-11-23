@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/bin
+**/obj
+**/__pycache__
+**/.venv
+.git
+.vs
+.vscode
+.agents
+**/playwright-report
+**/test-results
