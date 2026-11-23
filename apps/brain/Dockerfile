@@ -10,10 +10,6 @@ WORKDIR /app
 
 RUN addgroup --system brain && adduser --system --ingroup brain brain
 
-COPY pyproject.toml ./pyproject.toml
-COPY brain ./brain
-COPY brain_db ./brain_db
-
 RUN pip install --no-cache-dir \
       "alembic==1.20.0" \
       "fastapi>=0.115,<1.0" \
@@ -23,6 +19,10 @@ RUN pip install --no-cache-dir \
       "sqlmodel==0.0.48" \
       "uvicorn[standard]>=0.34,<1.0" \
     && pip cache purge
+
+COPY pyproject.toml ./pyproject.toml
+COPY brain ./brain
+COPY brain_db ./brain_db
 
 USER brain
 EXPOSE 8000
