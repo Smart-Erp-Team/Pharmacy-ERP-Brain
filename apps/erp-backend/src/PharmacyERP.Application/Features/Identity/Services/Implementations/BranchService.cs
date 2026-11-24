@@ -17,16 +17,19 @@ public sealed class BranchService : IBranchService
     private readonly ICurrentUser _currentUser;
     private readonly IDateTimeProvider _clock;
     private readonly IRuntimeModeProvider _runtimeMode;
+    private readonly IGenericRepository<OutboxEventCursor>? _outboxCursors;
 
     public BranchService(IBranchRepository branches, IBranchEnrollmentRepository enrollments, IBranchDefaultLocationSeeder locationSeeder,
         IUnitOfWork unitOfWork, IAuditLogger audit, IOutboxService outbox, IIdempotencyService idempotency, ITenantContext tenant,
-        ICurrentUser currentUser, IDateTimeProvider clock, IRuntimeModeProvider runtimeMode)
-    { _branches = branches; _enrollments = enrollments; _locationSeeder = locationSeeder; _unitOfWork = unitOfWork; _audit = audit; _outbox = outbox; _idempotency = idempotency; _tenant = tenant; _currentUser = currentUser; _clock = clock; _runtimeMode = runtimeMode; }
+        ICurrentUser currentUser, IDateTimeProvider clock, IRuntimeModeProvider runtimeMode,
+        IGenericRepository<OutboxEventCursor>? outboxCursors = null)
+    { _branches = branches; _enrollments = enrollments; _locationSeeder = locationSeeder; _unitOfWork = unitOfWork; _audit = audit; _outbox = outbox; _idempotency = idempotency; _tenant = tenant; _currentUser = currentUser; _clock = clock; _runtimeMode = runtimeMode; _outboxCursors = outboxCursors; }
 
     public async Task<Result<PagedResult<BranchDto>>> GetPagedAsync(bool includeInactive, string? search, int page, int pageSize, CancellationToken ct = default)
     {
         if (_tenant.OrganizationId is not Guid organizationId) return IdentityResults.Failure<PagedResult<BranchDto>>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
-        if (!ValidPage(page, pageSize)) return IdentityResults.Failure<PagedResult<BranchDto>>(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError);
+        var pageErrors = IdentityResults.ValidatePagination(page, pageSize);
+        if (pageErrors.Count > 0) return IdentityResults.Failure<PagedResult<BranchDto>>(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, pageErrors);
 
         // Explicit read transaction ensures TenantRlsConnectionInterceptor sets app.current_tenant_id
         // for PostgreSQL FORCE ROW LEVEL SECURITY before any SELECT executes.
@@ -67,11 +70,16 @@ public sealed class BranchService : IBranchService
 
     public async Task<Result<BranchDto>> CreateAsync(CreateBranchRequest request, CancellationToken ct = default)
     {
+        if (_runtimeMode.CurrentMode == ErpRuntimeMode.BranchLocal) return IdentityResults.Failure<BranchDto>(ErrorCode.NOT_FOUND, ErrorMessages.CloudOnlyOperationUnavailable);
         if (!IsAllBranchAdmin()) return IdentityResults.Failure<BranchDto>(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
         if (_tenant.OrganizationId is not Guid organizationId) return IdentityResults.Failure<BranchDto>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey)) return IdentityResults.MissingIdempotencyKey<BranchDto>();
 
         var idempotencyKey = request.IdempotencyKey.Trim();
+        if (idempotencyKey.Length > 100)
+            return IdentityResults.Failure<BranchDto>(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError,
+                new[] { new ApiErrorDetailDto("idempotency_key", "IdempotencyKey cannot exceed 100 characters.") });
+
         var normalizedRequest = request with { IdempotencyKey = idempotencyKey };
 
         await _unitOfWork.BeginTransactionAsync(ct);
@@ -103,7 +111,7 @@ public sealed class BranchService : IBranchService
             catch (Exception exception) when (exception is ArgumentException or IdentityDomainException)
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
-                return IdentityResults.Failure<BranchDto>(ErrorCode.VALIDATION_ERROR, exception.Message);
+                return IdentityResults.ValidationFailure<BranchDto>(exception);
             }
             await _branches.AddAsync(branch, ct);
             // Seed the three default inventory locations (Sellable, Quarantine, Scrap) atomically with the branch.
@@ -122,11 +130,20 @@ public sealed class BranchService : IBranchService
 
     public async Task<Result<BranchDto>> UpdateAsync(Guid branchId, UpdateBranchRequest request, CancellationToken ct = default)
     {
+        if (_runtimeMode.CurrentMode == ErpRuntimeMode.BranchLocal) return IdentityResults.Failure<BranchDto>(ErrorCode.NOT_FOUND, ErrorMessages.CloudOnlyOperationUnavailable);
         if (!IsAdmin()) return IdentityResults.Failure<BranchDto>(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
         if (_tenant.OrganizationId is not Guid organizationId) return IdentityResults.Failure<BranchDto>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey)) return IdentityResults.MissingIdempotencyKey<BranchDto>();
 
         var idempotencyKey = request.IdempotencyKey.Trim();
+        if (idempotencyKey.Length > 100)
+            return IdentityResults.Failure<BranchDto>(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError,
+                new[] { new ApiErrorDetailDto("idempotency_key", "IdempotencyKey cannot exceed 100 characters.") });
+
+        if (request.Name is not null && string.IsNullOrWhiteSpace(request.Name))
+            return IdentityResults.Failure<BranchDto>(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError,
+                new[] { new ApiErrorDetailDto("name", "Branch name cannot be empty.") });
+
         var normalizedRequest = request with { IdempotencyKey = idempotencyKey };
         var idempotencyPayload = new { BranchId = branchId, Request = normalizedRequest };
 
@@ -166,11 +183,19 @@ public sealed class BranchService : IBranchService
                 return IdentityResults.Failure<BranchDto>(ErrorCode.IDEMPOTENCY_MISMATCH, ErrorMessages.IdempotencyMismatch);
             }
 
-            try { branch.UpdateDetails(normalizedRequest.Name, normalizedRequest.Address.ToValueObject()); }
-            catch (Exception exception) when (exception is ArgumentException or IdentityDomainException)
+            if (normalizedRequest.Name is not null || normalizedRequest.Address is not null)
             {
-                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
-                return IdentityResults.Failure<BranchDto>(ErrorCode.VALIDATION_ERROR, exception.Message);
+                try
+                {
+                    branch.UpdateDetails(
+                        normalizedRequest.Name ?? branch.Name,
+                        normalizedRequest.Address?.ToValueObject() ?? branch.Address);
+                }
+                catch (Exception exception) when (exception is ArgumentException or IdentityDomainException)
+                {
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                    return IdentityResults.ValidationFailure<BranchDto>(exception);
+                }
             }
             if (normalizedRequest.IsActive.HasValue) branch.SetActive(normalizedRequest.IsActive.Value);
             await _audit.LogAsync("branch.updated", "identity", "BRANCH", branch.BranchId, null, new { branch.Name, branch.IsActive }, branch.BranchId, ct: ct);
@@ -187,11 +212,16 @@ public sealed class BranchService : IBranchService
 
     public async Task<Result<EnrollmentTokenResponse>> IssueEnrollmentTokenAsync(Guid branchId, string idempotencyKey, CancellationToken ct = default)
     {
+        if (_runtimeMode.CurrentMode == ErpRuntimeMode.BranchLocal) return IdentityResults.Failure<EnrollmentTokenResponse>(ErrorCode.NOT_FOUND, ErrorMessages.CloudOnlyOperationUnavailable);
         if (!IsAdmin()) return IdentityResults.Failure<EnrollmentTokenResponse>(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
         if (_tenant.OrganizationId is not Guid organizationId) return IdentityResults.Failure<EnrollmentTokenResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
         if (string.IsNullOrWhiteSpace(idempotencyKey)) return IdentityResults.MissingIdempotencyKey<EnrollmentTokenResponse>();
 
         var normalizedKey = idempotencyKey.Trim();
+        if (normalizedKey.Length > 100)
+            return IdentityResults.Failure<EnrollmentTokenResponse>(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError,
+                new[] { new ApiErrorDetailDto("idempotency_key", "IdempotencyKey cannot exceed 100 characters.") });
+
         var idempotencyPayload = new { BranchId = branchId };
 
         await _unitOfWork.BeginTransactionAsync(ct);
@@ -243,6 +273,7 @@ public sealed class BranchService : IBranchService
 
     public async Task<Result<RedeemBranchEnrollmentResponse>> RedeemEnrollmentAsync(RedeemBranchEnrollmentRequest request, CancellationToken ct = default)
     {
+        if (_runtimeMode.CurrentMode == ErpRuntimeMode.BranchLocal) return IdentityResults.Failure<RedeemBranchEnrollmentResponse>(ErrorCode.NOT_FOUND, ErrorMessages.CloudOnlyOperationUnavailable);
         if (string.IsNullOrWhiteSpace(request.Token)) return IdentityResults.Failure<RedeemBranchEnrollmentResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.InvalidEnrollmentToken);
         var tokenHash = HashToken(request.Token);
 
@@ -286,15 +317,23 @@ public sealed class BranchService : IBranchService
                 null, new { enrollment.BranchId, enrollment.UsedAt }, enrollment.BranchId, actorTypeOverride: AuditActorType.SYSTEM, ct: ct);
             await _outbox.EnqueueAsync("identity.branch.enrolled", enrollment.BranchId,
                 new { enrollment.OrganizationId, enrollment.BranchId, credentialExpiresAt = expiry }, ct: ct);
+
+            // Read the tenant's real OUTBOX_EVENT_CURSOR sequence after enqueuing the enrollment event
+            // so the newly enrolled BranchLocal node starts from the exact Cloud sequence checkpoint.
+            var cursor = _outboxCursors is not null
+                ? await _outboxCursors.GetByIdAsync(enrollment.OrganizationId, ct)
+                : null;
+            var initialSyncCursor = cursor?.LastEventSequence ?? 0L;
+
             await _unitOfWork.CommitTransactionAsync(ct);
-            return Result<RedeemBranchEnrollmentResponse>.Success(new RedeemBranchEnrollmentResponse(enrollment.OrganizationId, enrollment.BranchId, credential, 0, expiry));
+            return Result<RedeemBranchEnrollmentResponse>.Success(
+                new RedeemBranchEnrollmentResponse(enrollment.OrganizationId, enrollment.BranchId, credential, initialSyncCursor, expiry));
         }
         catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
 
     private bool IsAdmin() => string.Equals(_currentUser.Role, UserRole.Admin.ToString(), StringComparison.Ordinal);
     private bool IsAllBranchAdmin() => IsAdmin() && string.Equals(_currentUser.BranchScope, BranchScope.ALL.ToString(), StringComparison.OrdinalIgnoreCase);
-    private static bool ValidPage(int page, int pageSize) => page > 0 && pageSize is > 0 and <= 200;
     private static byte[] HashToken(string value) => SHA256.HashData(Encoding.UTF8.GetBytes(value));
     private static string Base64UrlEncode(byte[] value) => Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }

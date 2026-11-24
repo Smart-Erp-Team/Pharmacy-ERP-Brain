@@ -183,32 +183,57 @@ public class InventoryApplicationServicesTests
     }
 
     [Fact]
-    public async Task PostAdjustmentAsync_OpeningBalance_NonAdminReturnsForbidden()
+    public async Task PostAdjustmentAsync_OpeningBalance_PharmacistIsAllowedPerBlueprint91_AndCashierReturnsForbidden()
     {
-        _currentUserMock.Setup(u => u.Role).Returns(UserRole.Pharmacist.ToString());
-
         var service = new InventoryAdjustmentService(
             _txnRepoMock.Object, _stockRepoMock.Object, _batchRepoMock.Object, _locationRepoMock.Object,
             _tenantContextMock.Object, _currentUserMock.Object, _runtimeModeMock.Object,
             _dateTimeProviderMock.Object, _unitOfWorkMock.Object, _idempotencyMock.Object,
             _outboxMock.Object, _auditLoggerMock.Object);
 
-        var request = new CreateInventoryAdjustmentRequest(
+        var productId = Guid.NewGuid();
+        var uomId = Guid.NewGuid();
+        var location = InventoryLocation.CreateDefaultSellable(_orgId, _branchId, DateTimeOffset.UtcNow);
+        var batch = InventoryBatch.CreateNonLotSystemBatch(_orgId, productId);
+        var initialBalance = StockBalance.CreateInitial(_orgId, location.LocationId, batch.BatchId, 0m, 0m, DateTimeOffset.UtcNow);
+
+        _locationRepoMock.Setup(l => l.GetByIdsAsync(_orgId, _branchId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<InventoryLocation> { location });
+        _batchRepoMock.Setup(b => b.GetOrCreateBatchesAsync(
+                _orgId,
+                It.IsAny<IReadOnlyCollection<(Guid ProductId, string BatchNumber, DateOnly? ExpiresOn, DateOnly? ManufacturedOn)>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, InventoryBatch> { [batch.BatchId] = batch });
+        _stockRepoMock.Setup(s => s.GetOrCreateForUpdateBatchAsync(
+                _orgId,
+                It.IsAny<IReadOnlyCollection<(Guid LocationId, Guid BatchId)>>(),
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<(Guid LocationId, Guid BatchId), StockBalance> { [(location.LocationId, batch.BatchId)] = initialBalance });
+
+        // Pharmacist is allowed on OPENING_BALANCE per Blueprint §9.1
+        _currentUserMock.Setup(u => u.Role).Returns(UserRole.Pharmacist.ToString());
+        var pharmacistRequest = new CreateInventoryAdjustmentRequest(
             _branchId,
             InventoryTransactionType.OPENING_BALANCE,
             "INIT",
-            "Opening Stock",
+            "Opening Stock by Pharmacist",
             null,
             new List<CreateInventoryAdjustmentLineRequest>
             {
-                new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "NON-LOT", null, null, 10m, 15m)
+                new(productId, uomId, location.LocationId, "NON-LOT", null, null, 10m, 15m)
             },
-            "IDEM-OPENING-FORBIDDEN");
+            "IDEM-OPENING-PHARM");
 
-        var result = await service.PostAdjustmentAsync(request);
+        var pharmacistResult = await service.PostAdjustmentAsync(pharmacistRequest);
+        Assert.True(pharmacistResult.IsSuccess);
+        Assert.Equal(InventoryTransactionStatus.POSTED, pharmacistResult.Value!.Status);
 
-        Assert.False(result.IsSuccess);
-        Assert.Equal(ErrorCode.FORBIDDEN, result.ErrorCode);
+        // Cashier is denied with FORBIDDEN
+        _currentUserMock.Setup(u => u.Role).Returns(UserRole.Cashier.ToString());
+        var cashierResult = await service.PostAdjustmentAsync(pharmacistRequest with { IdempotencyKey = "IDEM-OPENING-CASHIER" });
+        Assert.False(cashierResult.IsSuccess);
+        Assert.Equal(ErrorCode.FORBIDDEN, cashierResult.ErrorCode);
     }
 
     [Fact]

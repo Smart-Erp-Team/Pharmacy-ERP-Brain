@@ -41,7 +41,7 @@ public class ProductUomService : IProductUomService
         _usageChecker = usageChecker;
     }
 
-    public async Task<Result<IReadOnlyList<ProductUomDto>>> GetProductUomsAsync(Guid productId, CancellationToken ct = default)
+    public async Task<Result<IReadOnlyList<ProductUomDto>>> GetProductUomsAsync(Guid productId, bool includeInactive = false, CancellationToken ct = default)
     {
         if (!_tenantContext.OrganizationId.HasValue)
             return Result<IReadOnlyList<ProductUomDto>>.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
@@ -63,7 +63,7 @@ public class ProductUomService : IProductUomService
             if (product == null)
                 return Result<IReadOnlyList<ProductUomDto>>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.ProductNotFound);
 
-            var uoms = await _uomRepository.GetByProductIdAsync(orgId, productId, includeInactive: true, ct);
+            var uoms = await _uomRepository.GetByProductIdAsync(orgId, productId, includeInactive, ct);
             var dtos = uoms.Select(MapToDto).ToList();
 
             return Result<IReadOnlyList<ProductUomDto>>.Success(dtos);
@@ -83,7 +83,7 @@ public class ProductUomService : IProductUomService
             return Result<ProductUomDto>.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
 
         if (!IsCloudRuntimeMode())
-            return Result<ProductUomDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
+            return Result<ProductUomDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.CloudOnlyOperationUnavailable);
 
         if (!IsAuthorizedForWrite())
             return Result<ProductUomDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
@@ -182,7 +182,7 @@ public class ProductUomService : IProductUomService
             return Result<ProductUomDto>.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
 
         if (!IsCloudRuntimeMode())
-            return Result<ProductUomDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
+            return Result<ProductUomDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.CloudOnlyOperationUnavailable);
 
         if (!IsAuthorizedForWrite())
             return Result<ProductUomDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);

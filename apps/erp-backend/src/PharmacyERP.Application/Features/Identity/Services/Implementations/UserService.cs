@@ -33,7 +33,8 @@ public sealed class UserService : IUserService
         var authorizationResult = _authorizer.AuthorizeList(branchId);
         if (!authorizationResult.IsSuccess) return IdentityResults.Failure<PagedResult<UserDto>>(authorizationResult.ErrorCode!.Value, authorizationResult.ErrorMessage!);
         if (_tenant.OrganizationId is not Guid organizationId) return IdentityResults.Failure<PagedResult<UserDto>>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
-        if (page < 1 || pageSize is < 1 or > 200) return IdentityResults.Failure<PagedResult<UserDto>>(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError);
+        var pageErrors = IdentityResults.ValidatePagination(page, pageSize);
+        if (pageErrors.Count > 0) return IdentityResults.Failure<PagedResult<UserDto>>(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, pageErrors);
 
         // Explicit read transaction binds the tenant GUC for PostgreSQL FORCE ROW LEVEL SECURITY.
         await _unitOfWork.BeginTransactionAsync(ct);
@@ -70,6 +71,16 @@ public sealed class UserService : IUserService
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey)) return IdentityResults.MissingIdempotencyKey<UserDto>();
 
         var idempotencyKey = request.IdempotencyKey.Trim();
+        var validationErrors = new List<ApiErrorDetailDto>();
+        if (idempotencyKey.Length > 100)
+            validationErrors.Add(new ApiErrorDetailDto("idempotency_key", "IdempotencyKey cannot exceed 100 characters."));
+        if (!Enum.IsDefined(request.Role))
+            validationErrors.Add(new ApiErrorDetailDto("role", "Role is required and must be a valid user role."));
+        if (!Enum.IsDefined(request.BranchScope))
+            validationErrors.Add(new ApiErrorDetailDto("branch_scope", "BranchScope must be a valid branch scope."));
+        if (validationErrors.Count > 0)
+            return IdentityResults.Failure<UserDto>(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, validationErrors);
+
         var normalizedRequest = request with { IdempotencyKey = idempotencyKey };
 
         await _unitOfWork.BeginTransactionAsync(ct);
@@ -117,7 +128,10 @@ public sealed class UserService : IUserService
             if (!await ValidateBranchesAsync(organizationId, normalizedRequest.BranchScope, normalizedRequest.BranchIds, ct))
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
-                return IdentityResults.Failure<UserDto>(ErrorCode.VALIDATION_ERROR, ErrorMessages.InvalidBranchSelection);
+                return IdentityResults.Failure<UserDto>(
+                    ErrorCode.VALIDATION_ERROR,
+                    ErrorMessages.InvalidBranchSelection,
+                    new[] { new ApiErrorDetailDto("branch_ids", ErrorMessages.InvalidBranchSelection) });
             }
 
             UserAccount user;
@@ -129,7 +143,7 @@ public sealed class UserService : IUserService
             catch (Exception exception) when (exception is ArgumentException or IdentityDomainException)
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
-                return IdentityResults.Failure<UserDto>(ErrorCode.VALIDATION_ERROR, exception.Message);
+                return IdentityResults.ValidationFailure<UserDto>(exception);
             }
             await _users.AddAsync(user, ct);
             await _users.ReplaceBranchAccessAsync(organizationId, user.UserId, normalizedRequest.BranchScope == BranchScope.ALL ? Array.Empty<Guid>() : normalizedRequest.BranchIds, ct);
@@ -158,6 +172,16 @@ public sealed class UserService : IUserService
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey)) return IdentityResults.MissingIdempotencyKey<UserDto>();
 
         var idempotencyKey = request.IdempotencyKey.Trim();
+        var validationErrors = new List<ApiErrorDetailDto>();
+        if (idempotencyKey.Length > 100)
+            validationErrors.Add(new ApiErrorDetailDto("idempotency_key", "IdempotencyKey cannot exceed 100 characters."));
+        if (request.Role.HasValue && !Enum.IsDefined(request.Role.Value))
+            validationErrors.Add(new ApiErrorDetailDto("role", "Role must be a valid user role."));
+        if (request.BranchScope.HasValue && !Enum.IsDefined(request.BranchScope.Value))
+            validationErrors.Add(new ApiErrorDetailDto("branch_scope", "BranchScope must be a valid branch scope."));
+        if (validationErrors.Count > 0)
+            return IdentityResults.Failure<UserDto>(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, validationErrors);
+
         var normalizedRequest = request with { IdempotencyKey = idempotencyKey };
         var idempotencyPayload = new { UserId = userId, Request = normalizedRequest };
 
@@ -170,7 +194,19 @@ public sealed class UserService : IUserService
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<UserDto>(ErrorCode.NOT_FOUND, ErrorMessages.UserNotFound);
             }
-            var authorizationResult = _authorizer.AuthorizeUpdate(user, normalizedRequest.Role, normalizedRequest.BranchScope, normalizedRequest.BranchIds, normalizedRequest.IsActive);
+
+            // Support true partial PATCH semantics: omitted fields retain the user's existing values
+            // without clearing existing branch assignments.
+            var effectiveRole = normalizedRequest.Role ?? user.Role;
+            var effectiveScope = normalizedRequest.BranchScope ?? user.BranchScope;
+            var existingBranchIds = user.BranchAccesses.Select(access => access.BranchId).ToArray();
+            var effectiveBranchIds = normalizedRequest.BranchIds is not null
+                ? normalizedRequest.BranchIds
+                : effectiveScope == BranchScope.ALL
+                    ? Array.Empty<Guid>()
+                    : existingBranchIds;
+
+            var authorizationResult = _authorizer.AuthorizeUpdate(user, effectiveRole, effectiveScope, effectiveBranchIds, normalizedRequest.IsActive);
             if (!authorizationResult.IsSuccess)
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
@@ -193,27 +229,35 @@ public sealed class UserService : IUserService
                 return IdentityResults.Failure<UserDto>(ErrorCode.IDEMPOTENCY_MISMATCH, ErrorMessages.IdempotencyMismatch);
             }
 
-            if (!await ValidateBranchesAsync(organizationId, normalizedRequest.BranchScope, normalizedRequest.BranchIds, ct))
+            if (!await ValidateBranchesAsync(organizationId, effectiveScope, effectiveBranchIds, ct))
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
-                return IdentityResults.Failure<UserDto>(ErrorCode.VALIDATION_ERROR, ErrorMessages.InvalidBranchSelection);
+                return IdentityResults.Failure<UserDto>(
+                    ErrorCode.VALIDATION_ERROR,
+                    ErrorMessages.InvalidBranchSelection,
+                    new[] { new ApiErrorDetailDto("branch_ids", ErrorMessages.InvalidBranchSelection) });
             }
 
-            var roleChanged = user.Role != normalizedRequest.Role;
-            var scopeChanged = user.BranchScope != normalizedRequest.BranchScope;
-            var existingBranchIds = user.BranchAccesses.Select(access => access.BranchId).ToHashSet();
-            var requestedBranchIds = normalizedRequest.BranchScope == BranchScope.ALL
+            var roleChanged = user.Role != effectiveRole;
+            var scopeChanged = user.BranchScope != effectiveScope;
+            var existingBranchSet = existingBranchIds.ToHashSet();
+            var requestedBranchIds = effectiveScope == BranchScope.ALL
                 ? new HashSet<Guid>()
-                : normalizedRequest.BranchIds.ToHashSet();
-            var branchesChanged = !existingBranchIds.SetEquals(requestedBranchIds);
+                : effectiveBranchIds.ToHashSet();
+            var branchesChanged = !existingBranchSet.SetEquals(requestedBranchIds);
 
-            try { user.ChangeRoleAndScope(normalizedRequest.Role, normalizedRequest.BranchScope); }
+            try { user.ChangeRoleAndScope(effectiveRole, effectiveScope); }
             catch (Exception exception) when (exception is ArgumentException or IdentityDomainException)
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
-                return IdentityResults.Failure<UserDto>(ErrorCode.VALIDATION_ERROR, exception.Message);
+                return IdentityResults.ValidationFailure<UserDto>(exception);
             }
-            await _users.ReplaceBranchAccessAsync(organizationId, user.UserId, normalizedRequest.BranchScope == BranchScope.ALL ? Array.Empty<Guid>() : normalizedRequest.BranchIds, ct);
+
+            if (branchesChanged || scopeChanged)
+            {
+                await _users.ReplaceBranchAccessAsync(organizationId, user.UserId, effectiveScope == BranchScope.ALL ? Array.Empty<Guid>() : effectiveBranchIds, ct);
+            }
+
             if (normalizedRequest.IsActive.HasValue)
             {
                 user.SetActive(normalizedRequest.IsActive.Value);
@@ -251,6 +295,10 @@ public sealed class UserService : IUserService
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey)) return IdentityResults.MissingIdempotencyKey();
 
         var idempotencyKey = request.IdempotencyKey.Trim();
+        if (idempotencyKey.Length > 100)
+            return IdentityResults.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError,
+                new[] { new ApiErrorDetailDto("idempotency_key", "IdempotencyKey cannot exceed 100 characters.") });
+
         var normalizedRequest = request with { IdempotencyKey = idempotencyKey };
         var idempotencyPayload = new { UserId = userId, Request = normalizedRequest };
 
@@ -308,6 +356,9 @@ public sealed class UserService : IUserService
         if (string.IsNullOrWhiteSpace(idempotencyKey)) return IdentityResults.MissingIdempotencyKey();
 
         var normalizedKey = idempotencyKey.Trim();
+        if (normalizedKey.Length > 100)
+            return IdentityResults.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError,
+                new[] { new ApiErrorDetailDto("idempotency_key", "IdempotencyKey cannot exceed 100 characters.") });
         var idempotencyPayload = new { UserId = userId };
 
         await _unitOfWork.BeginTransactionAsync(ct);

@@ -22,21 +22,38 @@ public sealed class EmployeeService : IEmployeeService
     public async Task<Result<PagedResult<EmployeeDto>>> GetPagedAsync(Guid? branchId, bool includeInactive, string? search, int page, int pageSize, CancellationToken ct = default)
     {
         if (_tenant.OrganizationId is not Guid organizationId) return IdentityResults.Failure<PagedResult<EmployeeDto>>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
-        if (page < 1 || pageSize is < 1 or > 200) return IdentityResults.Failure<PagedResult<EmployeeDto>>(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError);
+        var pageErrors = IdentityResults.ValidatePagination(page, pageSize);
+        if (pageErrors.Count > 0) return IdentityResults.Failure<PagedResult<EmployeeDto>>(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, pageErrors);
+
+        if (branchId.HasValue)
+        {
+            if (branchId.Value == Guid.Empty)
+                return IdentityResults.Failure<PagedResult<EmployeeDto>>(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError,
+                    new[] { new ApiErrorDetailDto("branch_id", "BranchId cannot be empty.") });
+
+            if (!_currentUser.CanAccessBranch(branchId.Value))
+                return IdentityResults.Failure<PagedResult<EmployeeDto>>(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
+        }
+
+        IReadOnlyCollection<Guid>? authorizedBranchFilter = null;
         if (!branchId.HasValue && !IsAllBranchAdmin())
         {
-            if (_currentUser.AuthorizedBranchIds.Count != 1)
+            if (_currentUser.AuthorizedBranchIds.Count == 0)
                 return IdentityResults.Failure<PagedResult<EmployeeDto>>(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
-            branchId = _currentUser.AuthorizedBranchIds.Single();
+
+            if (_currentUser.AuthorizedBranchIds.Count == 1)
+                branchId = _currentUser.AuthorizedBranchIds.Single();
+            else
+                authorizedBranchFilter = _currentUser.AuthorizedBranchIds;
         }
-        if (branchId.HasValue && !_currentUser.CanAccessBranch(branchId.Value))
-            return IdentityResults.Failure<PagedResult<EmployeeDto>>(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
 
         // Explicit read transaction binds the tenant GUC for PostgreSQL FORCE ROW LEVEL SECURITY.
         await _unitOfWork.BeginTransactionAsync(ct);
         try
         {
-            var pagedEmployees = await _employees.GetPagedAsync(organizationId, branchId, includeInactive, search, page, pageSize, ct);
+            var pagedEmployees = authorizedBranchFilter is not null
+                ? await _employees.GetPagedByBranchIdsAsync(organizationId, authorizedBranchFilter, includeInactive, search, page, pageSize, ct)
+                : await _employees.GetPagedAsync(organizationId, branchId, includeInactive, search, page, pageSize, ct);
             await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
             return Result<PagedResult<EmployeeDto>>.Success(new PagedResult<EmployeeDto>(pagedEmployees.Items.Select(EmployeeDtoMapper.From).ToArray(), page, pageSize, pagedEmployees.TotalCount));
         }
@@ -62,10 +79,19 @@ public sealed class EmployeeService : IEmployeeService
     {
         if (!IsAdmin()) return IdentityResults.Failure<EmployeeDto>(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
         if (_tenant.OrganizationId is not Guid organizationId) return IdentityResults.Failure<EmployeeDto>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
-        if (!_currentUser.CanAccessBranch(request.BranchId)) return IdentityResults.Failure<EmployeeDto>(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey)) return IdentityResults.MissingIdempotencyKey<EmployeeDto>();
 
         var idempotencyKey = request.IdempotencyKey.Trim();
+        var validationErrors = new List<ApiErrorDetailDto>();
+        if (idempotencyKey.Length > 100)
+            validationErrors.Add(new ApiErrorDetailDto("idempotency_key", "IdempotencyKey cannot exceed 100 characters."));
+        if (request.BranchId == Guid.Empty)
+            validationErrors.Add(new ApiErrorDetailDto("branch_id", "BranchId is required."));
+        if (validationErrors.Count > 0)
+            return IdentityResults.Failure<EmployeeDto>(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, validationErrors);
+
+        if (!_currentUser.CanAccessBranch(request.BranchId)) return IdentityResults.Failure<EmployeeDto>(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
+
         var normalizedRequest = request with { IdempotencyKey = idempotencyKey };
 
         await _unitOfWork.BeginTransactionAsync(ct);
@@ -103,7 +129,7 @@ public sealed class EmployeeService : IEmployeeService
             catch (Exception exception) when (exception is ArgumentException or IdentityDomainException)
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
-                return IdentityResults.Failure<EmployeeDto>(ErrorCode.VALIDATION_ERROR, exception.Message);
+                return IdentityResults.ValidationFailure<EmployeeDto>(exception);
             }
             await _employees.AddAsync(employee, ct);
             await _audit.LogAsync("employee.created", "identity", "EMPLOYEE", employee.EmployeeId, null,
@@ -126,6 +152,16 @@ public sealed class EmployeeService : IEmployeeService
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey)) return IdentityResults.MissingIdempotencyKey<EmployeeDto>();
 
         var idempotencyKey = request.IdempotencyKey.Trim();
+        var validationErrors = new List<ApiErrorDetailDto>();
+        if (idempotencyKey.Length > 100)
+            validationErrors.Add(new ApiErrorDetailDto("idempotency_key", "IdempotencyKey cannot exceed 100 characters."));
+        if (request.FullName is not null && string.IsNullOrWhiteSpace(request.FullName))
+            validationErrors.Add(new ApiErrorDetailDto("full_name", "FullName cannot be empty."));
+        if (request.JobTitle is not null && string.IsNullOrWhiteSpace(request.JobTitle))
+            validationErrors.Add(new ApiErrorDetailDto("job_title", "JobTitle cannot be empty."));
+        if (validationErrors.Count > 0)
+            return IdentityResults.Failure<EmployeeDto>(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, validationErrors);
+
         var normalizedRequest = request with { IdempotencyKey = idempotencyKey };
         var idempotencyPayload = new { EmployeeId = employeeId, Request = normalizedRequest };
 
@@ -160,11 +196,28 @@ public sealed class EmployeeService : IEmployeeService
                 return IdentityResults.Failure<EmployeeDto>(ErrorCode.IDEMPOTENCY_MISMATCH, ErrorMessages.IdempotencyMismatch);
             }
 
-            try { employee.UpdateDetails(normalizedRequest.FullName, normalizedRequest.Email, normalizedRequest.Phone, normalizedRequest.JobTitle, normalizedRequest.Address.ToValueObject()); }
-            catch (Exception exception) when (exception is ArgumentException or IdentityDomainException)
+            var hasDetailUpdates = normalizedRequest.FullName is not null
+                || normalizedRequest.Email is not null
+                || normalizedRequest.Phone is not null
+                || normalizedRequest.JobTitle is not null
+                || normalizedRequest.Address is not null;
+
+            if (hasDetailUpdates)
             {
-                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
-                return IdentityResults.Failure<EmployeeDto>(ErrorCode.VALIDATION_ERROR, exception.Message);
+                try
+                {
+                    employee.UpdateDetails(
+                        normalizedRequest.FullName ?? employee.FullName,
+                        normalizedRequest.Email ?? employee.Email,
+                        normalizedRequest.Phone ?? employee.Phone,
+                        normalizedRequest.JobTitle ?? employee.JobTitle,
+                        normalizedRequest.Address?.ToValueObject() ?? employee.Address);
+                }
+                catch (Exception exception) when (exception is ArgumentException or IdentityDomainException)
+                {
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                    return IdentityResults.ValidationFailure<EmployeeDto>(exception);
+                }
             }
             if (normalizedRequest.IsActive.HasValue) employee.SetActive(normalizedRequest.IsActive.Value);
             await _audit.LogAsync("employee.updated", "identity", "EMPLOYEE", employee.EmployeeId, null,

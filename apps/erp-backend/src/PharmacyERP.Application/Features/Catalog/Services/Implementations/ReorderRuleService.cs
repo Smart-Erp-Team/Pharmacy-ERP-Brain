@@ -85,7 +85,7 @@ public class ReorderRuleService : IReorderRuleService
             return Result<ReorderRuleDto>.Failure(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
 
         if (!IsCloudRuntimeMode())
-            return Result<ReorderRuleDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
+            return Result<ReorderRuleDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.CloudOnlyOperationUnavailable);
 
         if (!IsAuthorizedForWrite())
             return Result<ReorderRuleDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);

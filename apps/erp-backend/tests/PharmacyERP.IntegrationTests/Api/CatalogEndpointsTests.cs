@@ -3492,8 +3492,15 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         Assert.NotNull(deactBaseErr);
         Assert.Equal("VALIDATION_ERROR", deactBaseErr!.Error.Code);
 
-        // 5. Verify via GET /api/v1/products/{id}/uoms that secondary UOM is inactive and base UOM remains active
-        var listResp = await client.GetAsync($"/api/v1/products/{prod.ProductId}/uoms");
+        // 5. Verify default GET /api/v1/products/{id}/uoms returns only active UOMs, and ?include_inactive=true includes the deactivated secondary UOM
+        var activeListResp = await client.GetAsync($"/api/v1/products/{prod.ProductId}/uoms");
+        Assert.Equal(HttpStatusCode.OK, activeListResp.StatusCode);
+        var activeUoms = (await activeListResp.Content.ReadFromJsonAsync<IReadOnlyList<ProductUomDto>>(JsonOptions))!;
+        Assert.Single(activeUoms);
+        Assert.Equal(baseUom.ProductUomId, activeUoms[0].ProductUomId);
+        Assert.True(activeUoms[0].IsActive);
+
+        var listResp = await client.GetAsync($"/api/v1/products/{prod.ProductId}/uoms?include_inactive=true");
         Assert.Equal(HttpStatusCode.OK, listResp.StatusCode);
         var uoms = (await listResp.Content.ReadFromJsonAsync<IReadOnlyList<ProductUomDto>>(JsonOptions))!;
         Assert.Equal(2, uoms.Count);

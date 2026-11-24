@@ -123,7 +123,7 @@ public class ProductService : IProductService
             return Result<ProductDto>.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
 
         if (!IsCloudRuntimeMode())
-            return Result<ProductDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
+            return Result<ProductDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.CloudOnlyOperationUnavailable);
 
         if (!IsAuthorizedForWrite())
             return Result<ProductDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
@@ -251,7 +251,7 @@ public class ProductService : IProductService
             return Result<ProductDto>.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
 
         if (!IsCloudRuntimeMode())
-            return Result<ProductDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
+            return Result<ProductDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.CloudOnlyOperationUnavailable);
 
         if (!IsAuthorizedForWrite())
             return Result<ProductDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);

@@ -18,6 +18,18 @@ public sealed record LoginResponse(string AccessToken, DateTimeOffset AccessToke
 
 public static class CurrentUserDtoMapper
 {
-    public static CurrentUserDto From(UserAccount user, IReadOnlyCollection<Guid> branchIds, IReadOnlyCollection<string> scopes)
-        => new(user.UserId, user.EmployeeId, user.OrganizationId, user.Username, user.Role.ToString(), user.BranchScope.ToString(), branchIds, scopes);
+    public static CurrentUserDto From(
+        UserAccount user,
+        IReadOnlyCollection<Guid> branchIds,
+        IReadOnlyCollection<string> scopes,
+        string? effectiveBranchScope = null)
+        => new(
+            user.UserId,
+            user.EmployeeId,
+            user.OrganizationId,
+            user.Username,
+            user.Role.ToString(),
+            effectiveBranchScope ?? user.BranchScope.ToString(),
+            branchIds,
+            scopes);
 }

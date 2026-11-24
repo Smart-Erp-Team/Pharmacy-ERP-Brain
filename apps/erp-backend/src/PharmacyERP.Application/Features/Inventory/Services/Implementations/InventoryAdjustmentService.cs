@@ -61,12 +61,12 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
 
     public async Task<Result<InventoryTxnDto>> PostAdjustmentAsync(CreateInventoryAdjustmentRequest request, CancellationToken ct = default)
     {
-        var validation = InventoryAdjustmentValidators.ValidateAdjustment(request);
-        if (!validation.IsValid)
-            return Result<InventoryTxnDto>.Failure(ErrorCode.VALIDATION_ERROR, validation.ErrorMessage!);
+        var validationErrors = InventoryAdjustmentValidators.ValidateAdjustment(request);
+        if (validationErrors.Count > 0)
+            return Result<InventoryTxnDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, validationErrors);
 
         if (_runtimeMode.CurrentMode == ErpRuntimeMode.Cloud)
-            return Result<InventoryTxnDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.CloudStockMutationForbidden);
+            return Result<InventoryTxnDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.CloudStockMutationForbidden);
 
         if (!_tenantContext.OrganizationId.HasValue || _tenantContext.OrganizationId.Value == Guid.Empty
             || !_currentUser.EmployeeId.HasValue || _currentUser.EmployeeId.Value == Guid.Empty)
@@ -75,8 +75,9 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
         if (!_currentUser.CanAccessBranch(request.BranchId))
             return Result<InventoryTxnDto>.Failure(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
 
-        if (request.TransactionType == InventoryTransactionType.OPENING_BALANCE
-            && !string.Equals(_currentUser.Role, UserRole.Admin.ToString(), StringComparison.Ordinal))
+        // Blueprint §9.1: both Admin and Pharmacist are permitted on inventory adjustments and opening balances; Cashier is denied.
+        if (!string.Equals(_currentUser.Role, UserRole.Admin.ToString(), StringComparison.Ordinal)
+            && !string.Equals(_currentUser.Role, UserRole.Pharmacist.ToString(), StringComparison.Ordinal))
             return Result<InventoryTxnDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
 
         Guid organizationId = _tenantContext.OrganizationId.Value;
@@ -286,14 +287,15 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
         CancellationToken cancellationToken)
     {
         // Batch-fetch all reference entities BEFORE acquiring exclusive STOCK_BALANCE FOR UPDATE locks.
-        var distinctLocationIds = request.Lines.Select(line => line.LocationId).Distinct().ToArray();
+        var requestedLines = request.Lines!;
+        var distinctLocationIds = requestedLines.Select(line => line.LocationId).Distinct().ToArray();
         var locationsById = (await _locationRepo.GetByIdsAsync(organizationId, request.BranchId, distinctLocationIds, cancellationToken))
             .ToDictionary(location => location.LocationId);
 
         Dictionary<Guid, Product>? productsById = null;
         if (_productRepo != null)
         {
-            var distinctProductIds = request.Lines.Select(line => line.ProductId).Distinct().ToArray();
+            var distinctProductIds = requestedLines.Select(line => line.ProductId).Distinct().ToArray();
             productsById = (await _productRepo.GetByIdsAsync(organizationId, distinctProductIds, cancellationToken))
                 .ToDictionary(product => product.ProductId);
         }
@@ -302,7 +304,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
         Dictionary<Guid, Guid>? baseUomIdsByProductId = null;
         if (_productUomRepo != null)
         {
-            var distinctUomIds = request.Lines.Select(line => line.ProductUomId).Distinct().ToArray();
+            var distinctUomIds = requestedLines.Select(line => line.ProductUomId).Distinct().ToArray();
             var fetchedUoms = await _productUomRepo.GetByIdsAsync(organizationId, distinctUomIds, cancellationToken);
             uomsByKey = fetchedUoms.ToDictionary(uom => (uom.ProductId, uom.ProductUomId));
 
@@ -313,7 +315,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                 .GroupBy(uom => uom.ProductId)
                 .ToDictionary(group => group.Key, group => group.First().ProductUomId);
 
-            var productIdsNeedingBaseUom = request.Lines
+            var productIdsNeedingBaseUom = requestedLines
                 .Select(line => line.ProductId)
                 .Distinct()
                 .Where(productId => !baseUomIdsByProductId.ContainsKey(productId))
@@ -333,11 +335,12 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
             }
         }
 
-        var batchRequests = new List<(Guid ProductId, string BatchNumber, DateOnly? ExpiresOn, DateOnly? ManufacturedOn)>(request.Lines.Count);
-        var validatedLines = new List<(CreateInventoryAdjustmentLineRequest LineRequest, Guid ComputedBatchId, Guid BaseProductUomId, decimal ConversionFactor)>(request.Lines.Count);
+        var batchRequests = new List<(Guid ProductId, string BatchNumber, DateOnly? ExpiresOn, DateOnly? ManufacturedOn)>(requestedLines.Count);
+        var validatedLines = new List<(CreateInventoryAdjustmentLineRequest LineRequest, Guid ComputedBatchId, Guid BaseProductUomId, decimal ConversionFactor)>(requestedLines.Count);
 
-        foreach (var lineRequest in request.Lines)
+        for (int lineIndex = 0; lineIndex < requestedLines.Count; lineIndex++)
         {
+            var lineRequest = requestedLines[lineIndex];
             if (!locationsById.TryGetValue(lineRequest.LocationId, out var location) || !location.IsActive)
             {
                 return Result<InventoryTxnDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.LocationNotFound);
@@ -357,19 +360,28 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                 {
                     if (isNonLotInput)
                     {
-                        return Result<InventoryTxnDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.NonLotMisuse);
+                        return Result<InventoryTxnDto>.Failure(
+                            ErrorCode.VALIDATION_ERROR,
+                            ErrorMessages.NonLotMisuse,
+                            new[] { new ApiErrorDetailDto($"lines[{lineIndex}].batch_number", ErrorMessages.NonLotMisuse) });
                     }
 
                     if (!lineRequest.ExpiresOn.HasValue)
                     {
-                        return Result<InventoryTxnDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.InvalidBatchDates);
+                        return Result<InventoryTxnDto>.Failure(
+                            ErrorCode.VALIDATION_ERROR,
+                            ErrorMessages.InvalidBatchDates,
+                            new[] { new ApiErrorDetailDto($"lines[{lineIndex}].expires_on", ErrorMessages.InvalidBatchDates) });
                     }
                 }
                 else
                 {
                     if (!isNonLotInput || lineRequest.ExpiresOn.HasValue)
                     {
-                        return Result<InventoryTxnDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.NonLotMisuse);
+                        return Result<InventoryTxnDto>.Failure(
+                            ErrorCode.VALIDATION_ERROR,
+                            ErrorMessages.NonLotMisuse,
+                            new[] { new ApiErrorDetailDto($"lines[{lineIndex}].batch_number", ErrorMessages.NonLotMisuse) });
                     }
                 }
             }

@@ -88,7 +88,7 @@ public static class DependencyInjection
                         .Where(entry => entry.Value != null && entry.Value.Errors.Count > 0)
                         .SelectMany(entry => entry.Value!.Errors.Select(modelError =>
                             new ApiErrorDetailDto(
-                                entry.Key,
+                                NormalizeModelStateFieldName(entry.Key),
                                 !string.IsNullOrWhiteSpace(modelError.ErrorMessage)
                                     ? modelError.ErrorMessage
                                     : isMalformedRequest
@@ -206,8 +206,59 @@ public static class DependencyInjection
         services.AddSwaggerGen(options =>
         {
             options.SwaggerDoc("v1", new OpenApiInfo { Title = "Pharmacy ERP API", Version = "v1" });
+            options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+            {
+                Type = SecuritySchemeType.Http,
+                Scheme = "bearer",
+                BearerFormat = "JWT",
+                In = ParameterLocation.Header,
+                Name = "Authorization",
+                Description = "Enter a valid RS256 JWT access token."
+            });
+            options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
+            {
+                [new OpenApiSecuritySchemeReference("Bearer", document)] = []
+            });
         });
         return services;
+    }
+
+    private static string NormalizeModelStateFieldName(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key) || string.Equals(key, "$", StringComparison.Ordinal))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = key.StartsWith("$.", StringComparison.Ordinal)
+            ? key[2..]
+            : key;
+
+        if (trimmed.StartsWith("request.", StringComparison.OrdinalIgnoreCase))
+        {
+            trimmed = trimmed["request.".Length..];
+        }
+
+        var segments = trimmed.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < segments.Length; i++)
+        {
+            var segment = segments[i];
+            var bracketIndex = segment.IndexOf('[');
+            if (bracketIndex >= 0)
+            {
+                var namePart = segment[..bracketIndex];
+                var indexPart = segment[bracketIndex..];
+                segments[i] = string.IsNullOrEmpty(namePart)
+                    ? indexPart
+                    : JsonNamingPolicy.SnakeCaseLower.ConvertName(namePart) + indexPart;
+            }
+            else
+            {
+                segments[i] = JsonNamingPolicy.SnakeCaseLower.ConvertName(segment);
+            }
+        }
+
+        return string.Join('.', segments);
     }
 
     private static bool IsMalformedJsonOrProtocolRequest(ModelStateDictionary modelState)

@@ -9,7 +9,7 @@ public sealed record CreateProductCategoryRequest(
 
 public sealed record UpdateProductCategoryRequest(
     Guid? ParentCategoryId,
-    string Name,
+    string? Name,
     string? Description,
     bool? IsActive,
     string IdempotencyKey);

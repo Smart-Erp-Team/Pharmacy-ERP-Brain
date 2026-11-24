@@ -13,9 +13,9 @@ public sealed record CreateUserRequest
 
 public sealed record UpdateUserRequest
 {
-    public UserRole Role { get; init; }
-    public BranchScope BranchScope { get; init; }
-    public IReadOnlyCollection<Guid> BranchIds { get; init; } = Array.Empty<Guid>();
+    public UserRole? Role { get; init; }
+    public BranchScope? BranchScope { get; init; }
+    public IReadOnlyCollection<Guid>? BranchIds { get; init; }
     public bool? IsActive { get; init; }
     public string? IdempotencyKey { get; init; }
 }

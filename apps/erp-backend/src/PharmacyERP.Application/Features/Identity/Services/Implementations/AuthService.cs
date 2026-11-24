@@ -238,11 +238,15 @@ public sealed class AuthService : IAuthService
             now.Add(RefreshLifetime));
         await _tokens.AddAsync(refreshTokenEntity, cancellationToken);
 
-        var effectiveBranchIds = _runtimeMode.CurrentMode == ErpRuntimeMode.BranchLocal && _runtimeMode.EnrolledBranchId is Guid enrolledBranchId
+        var isBranchLocal = _runtimeMode.CurrentMode == ErpRuntimeMode.BranchLocal;
+        var effectiveBranchIds = isBranchLocal && _runtimeMode.EnrolledBranchId is Guid enrolledBranchId
             ? new[] { enrolledBranchId }
             : authorizedBranchIds;
+        var effectiveBranchScope = isBranchLocal
+            ? BranchScope.ASSIGNED.ToString()
+            : user.BranchScope.ToString();
         return new LoginResponse(accessTokenResult.Token, accessTokenResult.ExpiresAt, refreshTokenText,
-            CurrentUserDtoMapper.From(user, effectiveBranchIds, ScopeNames(user.Role)));
+            CurrentUserDtoMapper.From(user, effectiveBranchIds, ScopeNames(user.Role), effectiveBranchScope));
     }
 
     private bool IsAuthorizedForCurrentRuntimeMode(UserAccount user)

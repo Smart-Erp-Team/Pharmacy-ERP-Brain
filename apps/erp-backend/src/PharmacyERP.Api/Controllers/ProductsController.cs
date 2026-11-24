@@ -94,9 +94,12 @@ public sealed class ProductsController : ControllerBase
 
     [Authorize(Roles = "Admin,Pharmacist,Cashier")]
     [HttpGet("{id:guid}/uoms")]
-    public async Task<IActionResult> GetProductUoms(Guid id, CancellationToken ct = default)
+    public async Task<IActionResult> GetProductUoms(
+        Guid id,
+        [FromQuery(Name = "include_inactive")] bool includeInactive = false,
+        CancellationToken ct = default)
     {
-        var result = await _uomService.GetProductUomsAsync(id, ct);
+        var result = await _uomService.GetProductUomsAsync(id, includeInactive, ct);
         return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
     }
 

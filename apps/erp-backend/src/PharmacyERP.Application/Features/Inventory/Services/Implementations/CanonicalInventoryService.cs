@@ -12,6 +12,7 @@ public class CanonicalInventoryService : ICanonicalInventoryService
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly ITenantContext _tenantContext;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IOrganizationRepository? _organizationRepository;
 
     public CanonicalInventoryService(
         ICurrentUser currentUser,
@@ -19,7 +20,8 @@ public class CanonicalInventoryService : ICanonicalInventoryService
         IBranchRepository branchRepository,
         IDateTimeProvider dateTimeProvider,
         ITenantContext tenantContext,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IOrganizationRepository? organizationRepository = null)
     {
         _currentUser = currentUser;
         _stockBalanceRepository = stockBalanceRepository;
@@ -27,6 +29,7 @@ public class CanonicalInventoryService : ICanonicalInventoryService
         _dateTimeProvider = dateTimeProvider;
         _tenantContext = tenantContext;
         _unitOfWork = unitOfWork;
+        _organizationRepository = organizationRepository;
     }
 
     public async Task<Result<PagedResult<CanonicalInventoryItemDto>>> GetCanonicalInventoryAsync(
@@ -57,7 +60,8 @@ public class CanonicalInventoryService : ICanonicalInventoryService
         {
             return Result<PagedResult<CanonicalInventoryItemDto>>.Failure(
                 ErrorCode.VALIDATION_ERROR,
-                ErrorMessages.InvalidBranchId);
+                ErrorMessages.InvalidBranchId,
+                new[] { new ApiErrorDetailDto("branch_id", ErrorMessages.InvalidBranchId) });
         }
 
         var resolvedPageSize = pageSize <= 0 ? 100 : Math.Min(pageSize, 1000);
@@ -89,7 +93,11 @@ public class CanonicalInventoryService : ICanonicalInventoryService
                     ErrorMessages.ForbiddenBranchAccess);
             }
 
-            var businessDate = _dateTimeProvider.GetOrganizationBusinessDate("UTC");
+            var organization = _organizationRepository is not null
+                ? await _organizationRepository.GetByIdAsync(tenantOrganizationId, ct)
+                : null;
+            var timeZoneId = string.IsNullOrWhiteSpace(organization?.TimeZoneId) ? "UTC" : organization.TimeZoneId;
+            var businessDate = _dateTimeProvider.GetOrganizationBusinessDate(timeZoneId);
 
             var (balances, totalGroups, hasMore) = await _stockBalanceRepository.GetCanonicalInventoryPageAsync(
                 tenantOrganizationId, branchId, productId, updatedSince, offset, resolvedPageSize, ct);

@@ -15,11 +15,11 @@ public sealed record CreateEmployeeRequest
 
 public sealed record UpdateEmployeeRequest
 {
-    [Required, StringLength(150)] public string FullName { get; init; } = string.Empty;
+    [StringLength(150)] public string? FullName { get; init; }
     [EmailAddress, StringLength(254)] public string? Email { get; init; }
     [StringLength(30)] public string? Phone { get; init; }
-    [Required, StringLength(80)] public string JobTitle { get; init; } = string.Empty;
-    [Required] public AddressDto Address { get; init; } = new();
+    [StringLength(80)] public string? JobTitle { get; init; }
+    public AddressDto? Address { get; init; }
     public bool? IsActive { get; init; }
     public string? IdempotencyKey { get; init; }
 }

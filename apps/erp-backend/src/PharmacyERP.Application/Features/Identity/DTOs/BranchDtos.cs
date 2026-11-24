@@ -10,8 +10,8 @@ public sealed record CreateBranchRequest
 
 public sealed record UpdateBranchRequest
 {
-    [Required, StringLength(150)] public string Name { get; init; } = string.Empty;
-    [Required] public AddressDto Address { get; init; } = new();
+    [StringLength(150)] public string? Name { get; init; }
+    public AddressDto? Address { get; init; }
     public bool? IsActive { get; init; }
     public string? IdempotencyKey { get; init; }
 }

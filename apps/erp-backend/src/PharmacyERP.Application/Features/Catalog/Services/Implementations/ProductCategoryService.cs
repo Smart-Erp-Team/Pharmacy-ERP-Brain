@@ -113,7 +113,7 @@ public class ProductCategoryService : IProductCategoryService
             return Result<ProductCategoryDto>.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
 
         if (!IsCloudRuntimeMode())
-            return Result<ProductCategoryDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
+            return Result<ProductCategoryDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.CloudOnlyOperationUnavailable);
 
         if (!IsAuthorizedForWrite())
             return Result<ProductCategoryDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
@@ -188,7 +188,7 @@ public class ProductCategoryService : IProductCategoryService
             return Result<ProductCategoryDto>.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
 
         if (!IsCloudRuntimeMode())
-            return Result<ProductCategoryDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
+            return Result<ProductCategoryDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.CloudOnlyOperationUnavailable);
 
         if (!IsAuthorizedForWrite())
             return Result<ProductCategoryDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
@@ -232,7 +232,10 @@ public class ProductCategoryService : IProductCategoryService
                 if (request.ParentCategoryId.Value == categoryId)
                 {
                     await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
-                    return Result<ProductCategoryDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.CategorySelfParent);
+                    return Result<ProductCategoryDto>.Failure(
+                        ErrorCode.VALIDATION_ERROR,
+                        ErrorMessages.CategorySelfParent,
+                        new[] { new ApiErrorDetailDto("parent_category_id", ErrorMessages.CategorySelfParent) });
                 }
 
                 var parentExistsAndActive = await _categoryRepository.ExistsAndActiveAsync(orgId, request.ParentCategoryId.Value, ct);
@@ -243,7 +246,12 @@ public class ProductCategoryService : IProductCategoryService
                 }
             }
 
-            category.UpdateDetails(request.Name, request.Description, request.ParentCategoryId);
+            // Support true partial PATCH semantics: omitted fields retain existing category attributes
+            // so patching e.g. { "is_active": false } does not clear parent_category_id or description.
+            category.UpdateDetails(
+                request.Name ?? category.Name,
+                request.Description ?? category.Description,
+                request.ParentCategoryId ?? category.ParentCategoryId);
 
             if (request.IsActive.HasValue)
             {

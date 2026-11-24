@@ -35,6 +35,9 @@ internal sealed class IdentityApiTestStore
 
     private sealed class OrganizationRepository(IdentityApiTestStore store) : IOrganizationRepository
     {
+        public Task<Organization?> GetByIdAsync(Guid organizationId, CancellationToken ct = default)
+            => Task.FromResult(store.Organizations.FirstOrDefault(x => x.OrganizationId == organizationId));
+
         public Task<Organization?> GetActiveByCodeAsync(string organizationCode, CancellationToken ct = default)
             => Task.FromResult(store.Organizations.FirstOrDefault(x => x.IsActive &&
                 string.Equals(x.OrganizationCode, organizationCode.Trim(), StringComparison.OrdinalIgnoreCase)));
@@ -117,6 +120,17 @@ internal sealed class IdentityApiTestStore
         {
             var query = store.Employees.Where(x => x.OrganizationId == organizationId);
             if (branchId.HasValue) query = query.Where(x => x.BranchId == branchId.Value);
+            if (!includeInactive) query = query.Where(x => x.IsActive);
+            if (!string.IsNullOrWhiteSpace(search))
+                query = query.Where(x => x.FullName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                    x.EmployeeNo.Contains(search, StringComparison.OrdinalIgnoreCase));
+            return Task.FromResult(Page(query.OrderBy(x => x.FullName).ThenBy(x => x.EmployeeId), page, pageSize));
+        }
+
+        public Task<PagedResult<Employee>> GetPagedByBranchIdsAsync(Guid organizationId, IReadOnlyCollection<Guid> branchIds, bool includeInactive,
+            string? search, int page, int pageSize, CancellationToken ct = default)
+        {
+            var query = store.Employees.Where(x => x.OrganizationId == organizationId && branchIds.Contains(x.BranchId));
             if (!includeInactive) query = query.Where(x => x.IsActive);
             if (!string.IsNullOrWhiteSpace(search))
                 query = query.Where(x => x.FullName.Contains(search, StringComparison.OrdinalIgnoreCase) ||

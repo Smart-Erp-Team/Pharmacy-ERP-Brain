@@ -40,6 +40,12 @@ public sealed class OrganizationProvisioningService : IOrganizationProvisioningS
             return IdentityResults.MissingIdempotencyKey<OrganizationDto>();
 
         var idempotencyKey = request.IdempotencyKey.Trim();
+        if (idempotencyKey.Length > 100)
+            return IdentityResults.Failure<OrganizationDto>(
+                ErrorCode.VALIDATION_ERROR,
+                ErrorMessages.ValidationError,
+                new[] { new ApiErrorDetailDto("idempotency_key", "IdempotencyKey cannot exceed 100 characters.") });
+
         var normalizedRequest = request with { IdempotencyKey = idempotencyKey };
 
         Organization organization;
@@ -59,7 +65,7 @@ public sealed class OrganizationProvisioningService : IOrganizationProvisioningS
         }
         catch (Exception exception) when (exception is ArgumentException or PharmacyERP.Domain.Exceptions.IdentityDomainException)
         {
-            return IdentityResults.Failure<OrganizationDto>(ErrorCode.VALIDATION_ERROR, exception.Message);
+            return IdentityResults.ValidationFailure<OrganizationDto>(exception);
         }
 
         try
@@ -139,6 +145,25 @@ internal static class IdentityResults
     public static Result Failure(ErrorCode code, string message, IReadOnlyList<ApiErrorDetailDto>? details = null)
         => Result.Failure(code, message, details);
 
+    public static Result<T> ValidationFailure<T>(Exception exception)
+    {
+        var field = ResolveFieldName(exception);
+        return Result<T>.Failure(
+            ErrorCode.VALIDATION_ERROR,
+            exception.Message,
+            new[] { new ApiErrorDetailDto(field, exception.Message) });
+    }
+
+    public static IReadOnlyList<ApiErrorDetailDto> ValidatePagination(int page, int pageSize)
+    {
+        var errors = new List<ApiErrorDetailDto>();
+        if (page < 1)
+            errors.Add(new ApiErrorDetailDto("page", "Page must be at least 1."));
+        if (pageSize is < 1 or > 200)
+            errors.Add(new ApiErrorDetailDto("page_size", "PageSize must be between 1 and 200."));
+        return errors;
+    }
+
     public static Result<T> MissingIdempotencyKey<T>()
         => Result<T>.Failure(
             ErrorCode.MALFORMED_REQUEST,
@@ -150,4 +175,25 @@ internal static class IdentityResults
             ErrorCode.MALFORMED_REQUEST,
             ErrorMessages.MalformedRequest,
             new[] { new ApiErrorDetailDto("Idempotency-Key", ErrorMessages.InvalidIdempotencyKey) });
+
+    private static string ResolveFieldName(Exception exception)
+    {
+        if (exception is InvalidBranchScopeForRoleException)
+        {
+            return "branch_scope";
+        }
+
+        if (exception is ArgumentException argumentException && !string.IsNullOrWhiteSpace(argumentException.ParamName))
+        {
+            var paramName = argumentException.ParamName;
+            if (string.Equals(paramName, "scope", StringComparison.OrdinalIgnoreCase))
+            {
+                return "branch_scope";
+            }
+
+            return JsonNamingPolicy.SnakeCaseLower.ConvertName(paramName);
+        }
+
+        return "request";
+    }
 }

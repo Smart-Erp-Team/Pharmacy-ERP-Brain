@@ -7,47 +7,49 @@ public static class CreateProductRequestValidator
         var errors = new List<ApiErrorDetailDto>();
 
         if (request.CategoryId == Guid.Empty)
-            errors.Add(new ApiErrorDetailDto("CategoryId", "CategoryId cannot be empty."));
+            errors.Add(new ApiErrorDetailDto("category_id", "CategoryId cannot be empty."));
 
         if (string.IsNullOrWhiteSpace(request.Sku))
-            errors.Add(new ApiErrorDetailDto("Sku", "Sku is required."));
+            errors.Add(new ApiErrorDetailDto("sku", "Sku is required."));
         else if (request.Sku.Length > 40)
-            errors.Add(new ApiErrorDetailDto("Sku", "Sku cannot exceed 40 characters."));
+            errors.Add(new ApiErrorDetailDto("sku", "Sku cannot exceed 40 characters."));
 
         if (request.Barcode != null && request.Barcode.Length > 80)
-            errors.Add(new ApiErrorDetailDto("Barcode", "Barcode cannot exceed 80 characters."));
+            errors.Add(new ApiErrorDetailDto("barcode", "Barcode cannot exceed 80 characters."));
 
         if (string.IsNullOrWhiteSpace(request.Name))
-            errors.Add(new ApiErrorDetailDto("Name", "Name is required."));
+            errors.Add(new ApiErrorDetailDto("name", "Name is required."));
         else if (request.Name.Length > 180)
-            errors.Add(new ApiErrorDetailDto("Name", "Name cannot exceed 180 characters."));
+            errors.Add(new ApiErrorDetailDto("name", "Name cannot exceed 180 characters."));
 
         if (request.GenericName != null && request.GenericName.Length > 180)
-            errors.Add(new ApiErrorDetailDto("GenericName", "GenericName cannot exceed 180 characters."));
+            errors.Add(new ApiErrorDetailDto("generic_name", "GenericName cannot exceed 180 characters."));
 
         if (request.BrandName != null && request.BrandName.Length > 180)
-            errors.Add(new ApiErrorDetailDto("BrandName", "BrandName cannot exceed 180 characters."));
+            errors.Add(new ApiErrorDetailDto("brand_name", "BrandName cannot exceed 180 characters."));
 
         if (string.IsNullOrWhiteSpace(request.BaseUomCode))
-            errors.Add(new ApiErrorDetailDto("BaseUomCode", "BaseUomCode is required."));
+            errors.Add(new ApiErrorDetailDto("base_uom_code", "BaseUomCode is required."));
         else if (request.BaseUomCode.Length > 20)
-            errors.Add(new ApiErrorDetailDto("BaseUomCode", "BaseUomCode cannot exceed 20 characters."));
+            errors.Add(new ApiErrorDetailDto("base_uom_code", "BaseUomCode cannot exceed 20 characters."));
 
         if (request.TaxRate < 0m || request.TaxRate > 1m)
-            errors.Add(new ApiErrorDetailDto("TaxRate", "TaxRate must be between 0.0 and 1.0."));
+            errors.Add(new ApiErrorDetailDto("tax_rate", "TaxRate must be between 0.0 and 1.0."));
 
         if (request.ImageUrl != null && request.ImageUrl.Length > 300)
-            errors.Add(new ApiErrorDetailDto("ImageUrl", "ImageUrl cannot exceed 300 characters."));
+            errors.Add(new ApiErrorDetailDto("image_url", "ImageUrl cannot exceed 300 characters."));
 
         if (request.ExpiryAlertDays < 0)
-            errors.Add(new ApiErrorDetailDto("ExpiryAlertDays", "ExpiryAlertDays must be non-negative."));
+            errors.Add(new ApiErrorDetailDto("expiry_alert_days", "ExpiryAlertDays must be non-negative."));
 
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
-            errors.Add(new ApiErrorDetailDto("IdempotencyKey", "IdempotencyKey is required."));
+            errors.Add(new ApiErrorDetailDto("idempotency_key", "IdempotencyKey is required."));
+        else if (request.IdempotencyKey.Length > 100)
+            errors.Add(new ApiErrorDetailDto("idempotency_key", "IdempotencyKey cannot exceed 100 characters."));
 
         if (request.Uoms == null || request.Uoms.Count == 0)
         {
-            errors.Add(new ApiErrorDetailDto("Uoms", "At least one UOM is required for product creation."));
+            errors.Add(new ApiErrorDetailDto("uoms", "At least one UOM is required for product creation."));
         }
         else
         {
@@ -58,13 +60,13 @@ public static class CreateProductRequestValidator
             for (int i = 0; i < request.Uoms.Count; i++)
             {
                 var uom = request.Uoms[i];
-                var uomErrors = CreateProductUomItemRequestValidator.Validate(uom, $"Uoms[{i}]");
+                var uomErrors = CreateProductUomItemRequestValidator.Validate(uom, $"uoms[{i}]");
                 errors.AddRange(uomErrors);
 
                 if (!string.IsNullOrWhiteSpace(uom.UomCode))
                 {
                     if (!seenCodes.Add(uom.UomCode))
-                        errors.Add(new ApiErrorDetailDto($"Uoms[{i}].UomCode", $"Duplicate UOM code '{uom.UomCode}' in request."));
+                        errors.Add(new ApiErrorDetailDto($"uoms[{i}].uom_code", $"Duplicate UOM code '{uom.UomCode}' in request."));
 
                     if (uom.IsBase)
                     {
@@ -76,9 +78,9 @@ public static class CreateProductRequestValidator
             }
 
             if (baseCount != 1)
-                errors.Add(new ApiErrorDetailDto("Uoms", $"Product must have exactly one base UOM, found {baseCount}."));
+                errors.Add(new ApiErrorDetailDto("uoms", $"Product must have exactly one base UOM, found {baseCount}."));
             else if (!baseMatchesCode)
-                errors.Add(new ApiErrorDetailDto("BaseUomCode", "Base UOM code in Uoms list must match Product.BaseUomCode."));
+                errors.Add(new ApiErrorDetailDto("base_uom_code", "Base UOM code in Uoms list must match Product.BaseUomCode."));
         }
 
         return errors;
@@ -92,52 +94,54 @@ public static class UpdateProductRequestValidator
         var errors = new List<ApiErrorDetailDto>();
 
         if (request.CategoryId.HasValue && request.CategoryId.Value == Guid.Empty)
-            errors.Add(new ApiErrorDetailDto("CategoryId", "CategoryId cannot be empty."));
+            errors.Add(new ApiErrorDetailDto("category_id", "CategoryId cannot be empty."));
 
         if (request.Sku != null)
         {
             if (string.IsNullOrWhiteSpace(request.Sku))
-                errors.Add(new ApiErrorDetailDto("Sku", "Sku cannot be empty."));
+                errors.Add(new ApiErrorDetailDto("sku", "Sku cannot be empty."));
             else if (request.Sku.Length > 40)
-                errors.Add(new ApiErrorDetailDto("Sku", "Sku cannot exceed 40 characters."));
+                errors.Add(new ApiErrorDetailDto("sku", "Sku cannot exceed 40 characters."));
         }
 
         if (request.Barcode != null && request.Barcode.Length > 80)
-            errors.Add(new ApiErrorDetailDto("Barcode", "Barcode cannot exceed 80 characters."));
+            errors.Add(new ApiErrorDetailDto("barcode", "Barcode cannot exceed 80 characters."));
 
         if (request.Name != null)
         {
             if (string.IsNullOrWhiteSpace(request.Name))
-                errors.Add(new ApiErrorDetailDto("Name", "Name cannot be empty."));
+                errors.Add(new ApiErrorDetailDto("name", "Name cannot be empty."));
             else if (request.Name.Length > 180)
-                errors.Add(new ApiErrorDetailDto("Name", "Name cannot exceed 180 characters."));
+                errors.Add(new ApiErrorDetailDto("name", "Name cannot exceed 180 characters."));
         }
 
         if (request.GenericName != null && request.GenericName.Length > 180)
-            errors.Add(new ApiErrorDetailDto("GenericName", "GenericName cannot exceed 180 characters."));
+            errors.Add(new ApiErrorDetailDto("generic_name", "GenericName cannot exceed 180 characters."));
 
         if (request.BrandName != null && request.BrandName.Length > 180)
-            errors.Add(new ApiErrorDetailDto("BrandName", "BrandName cannot exceed 180 characters."));
+            errors.Add(new ApiErrorDetailDto("brand_name", "BrandName cannot exceed 180 characters."));
 
         if (request.BaseUomCode != null)
         {
             if (string.IsNullOrWhiteSpace(request.BaseUomCode))
-                errors.Add(new ApiErrorDetailDto("BaseUomCode", "BaseUomCode cannot be empty."));
+                errors.Add(new ApiErrorDetailDto("base_uom_code", "BaseUomCode cannot be empty."));
             else if (request.BaseUomCode.Length > 20)
-                errors.Add(new ApiErrorDetailDto("BaseUomCode", "BaseUomCode cannot exceed 20 characters."));
+                errors.Add(new ApiErrorDetailDto("base_uom_code", "BaseUomCode cannot exceed 20 characters."));
         }
 
         if (request.TaxRate.HasValue && (request.TaxRate.Value < 0m || request.TaxRate.Value > 1m))
-            errors.Add(new ApiErrorDetailDto("TaxRate", "TaxRate must be between 0.0 and 1.0."));
+            errors.Add(new ApiErrorDetailDto("tax_rate", "TaxRate must be between 0.0 and 1.0."));
 
         if (request.ImageUrl != null && request.ImageUrl.Length > 300)
-            errors.Add(new ApiErrorDetailDto("ImageUrl", "ImageUrl cannot exceed 300 characters."));
+            errors.Add(new ApiErrorDetailDto("image_url", "ImageUrl cannot exceed 300 characters."));
 
         if (request.ExpiryAlertDays.HasValue && request.ExpiryAlertDays.Value < 0)
-            errors.Add(new ApiErrorDetailDto("ExpiryAlertDays", "ExpiryAlertDays must be non-negative."));
+            errors.Add(new ApiErrorDetailDto("expiry_alert_days", "ExpiryAlertDays must be non-negative."));
 
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
-            errors.Add(new ApiErrorDetailDto("IdempotencyKey", "IdempotencyKey is required."));
+            errors.Add(new ApiErrorDetailDto("idempotency_key", "IdempotencyKey is required."));
+        else if (request.IdempotencyKey.Length > 100)
+            errors.Add(new ApiErrorDetailDto("idempotency_key", "IdempotencyKey cannot exceed 100 characters."));
 
         return errors;
     }

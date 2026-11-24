@@ -47,6 +47,17 @@ public class InventoryController : ControllerBase
         return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
     }
 
+    [HttpGet("summary")]
+    [Authorize]
+    public async Task<IActionResult> GetProductSummary(
+        [FromQuery(Name = "branch_id")] Guid branchId,
+        [FromQuery(Name = "product_id")] Guid productId,
+        CancellationToken ct = default)
+    {
+        var result = await _queryService.GetProductSummaryAsync(branchId, productId, ct);
+        return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
+    }
+
     [HttpGet("transactions")]
     [Authorize]
     public async Task<IActionResult> GetTransactions(

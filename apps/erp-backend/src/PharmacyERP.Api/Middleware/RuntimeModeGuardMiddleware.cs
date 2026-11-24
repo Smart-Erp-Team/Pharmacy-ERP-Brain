@@ -45,15 +45,14 @@ public class RuntimeModeGuardMiddleware
             return false;
         }
 
-        return path.StartsWith("/api/v1/inventory/adjustments", StringComparison.OrdinalIgnoreCase) ||
-               path.StartsWith("/api/v1/inventory/opening-balances", StringComparison.OrdinalIgnoreCase) ||
-               path.StartsWith("/api/v1/inventory/transfers", StringComparison.OrdinalIgnoreCase);
+        return path.StartsWith("/api/v1/inventory/adjustments", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsCloudOnlyEndpoint(string path, string method)
     {
         if (path.StartsWith("/api/v1/organizations", StringComparison.OrdinalIgnoreCase) ||
-            path.StartsWith("/api/v1/canonical/", StringComparison.OrdinalIgnoreCase))
+            path.StartsWith("/api/v1/canonical/", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/api/v1/branch-enrollment", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
@@ -63,9 +62,14 @@ public class RuntimeModeGuardMiddleware
             return false;
         }
 
+        // Catalog & Identity administration writes (branches, enrollment tokens, users, employees)
+        // are owned exclusively by Cloud per Blueprint §8.9.9.
         return path.StartsWith("/api/v1/product-categories", StringComparison.OrdinalIgnoreCase) ||
                path.StartsWith("/api/v1/products", StringComparison.OrdinalIgnoreCase) ||
-               path.EndsWith("/reorder-rule", StringComparison.OrdinalIgnoreCase);
+               path.EndsWith("/reorder-rule", StringComparison.OrdinalIgnoreCase) ||
+               path.StartsWith("/api/v1/branches", StringComparison.OrdinalIgnoreCase) ||
+               path.StartsWith("/api/v1/users", StringComparison.OrdinalIgnoreCase) ||
+               path.StartsWith("/api/v1/employees", StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task WriteRouteNotAvailableAsync(HttpContext context, string message)
