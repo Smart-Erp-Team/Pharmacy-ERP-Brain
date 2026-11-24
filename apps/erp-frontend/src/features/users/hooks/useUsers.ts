@@ -4,6 +4,7 @@ import {
   getStableAttemptKey,
   type AttemptKeyRecord,
 } from '../../../lib/api/idempotency';
+import { fetchAllPages } from '../../../lib/api/pagination';
 import {
   createUser,
   getUser,
@@ -31,6 +32,15 @@ export function useUsersQuery(
   return useQuery({
     queryKey: usersKeys.list(params),
     queryFn: () => listUsers(params),
+    enabled: options.enabled ?? true,
+  });
+}
+
+export function useAllUsersQuery(options: UseUsersQueryOptions = {}) {
+  return useQuery({
+    queryKey: usersKeys.allList(),
+    queryFn: () =>
+      fetchAllPages((cursor, limit) => listUsers({ cursor, limit })),
     enabled: options.enabled ?? true,
   });
 }

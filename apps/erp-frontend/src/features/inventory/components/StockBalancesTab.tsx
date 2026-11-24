@@ -91,7 +91,8 @@ export function StockBalancesTab({ branchId }: StockBalancesTabProps) {
         ) : state.isError ? (
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <Alert variant="danger" title="Could not load stock balances">
-              Unable to retrieve balances or batch details for this branch.
+              Unable to retrieve balances, batches, locations, or product
+              details for this branch.
             </Alert>
             <Button variant="secondary" onClick={state.retry}>
               Retry

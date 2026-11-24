@@ -10,12 +10,13 @@ import type {
   LocationType,
   RuntimeMode,
 } from '../../../types/api';
-import { useBranchesQuery } from '../../branches';
-import { useProductsQuery, type ProductDto } from '../../products';
+import { useAllBranchesQuery } from '../../branches';
+import { useAllProductsQuery, type ProductDto } from '../../products';
 import { usePatchInventoryLocationMutation } from './useInventoryMutations';
 import {
-  useInventoryBalancesQuery,
-  useInventoryBatchesQuery,
+  useAllInventoryBalancesQuery,
+  useAllInventoryBatchesQuery,
+  useAllInventoryLocationsQuery,
   useInventoryLocationsQuery,
 } from './useInventoryQueries';
 
@@ -77,17 +78,17 @@ export function useInventoryBranchState(): UseInventoryBranchStateResult {
   const isAdmin = hasRole('Admin');
   const [selectedBranchId, setSelectedBranchId] = useState<string>('');
 
-  const branchesQuery = useBranchesQuery(
-    { includeInactive: false, limit: 200 },
+  const branchesQuery = useAllBranchesQuery(
+    { includeInactive: false },
     { enabled: isAdmin }
   );
 
   const branches = useMemo<readonly BranchDto[]>(() => {
     if (!isAdmin) return [];
-    return (branchesQuery.data?.items ?? []).filter(
+    return (branchesQuery.data ?? []).filter(
       (branch) => branch.is_active && canAccessBranch(branch.branch_id)
     );
-  }, [isAdmin, branchesQuery.data?.items, canAccessBranch]);
+  }, [isAdmin, branchesQuery.data, canAccessBranch]);
 
   const branchOptions = useMemo<readonly InventoryBranchOption[]>(() => {
     if (isAdmin && branches.length > 0) {
@@ -192,33 +193,29 @@ export function useInventoryBranchState(): UseInventoryBranchStateResult {
 }
 
 export function useStockOverviewData(branchId: string) {
-  const balancesQuery = useInventoryBalancesQuery({ branchId, limit: 200 });
-  const batchesQuery = useInventoryBatchesQuery({ branchId, limit: 200 });
-  const locationsQuery = useInventoryLocationsQuery({
+  const balancesQuery = useAllInventoryBalancesQuery({ branchId });
+  const batchesQuery = useAllInventoryBatchesQuery({ branchId });
+  const locationsQuery = useAllInventoryLocationsQuery({
     branchId,
     includeInactive: false,
-    limit: 200,
   });
-  const productsQuery = useProductsQuery({ includeInactive: true, limit: 200 });
+  const productsQuery = useAllProductsQuery({ includeInactive: true });
 
   const balances = useMemo(
-    () => balancesQuery.data?.items ?? [],
-    [balancesQuery.data?.items]
+    () => balancesQuery.data ?? [],
+    [balancesQuery.data]
   );
-  const batches = useMemo(
-    () => batchesQuery.data?.items ?? [],
-    [batchesQuery.data?.items]
-  );
+  const batches = useMemo(() => batchesQuery.data ?? [], [batchesQuery.data]);
   const locations = useMemo(
-    () => locationsQuery.data?.items ?? [],
-    [locationsQuery.data?.items]
+    () => locationsQuery.data ?? [],
+    [locationsQuery.data]
   );
 
   const flaggedRows = useMemo(() => {
     const today = utcDateOffset(0);
     const batchMap = new Map(batches.map((b) => [b.batch_id, b]));
     const productMap = new Map<string, ProductDto>(
-      (productsQuery.data?.items ?? []).map((p) => [p.product_id, p])
+      (productsQuery.data ?? []).map((p) => [p.product_id, p])
     );
 
     return balances
@@ -246,12 +243,13 @@ export function useStockOverviewData(branchId: string) {
         return { balance, batch, product, reason };
       })
       .filter((item) => item.reason !== null);
-  }, [balances, batches, productsQuery.data?.items]);
+  }, [balances, batches, productsQuery.data]);
 
   const retry = () => {
     if (balancesQuery.isError) void balancesQuery.refetch();
     if (batchesQuery.isError) void batchesQuery.refetch();
     if (locationsQuery.isError) void locationsQuery.refetch();
+    if (productsQuery.isError) void productsQuery.refetch();
   };
 
   return {
@@ -265,8 +263,12 @@ export function useStockOverviewData(branchId: string) {
     isBatchesError: batchesQuery.isError,
     isLocationsLoading: locationsQuery.isLoading,
     isLocationsError: locationsQuery.isError,
-    isPreviewLoading: balancesQuery.isLoading || batchesQuery.isLoading,
-    hasPreviewError: balancesQuery.isError || batchesQuery.isError,
+    isPreviewLoading:
+      balancesQuery.isLoading ||
+      batchesQuery.isLoading ||
+      productsQuery.isLoading,
+    hasPreviewError:
+      balancesQuery.isError || batchesQuery.isError || productsQuery.isError,
     retry,
   };
 }
@@ -277,33 +279,30 @@ export function useStockBalancesState(branchId: string) {
   const [expiryFilter, setExpiryFilter] = useState<ExpiryFilter>('ALL');
   const [expandedIds, setExpandedIds] = useState<string[]>([]);
 
-  const balancesQ = useInventoryBalancesQuery({ branchId, limit: 200 });
-  const batchesQ = useInventoryBatchesQuery({ branchId, limit: 200 });
-  const locationsQ = useInventoryLocationsQuery({
+  const balancesQ = useAllInventoryBalancesQuery({ branchId });
+  const batchesQ = useAllInventoryBatchesQuery({ branchId });
+  const locationsQ = useAllInventoryLocationsQuery({
     branchId,
     includeInactive: true,
-    limit: 200,
   });
-  const productsQ = useProductsQuery({ includeInactive: true, limit: 200 });
+  const productsQ = useAllProductsQuery({ includeInactive: true });
 
   const groupedProducts = useMemo(() => {
     const today = utcDateOffset(0);
     const q = search.trim().toLowerCase();
-    const batchMap = new Map(
-      (batchesQ.data?.items ?? []).map((b) => [b.batch_id, b])
-    );
+    const batchMap = new Map((batchesQ.data ?? []).map((b) => [b.batch_id, b]));
     const locMap = new Map(
-      (locationsQ.data?.items ?? []).map((l) => [l.location_id, l])
+      (locationsQ.data ?? []).map((l) => [l.location_id, l])
     );
     const prodMap = new Map<string, ProductDto>(
-      (productsQ.data?.items ?? []).map((p) => [p.product_id, p])
+      (productsQ.data ?? []).map((p) => [p.product_id, p])
     );
     const groups = new Map<
       string,
       { product: ProductDto | undefined; items: GroupedBalanceItem[] }
     >();
 
-    for (const balance of balancesQ.data?.items ?? []) {
+    for (const balance of balancesQ.data ?? []) {
       const batch = batchMap.get(balance.batch_id);
       const location = locMap.get(balance.location_id);
       const product = prodMap.get(balance.product_id);
@@ -344,10 +343,10 @@ export function useStockBalancesState(branchId: string) {
       (a.product?.name ?? '').localeCompare(b.product?.name ?? '')
     );
   }, [
-    balancesQ.data?.items,
-    batchesQ.data?.items,
-    locationsQ.data?.items,
-    productsQ.data?.items,
+    balancesQ.data,
+    batchesQ.data,
+    locationsQ.data,
+    productsQ.data,
     locationType,
     expiryFilter,
     search,
@@ -371,6 +370,7 @@ export function useStockBalancesState(branchId: string) {
     if (balancesQ.isError) void balancesQ.refetch();
     if (batchesQ.isError) void batchesQ.refetch();
     if (locationsQ.isError) void locationsQ.refetch();
+    if (productsQ.isError) void productsQ.refetch();
   };
 
   return {
@@ -388,8 +388,15 @@ export function useStockBalancesState(branchId: string) {
       locationType !== 'ALL' ||
       expiryFilter !== 'ALL',
     isLoading:
-      balancesQ.isLoading || batchesQ.isLoading || locationsQ.isLoading,
-    isError: balancesQ.isError || batchesQ.isError,
+      balancesQ.isLoading ||
+      batchesQ.isLoading ||
+      locationsQ.isLoading ||
+      productsQ.isLoading,
+    isError:
+      balancesQ.isError ||
+      batchesQ.isError ||
+      locationsQ.isError ||
+      productsQ.isError,
     clearFilters,
     retry,
   };

@@ -10,7 +10,7 @@ import {
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import authTokenPair from '@contracts/fixtures/auth-token-pair.json';
-import { handlers } from '../mocks/handlers';
+import { handlers, resetMockAuth } from '../mocks/handlers';
 import { ApiClientError, apiClient } from '../lib/api/client';
 import { registerSessionEndHandler } from '../lib/auth/sessionEvents';
 import { tokenStorage } from '../lib/auth/tokenStorage';
@@ -29,6 +29,7 @@ const unauthorized = () =>
 beforeAll(() => server.listen());
 afterEach(() => {
   server.resetHandlers();
+  resetMockAuth();
   registerSessionEndHandler(null);
   tokenStorage.clearTokens();
 });
@@ -329,5 +330,48 @@ describe('non-JSON / HTML response protection', () => {
 
     const response = await apiClient.post('/users/user-1/revoke-sessions');
     expect(response.status).toBe(204);
+  });
+});
+
+describe('auth mock contract enforcement', () => {
+  it('rejects login requests missing organization_code with 422 VALIDATION_ERROR', async () => {
+    await expect(
+      apiClient.post('/auth/login', {
+        organization_code: '',
+        username: 'fa.pharmacist',
+        password: 'password123',
+      })
+    ).rejects.toMatchObject({
+      status: 422,
+      code: 'VALIDATION_ERROR',
+    });
+  });
+
+  it('tracks rotated refresh tokens so reusing a rotated token fails with 401', async () => {
+    const firstRotation = await apiClient.post<{
+      access_token: string;
+      refresh_token: string;
+    }>('/auth/refresh', {
+      refresh_token: 'fresh_session_refresh_token',
+    });
+
+    expect(firstRotation.data.refresh_token.endsWith('.rotated')).toBe(true);
+
+    await expect(
+      apiClient.post('/auth/refresh', {
+        refresh_token: 'fresh_session_refresh_token',
+      })
+    ).rejects.toMatchObject({
+      status: 401,
+      code: 'UNAUTHORIZED',
+    });
+
+    const secondRotation = await apiClient.post<{
+      access_token: string;
+      refresh_token: string;
+    }>('/auth/refresh', {
+      refresh_token: firstRotation.data.refresh_token,
+    });
+    expect(secondRotation.data.refresh_token.endsWith('.rotated')).toBe(true);
   });
 });

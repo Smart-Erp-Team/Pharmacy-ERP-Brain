@@ -3,6 +3,7 @@ import {
   buildMutationConfig,
   type MutationRequestOptions,
 } from '../../../lib/api/idempotency';
+import { parsePagedResult } from '../../../lib/api/pagination';
 import type {
   ApiComponents,
   EmployeeDto,
@@ -36,10 +37,7 @@ export async function listEmployees(
     params: queryParams,
   });
 
-  return {
-    items: data.items ?? [],
-    nextCursor: data.nextCursor,
-  };
+  return parsePagedResult<EmployeeDto>(data, '/employees');
 }
 
 export async function getEmployee(employeeId: string): Promise<EmployeeDto> {

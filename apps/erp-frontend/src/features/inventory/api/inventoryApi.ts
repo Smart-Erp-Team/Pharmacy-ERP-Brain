@@ -3,6 +3,7 @@ import {
   buildMutationConfig,
   type MutationRequestOptions,
 } from '../../../lib/api/idempotency';
+import { parsePagedResult } from '../../../lib/api/pagination';
 import type {
   ApiComponents,
   BalanceQuery,
@@ -78,10 +79,7 @@ export async function listInventoryLocations(
     { params: queryParams }
   );
 
-  return {
-    items: data.items ?? [],
-    nextCursor: data.nextCursor,
-  };
+  return parsePagedResult<InventoryLocationDto>(data, '/inventory/locations');
 }
 
 export async function getInventoryLocation(
@@ -139,10 +137,7 @@ export async function listInventoryBatches(
     { params: queryParams }
   );
 
-  return {
-    items: data.items ?? [],
-    nextCursor: data.nextCursor,
-  };
+  return parsePagedResult<InventoryBatchDto>(data, '/inventory/batches');
 }
 
 export async function listInventoryBalances(
@@ -167,10 +162,7 @@ export async function listInventoryBalances(
     { params: queryParams }
   );
 
-  return {
-    items: data.items ?? [],
-    nextCursor: data.nextCursor,
-  };
+  return parsePagedResult<InventoryBalanceDto>(data, '/inventory/balances');
 }
 
 export async function listInventoryTransactions(
@@ -198,10 +190,7 @@ export async function listInventoryTransactions(
     { params: queryParams }
   );
 
-  return {
-    items: data.items ?? [],
-    nextCursor: data.nextCursor,
-  };
+  return parsePagedResult<InventoryTxnDto>(data, '/inventory/transactions');
 }
 
 export async function getInventoryTransaction(

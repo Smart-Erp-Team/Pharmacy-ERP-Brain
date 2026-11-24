@@ -1,14 +1,18 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
-import { useBranchesQuery } from '../../../features/branches';
+import { useAllBranchesQuery } from '../../../features/branches';
 import {
-  useEmployeesQuery,
+  useAllEmployeesQuery,
   type EmployeeDto,
 } from '../../../features/employees';
 import { ApiClientError } from '../../../lib/api/client';
 import type { Role, UserDto } from '../../../types/api';
 import { USER_ROLES } from '../schemas/userSchema';
-import { usePatchUserMutation, useUsersQuery } from './useUsers';
+import {
+  useAllUsersQuery,
+  usePatchUserMutation,
+  useUsersQuery,
+} from './useUsers';
 
 export const USERS_PAGE_SIZE = 20;
 
@@ -58,11 +62,13 @@ export function useUsersPageState() {
     limit: USERS_PAGE_SIZE,
   });
 
-  const employeesQuery = useEmployeesQuery({ limit: 200 });
+  const isCreatingUser = formModalState.open && formModalState.user === null;
+  const allUsersQuery = useAllUsersQuery({ enabled: isCreatingUser });
 
-  const branchesQuery = useBranchesQuery({
+  const employeesQuery = useAllEmployeesQuery();
+
+  const branchesQuery = useAllBranchesQuery({
     includeInactive: false,
-    limit: 200,
   });
 
   const patchUserMutation = usePatchUserMutation();
@@ -73,13 +79,13 @@ export function useUsersPageState() {
   );
 
   const employees = useMemo(
-    () => employeesQuery.data?.items ?? [],
-    [employeesQuery.data?.items]
+    () => employeesQuery.data ?? [],
+    [employeesQuery.data]
   );
 
   const branches = useMemo(
-    () => branchesQuery.data?.items ?? [],
-    [branchesQuery.data?.items]
+    () => branchesQuery.data ?? [],
+    [branchesQuery.data]
   );
 
   const employeesById = useMemo(() => {
@@ -91,15 +97,16 @@ export function useUsersPageState() {
   }, [employees]);
 
   const eligibleEmployees = useMemo(() => {
+    const knownUsers = allUsersQuery.data ?? users;
     const assignedIds = new Set(
-      users.map((user) => user.employee_id.toLowerCase())
+      knownUsers.map((user) => user.employee_id.toLowerCase())
     );
     return employees.filter(
       (employee) =>
         employee.is_active &&
         !assignedIds.has(employee.employee_id.toLowerCase())
     );
-  }, [employees, users]);
+  }, [allUsersQuery.data, employees, users]);
 
   const getEmployeeDisplay = (employeeId: string): EmployeeDisplay => {
     if (employeesQuery.isError) {

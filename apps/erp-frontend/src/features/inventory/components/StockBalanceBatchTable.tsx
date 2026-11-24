@@ -63,9 +63,9 @@ function compareFefo(
   } else if (!expA && expB) {
     return 1;
   }
-  return (a.batch?.batch_number ?? '').localeCompare(
-    b.batch?.batch_number ?? ''
-  );
+  const batchIdA = a.batch?.batch_id ?? a.balance.batch_id;
+  const batchIdB = b.batch?.batch_id ?? b.balance.batch_id;
+  return batchIdA.localeCompare(batchIdB);
 }
 
 export function StockBalanceBatchTable({

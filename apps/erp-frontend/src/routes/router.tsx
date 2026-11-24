@@ -69,9 +69,7 @@ export const routes: RouteObject[] = [
         element: (
           <RoleGate allowedRoles={ADMIN_ONLY}>
             <RuntimeGate allowedRuntimes={CLOUD_ONLY}>
-              <ScopeGate requiredScopes={USER_ADMIN_SCOPE}>
-                <BranchesPage />
-              </ScopeGate>
+              <BranchesPage />
             </RuntimeGate>
           </RoleGate>
         ),

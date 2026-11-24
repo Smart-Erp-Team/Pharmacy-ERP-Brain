@@ -40,6 +40,9 @@ export function trackUncaughtErrors(page: Page): string[] {
 }
 
 export async function waitForMswReady(page: Page): Promise<void> {
+  if (process.env.VITE_ENABLE_MSW === 'false') {
+    return;
+  }
   await page.waitForFunction(async () => {
     if (!('serviceWorker' in navigator)) return false;
     const reg = await navigator.serviceWorker.getRegistration();

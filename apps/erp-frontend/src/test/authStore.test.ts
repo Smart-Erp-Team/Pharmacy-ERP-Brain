@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest';
+import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { handlers } from '../mocks/handlers';
+import { handlers, resetMockAuth } from '../mocks/handlers';
 import { useAuthStore } from '../stores/authStore';
 import { tokenStorage } from '../lib/auth/tokenStorage';
 
@@ -14,9 +15,11 @@ afterAll(() => server.close());
 
 beforeEach(() => {
   server.resetHandlers();
+  resetMockAuth();
   tokenStorage.clearTokens();
   useAuthStore.setState({
     currentUser: null,
+    activeBranchId: null,
     isAuthenticated: false,
     isInitializing: true,
   });
@@ -73,5 +76,35 @@ describe('authStore', () => {
     expect(state.isAuthenticated).toBe(false);
     expect(state.currentUser).toBeNull();
     expect(tokenStorage.getAccessToken()).toBeNull();
+  });
+
+  it('login() clears stored tokens and keeps session logged out if /auth/me fails', async () => {
+    server.use(
+      http.get('*/api/v1/auth/me', () =>
+        HttpResponse.json(
+          {
+            error: {
+              code: 'INTERNAL_ERROR',
+              message: 'User context unavailable',
+            },
+          },
+          { status: 500 }
+        )
+      )
+    );
+
+    await expect(
+      useAuthStore.getState().login({
+        organization_code: 'PHARMAPLUS',
+        username: 'ahmed.pharmacist',
+        password: 'password123',
+      })
+    ).rejects.toThrow();
+
+    const state = useAuthStore.getState();
+    expect(state.isAuthenticated).toBe(false);
+    expect(state.currentUser).toBeNull();
+    expect(tokenStorage.getAccessToken()).toBeNull();
+    expect(tokenStorage.getRefreshToken()).toBeNull();
   });
 });

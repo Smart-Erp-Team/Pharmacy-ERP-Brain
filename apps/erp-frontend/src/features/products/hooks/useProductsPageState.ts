@@ -38,7 +38,7 @@ import {
   usePatchProductMutation,
 } from './useCatalogMutations';
 import {
-  useProductCategoriesQuery,
+  useAllProductCategoriesQuery,
   useProductsQuery,
 } from './useCatalogQueries';
 
@@ -148,9 +148,8 @@ export function useProductsPageState(
   const [togglingProductIds, setTogglingProductIds] = useState<string[]>([]);
   const togglingIdsRef = useRef<Set<string>>(new Set());
 
-  const categoriesQuery = useProductCategoriesQuery({
+  const categoriesQuery = useAllProductCategoriesQuery({
     includeInactive: true,
-    limit: 200,
   });
 
   const normalizedSearch = searchTerm.trim();
@@ -165,8 +164,8 @@ export function useProductsPageState(
   const patchProductMutation = usePatchProductMutation();
 
   const categories = useMemo(
-    () => categoriesQuery.data?.items ?? [],
-    [categoriesQuery.data?.items]
+    () => categoriesQuery.data ?? [],
+    [categoriesQuery.data]
   );
 
   const products = useMemo(

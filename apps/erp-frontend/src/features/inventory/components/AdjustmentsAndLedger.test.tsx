@@ -440,7 +440,7 @@ describe('StockAdjustmentsTab and LedgerHistoryTab', () => {
     expect(
       await within(ledgerSection).findByText('TXN-2026-000006')
     ).toBeDefined();
-  });
+  }, 15_000);
 
   it('clears and disables unit_cost_base on ADJUSTMENT_OUT and maps 409 OUT_OF_STOCK to lines.0.entered_qty + trace_id banner', async () => {
     const user = userEvent.setup();

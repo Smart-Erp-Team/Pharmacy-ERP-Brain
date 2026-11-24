@@ -61,7 +61,8 @@ export function StockOverviewTab({
           ) : data.hasPreviewError ? (
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <Alert variant="danger" title="Could not load inventory overview">
-                Unable to load branch stock balances or batch status.
+                Unable to load branch stock balances, batch status, or product
+                alert rules.
               </Alert>
               <Button variant="secondary" onClick={data.retry}>
                 Retry

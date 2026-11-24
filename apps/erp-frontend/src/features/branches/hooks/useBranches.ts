@@ -4,6 +4,7 @@ import {
   getStableAttemptKey,
   type AttemptKeyRecord,
 } from '../../../lib/api/idempotency';
+import { fetchAllPages } from '../../../lib/api/pagination';
 import {
   createBranch,
   createBranchEnrollmentToken,
@@ -12,7 +13,7 @@ import {
   listBranches,
   type ListBranchesParams,
 } from '../api/branchesApi';
-import { branchesKeys } from './branchesKeys';
+import { branchesKeys, type AllBranchesKeyParams } from './branchesKeys';
 import type {
   BranchEnrollmentRequest,
   BranchPatchRequest,
@@ -30,6 +31,20 @@ export function useBranchesQuery(
   return useQuery({
     queryKey: branchesKeys.list(params),
     queryFn: () => listBranches(params),
+    enabled: options.enabled ?? true,
+  });
+}
+
+export function useAllBranchesQuery(
+  params: AllBranchesKeyParams = {},
+  options: UseBranchesQueryOptions = {}
+) {
+  return useQuery({
+    queryKey: branchesKeys.allList(params),
+    queryFn: () =>
+      fetchAllPages((cursor, limit) =>
+        listBranches({ ...params, cursor, limit })
+      ),
     enabled: options.enabled ?? true,
   });
 }

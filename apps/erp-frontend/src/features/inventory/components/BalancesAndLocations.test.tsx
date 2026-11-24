@@ -260,6 +260,154 @@ describe('StockBalancesTab', () => {
     expect(screen.getByText('Panadol 500mg Tablets')).toBeDefined();
     expect(screen.queryByText('Augmentin 1g Tablets')).toBeNull();
   });
+
+  it('breaks equal expiry ties by batch_id ascending rather than batch_number', async () => {
+    const batchIdFirst = '00000000-0000-4000-8000-000000000001';
+    const batchIdSecond = '00000000-0000-4000-8000-000000000002';
+
+    server.use(
+      http.get('*/api/v1/inventory/batches', () =>
+        HttpResponse.json({
+          items: [
+            {
+              batch_id: batchIdSecond,
+              product_id: inventoryBalanceFixture.product_id,
+              batch_number: 'LOT-AAA',
+              manufactured_on: '2026-01-01',
+              expires_on: '2027-06-01',
+              quality_status: 'AVAILABLE',
+              is_non_lot: false,
+            },
+            {
+              batch_id: batchIdFirst,
+              product_id: inventoryBalanceFixture.product_id,
+              batch_number: 'LOT-ZZZ',
+              manufactured_on: '2026-01-01',
+              expires_on: '2027-06-01',
+              quality_status: 'AVAILABLE',
+              is_non_lot: false,
+            },
+          ],
+          nextCursor: null,
+        })
+      ),
+      http.get('*/api/v1/inventory/balances', () =>
+        HttpResponse.json({
+          items: [
+            {
+              ...inventoryBalanceFixture,
+              batch_id: batchIdSecond,
+              on_hand_qty_base: '10.0000',
+              available_qty_base: '10.0000',
+            },
+            {
+              ...inventoryBalanceFixture,
+              batch_id: batchIdFirst,
+              on_hand_qty_base: '20.0000',
+              available_qty_base: '20.0000',
+            },
+          ],
+          nextCursor: null,
+        })
+      )
+    );
+
+    renderWithQuery(<StockBalancesTab branchId={CAIRO_BRANCH_ID} />);
+    await waitFor(() => {
+      expect(screen.getByText('Augmentin 1g Tablets')).toBeDefined();
+    });
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Toggle batch breakdown for Augmentin 1g Tablets',
+      })
+    );
+
+    const lotCells = screen
+      .getAllByText(/^LOT-/)
+      .map((node) => node.textContent);
+    expect(lotCells).toEqual(['LOT-ZZZ', 'LOT-AAA']);
+  });
+
+  it('surfaces an error instead of an empty state when /inventory/balances returns a bare array, or when /products fails, and retries cleanly', async () => {
+    server.use(
+      http.get('*/api/v1/inventory/balances', () =>
+        HttpResponse.json([inventoryBalanceFixture])
+      )
+    );
+
+    const { unmount } = renderWithQuery(
+      <StockBalancesTab branchId={CAIRO_BRANCH_ID} />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Could not load stock balances')).toBeDefined();
+    });
+    expect(screen.queryByText('No matching stock balances')).toBeNull();
+    unmount();
+
+    server.resetHandlers();
+    let failProductsOnce = true;
+    server.use(
+      http.get('*/api/v1/products', () => {
+        if (failProductsOnce) {
+          failProductsOnce = false;
+          return HttpResponse.json(
+            { error: { code: 'INTERNAL_ERROR', message: 'Catalog down' } },
+            { status: 500 }
+          );
+        }
+        return undefined;
+      })
+    );
+
+    renderWithQuery(<StockBalancesTab branchId={CAIRO_BRANCH_ID} />);
+    await waitFor(() => {
+      expect(screen.getByText('Could not load stock balances')).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => {
+      expect(screen.getByText('Augmentin 1g Tablets')).toBeDefined();
+    });
+  });
+
+  it('drains multi-page nextCursor responses when aggregating balances', async () => {
+    const secondLocationId = '2f31c9d4-7070-4a10-8b2d-ce0f1a2b3c15';
+    server.use(
+      http.get('*/api/v1/inventory/balances', ({ request }) => {
+        const cursor = new URL(request.url).searchParams.get('cursor');
+        if (cursor === 'cursor-2') {
+          return HttpResponse.json({
+            items: [
+              {
+                ...inventoryBalanceFixture,
+                location_id: secondLocationId,
+                on_hand_qty_base: '300.0000',
+                available_qty_base: '300.0000',
+              },
+            ],
+            nextCursor: null,
+          });
+        }
+        return HttpResponse.json({
+          items: [
+            {
+              ...inventoryBalanceFixture,
+              on_hand_qty_base: '5000.0000',
+              available_qty_base: '5000.0000',
+            },
+          ],
+          nextCursor: 'cursor-2',
+        });
+      })
+    );
+
+    renderWithQuery(<StockBalancesTab branchId={CAIRO_BRANCH_ID} />);
+    await waitFor(() => {
+      expect(screen.getAllByText('5,300').length).toBeGreaterThanOrEqual(2);
+    });
+  });
 });
 
 describe('StorageLocationsTab', () => {

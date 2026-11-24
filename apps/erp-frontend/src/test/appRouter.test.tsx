@@ -101,7 +101,7 @@ describe('Application router', () => {
     expect(screen.getByTestId('role-gate-forbidden')).toBeDefined();
   });
 
-  it('shows the 403 screen when user:admin scope is missing on organization routes', () => {
+  it('allows /branches for Admin on Cloud without user:admin while gating /employees and /users on user:admin', () => {
     useAuthStore.setState({
       currentUser: buildUser({
         roles: ['Admin'],
@@ -112,7 +112,11 @@ describe('Application router', () => {
       isInitializing: false,
     });
 
-    for (const path of ['/branches', '/employees', '/users']) {
+    renderRouter('/branches');
+    expect(screen.getByRole('heading', { name: 'Branches' })).toBeDefined();
+    cleanup();
+
+    for (const path of ['/employees', '/users']) {
       renderRouter(path);
       expect(screen.getByTestId('role-gate-forbidden')).toBeDefined();
       expect(

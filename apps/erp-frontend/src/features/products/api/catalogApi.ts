@@ -3,6 +3,10 @@ import {
   buildMutationConfig,
   type MutationRequestOptions,
 } from '../../../lib/api/idempotency';
+import {
+  parseArrayResult,
+  parsePagedResult,
+} from '../../../lib/api/pagination';
 import type {
   ApiComponents,
   ApiOperations,
@@ -61,10 +65,7 @@ export async function listProductCategories(
     { params: queryParams }
   );
 
-  return {
-    items: data.items ?? [],
-    nextCursor: data.nextCursor,
-  };
+  return parsePagedResult<ProductCategoryDto>(data, '/product-categories');
 }
 
 export async function getProductCategory(
@@ -121,10 +122,7 @@ export async function listProducts(
     params: queryParams,
   });
 
-  return {
-    items: data.items ?? [],
-    nextCursor: data.nextCursor,
-  };
+  return parsePagedResult<ProductDto>(data, '/products');
 }
 
 export async function getProduct(productId: string): Promise<ProductDto> {
@@ -162,10 +160,9 @@ export async function patchProduct(
 export async function listProductUoms(
   productId: string
 ): Promise<ProductUomDto[]> {
-  const { data } = await apiClient.get<ProductUomDto[]>(
-    `/products/${encodeURIComponent(productId.trim())}/uoms`
-  );
-  return data;
+  const path = `/products/${encodeURIComponent(productId.trim())}/uoms`;
+  const { data } = await apiClient.get<ProductUomDto[]>(path);
+  return parseArrayResult<ProductUomDto>(data, path);
 }
 
 export async function createProductUom(
