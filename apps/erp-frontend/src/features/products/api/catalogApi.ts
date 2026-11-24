@@ -4,6 +4,7 @@ import {
   type MutationRequestOptions,
 } from '../../../lib/api/idempotency';
 import {
+  normalizeCursorParam,
   parseArrayResult,
   parsePagedResult,
 } from '../../../lib/api/pagination';
@@ -51,9 +52,9 @@ export interface ListProductsParams {
 export async function listProductCategories(
   params: ListProductCategoriesParams = {}
 ): Promise<PagedResult<ProductCategoryDto>> {
-  const cursor = params.cursor?.trim();
+  const cursor = normalizeCursorParam(params.cursor);
   const queryParams: ListProductCategoriesParams = {
-    ...(cursor ? { cursor } : {}),
+    ...(cursor !== undefined ? { cursor } : {}),
     ...(params.limit !== undefined ? { limit: params.limit } : {}),
     ...(params.includeInactive !== undefined
       ? { includeInactive: params.includeInactive }
@@ -105,11 +106,11 @@ export async function patchProductCategory(
 export async function listProducts(
   params: ListProductsParams = {}
 ): Promise<PagedResult<ProductDto>> {
-  const cursor = params.cursor?.trim();
+  const cursor = normalizeCursorParam(params.cursor);
   const search = params.search?.trim();
   const categoryId = params.categoryId?.trim();
   const queryParams: ListProductsParams = {
-    ...(cursor ? { cursor } : {}),
+    ...(cursor !== undefined ? { cursor } : {}),
     ...(params.limit !== undefined ? { limit: params.limit } : {}),
     ...(search ? { search } : {}),
     ...(categoryId ? { categoryId } : {}),

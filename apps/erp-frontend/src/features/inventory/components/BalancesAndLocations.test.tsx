@@ -372,12 +372,14 @@ describe('StockBalancesTab', () => {
     });
   });
 
-  it('drains multi-page nextCursor responses when aggregating balances', async () => {
+  it('drains multi-page nextCursor responses verbatim without trimming when aggregating balances', async () => {
     const secondLocationId = '2f31c9d4-7070-4a10-8b2d-ce0f1a2b3c15';
+    const seenCursors: Array<string | null> = [];
     server.use(
       http.get('*/api/v1/inventory/balances', ({ request }) => {
         const cursor = new URL(request.url).searchParams.get('cursor');
-        if (cursor === 'cursor-2') {
+        seenCursors.push(cursor);
+        if (cursor === ' cursor-2 ') {
           return HttpResponse.json({
             items: [
               {
@@ -398,7 +400,7 @@ describe('StockBalancesTab', () => {
               available_qty_base: '5000.0000',
             },
           ],
-          nextCursor: 'cursor-2',
+          nextCursor: ' cursor-2 ',
         });
       })
     );
@@ -407,6 +409,93 @@ describe('StockBalancesTab', () => {
     await waitFor(() => {
       expect(screen.getAllByText('5,300').length).toBeGreaterThanOrEqual(2);
     });
+    expect(seenCursors).toEqual([null, ' cursor-2 ']);
+  });
+
+  it('distinguishes missing or whitespace-only nextCursor (error) from nextCursor: null (empty state) and refuses to show a truncated total when maxPages is exceeded', async () => {
+    server.use(
+      http.get('*/api/v1/inventory/balances', () =>
+        HttpResponse.json({ items: [] })
+      )
+    );
+
+    const { unmount: unmountMissingCursor } = renderWithQuery(
+      <StockBalancesTab branchId={CAIRO_BRANCH_ID} />
+    );
+    await waitFor(() => {
+      expect(screen.getByText('Could not load stock balances')).toBeDefined();
+    });
+    expect(screen.queryByText('No matching stock balances')).toBeNull();
+    unmountMissingCursor();
+
+    server.use(
+      http.get('*/api/v1/inventory/balances', () =>
+        HttpResponse.json({
+          items: [
+            {
+              ...inventoryBalanceFixture,
+              on_hand_qty_base: '5000.0000',
+              available_qty_base: '5000.0000',
+            },
+          ],
+          nextCursor: '   ',
+        })
+      )
+    );
+
+    const { unmount: unmountBlankCursor } = renderWithQuery(
+      <StockBalancesTab branchId={CAIRO_BRANCH_ID} />
+    );
+    await waitFor(() => {
+      expect(screen.getByText('Could not load stock balances')).toBeDefined();
+    });
+    expect(screen.queryByText('5,000')).toBeNull();
+    unmountBlankCursor();
+
+    server.use(
+      http.get('*/api/v1/inventory/balances', () =>
+        HttpResponse.json({ items: [], nextCursor: null })
+      )
+    );
+
+    const { unmount: unmountValidEmpty } = renderWithQuery(
+      <StockBalancesTab branchId={CAIRO_BRANCH_ID} />
+    );
+    await waitFor(() => {
+      expect(screen.getByText('No matching stock balances')).toBeDefined();
+    });
+    unmountValidEmpty();
+
+    let pageCounter = 0;
+    server.use(
+      http.get('*/api/v1/inventory/balances', () => {
+        pageCounter += 1;
+        return HttpResponse.json({
+          items: [
+            {
+              ...inventoryBalanceFixture,
+              on_hand_qty_base: '100.0000',
+              available_qty_base: '100.0000',
+            },
+          ],
+          nextCursor: `cursor-after-page-${pageCounter}`,
+        });
+      })
+    );
+
+    renderWithQuery(
+      <StockOverviewTab
+        branchId={CAIRO_BRANCH_ID}
+        branchName="Cairo Main Branch (CAI-01)"
+      />
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByText('Could not load inventory overview')
+      ).toBeDefined();
+    });
+    expect(screen.getAllByText('Unavailable').length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText('5,000')).toBeNull();
   });
 });
 

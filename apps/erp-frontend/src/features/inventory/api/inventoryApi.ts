@@ -3,7 +3,10 @@ import {
   buildMutationConfig,
   type MutationRequestOptions,
 } from '../../../lib/api/idempotency';
-import { parsePagedResult } from '../../../lib/api/pagination';
+import {
+  normalizeCursorParam,
+  parsePagedResult,
+} from '../../../lib/api/pagination';
 import type {
   ApiComponents,
   BalanceQuery,
@@ -61,10 +64,10 @@ export async function listInventoryLocations(
   params: ListInventoryLocationsParams
 ): Promise<PagedResult<InventoryLocationDto>> {
   const branchId = params.branchId.trim();
-  const cursor = params.cursor?.trim();
+  const cursor = normalizeCursorParam(params.cursor);
   const queryParams = {
     ...(branchId ? { branchId } : {}),
-    ...(cursor ? { cursor } : {}),
+    ...(cursor !== undefined ? { cursor } : {}),
     ...(params.limit !== undefined ? { limit: params.limit } : {}),
     ...(params.locationType !== undefined
       ? { locationType: params.locationType }
@@ -120,11 +123,11 @@ export async function listInventoryBatches(
   params: ListInventoryBatchesParams
 ): Promise<PagedResult<InventoryBatchDto>> {
   const branchId = params.branchId.trim();
-  const cursor = params.cursor?.trim();
+  const cursor = normalizeCursorParam(params.cursor);
   const productId = params.productId?.trim();
   const queryParams = {
     ...(branchId ? { branchId } : {}),
-    ...(cursor ? { cursor } : {}),
+    ...(cursor !== undefined ? { cursor } : {}),
     ...(params.limit !== undefined ? { limit: params.limit } : {}),
     ...(productId ? { productId } : {}),
     ...(params.qualityStatus !== undefined
@@ -144,13 +147,13 @@ export async function listInventoryBalances(
   params: ListInventoryBalancesParams
 ): Promise<PagedResult<InventoryBalanceDto>> {
   const branchId = params.branchId.trim();
-  const cursor = params.cursor?.trim();
+  const cursor = normalizeCursorParam(params.cursor);
   const productId = params.productId?.trim();
   const locationId = params.locationId?.trim();
   const batchId = params.batchId?.trim();
   const queryParams = {
     ...(branchId ? { branchId } : {}),
-    ...(cursor ? { cursor } : {}),
+    ...(cursor !== undefined ? { cursor } : {}),
     ...(params.limit !== undefined ? { limit: params.limit } : {}),
     ...(productId ? { productId } : {}),
     ...(locationId ? { locationId } : {}),
@@ -169,13 +172,13 @@ export async function listInventoryTransactions(
   params: ListInventoryTransactionsParams
 ): Promise<PagedResult<InventoryTxnDto>> {
   const branchId = params.branchId.trim();
-  const cursor = params.cursor?.trim();
+  const cursor = normalizeCursorParam(params.cursor);
   const productId = params.productId?.trim();
   const from = params.from?.trim();
   const to = params.to?.trim();
   const queryParams = {
     ...(branchId ? { branchId } : {}),
-    ...(cursor ? { cursor } : {}),
+    ...(cursor !== undefined ? { cursor } : {}),
     ...(params.limit !== undefined ? { limit: params.limit } : {}),
     ...(params.transactionType !== undefined
       ? { transactionType: params.transactionType }

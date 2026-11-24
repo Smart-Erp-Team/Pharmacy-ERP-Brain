@@ -3,7 +3,10 @@ import {
   buildMutationConfig,
   type MutationRequestOptions,
 } from '../../../lib/api/idempotency';
-import { parsePagedResult } from '../../../lib/api/pagination';
+import {
+  normalizeCursorParam,
+  parsePagedResult,
+} from '../../../lib/api/pagination';
 import type {
   ApiComponents,
   EmployeeDto,
@@ -25,10 +28,10 @@ export interface ListEmployeesParams {
 export async function listEmployees(
   params: ListEmployeesParams = {}
 ): Promise<PagedResult<EmployeeDto>> {
-  const cursor = params.cursor?.trim();
+  const cursor = normalizeCursorParam(params.cursor);
   const branchId = params.branchId?.trim();
   const queryParams: ListEmployeesParams = {
-    ...(cursor ? { cursor } : {}),
+    ...(cursor !== undefined ? { cursor } : {}),
     ...(params.limit !== undefined ? { limit: params.limit } : {}),
     ...(branchId ? { branchId } : {}),
   };

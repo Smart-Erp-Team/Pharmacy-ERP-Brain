@@ -1169,4 +1169,98 @@ describe('UsersPage', () => {
     await screen.findByText('ph.mona');
     expect(seenCursors[seenCursors.length - 1]).toBe('cursor-v2');
   });
+
+  it('blocks employee selection while multi-page user accounts are loading, retries on failure, and excludes accounts from page 2 once loaded', async () => {
+    const user = userEvent.setup();
+    let releaseSecondPage: (() => void) | undefined;
+    let secondPageGate = new Promise<void>((resolve) => {
+      releaseSecondPage = resolve;
+    });
+    let failSecondPage = true;
+
+    server.use(
+      http.get('*/api/v1/users', async ({ request }) => {
+        const cursor = new URL(request.url).searchParams.get('cursor');
+        if (cursor === 'page-2') {
+          await secondPageGate;
+          if (failSecondPage) {
+            return HttpResponse.json(
+              {
+                error: {
+                  code: 'INTERNAL_ERROR',
+                  message: 'Second users page failed',
+                },
+              },
+              { status: 500 }
+            );
+          }
+          return HttpResponse.json({
+            items: [INITIAL_USERS[1]],
+            nextCursor: null,
+          });
+        }
+
+        return HttpResponse.json({
+          items: [INITIAL_USERS[0]],
+          nextCursor: 'page-2',
+        });
+      })
+    );
+
+    renderWithProviders(<UsersPage />);
+    expect(await screen.findByText('admin.omar')).toBeDefined();
+    await screen.findByText('Omar Khaled');
+
+    await user.click(screen.getByRole('button', { name: 'Add user' }));
+    const dialog = screen.getByRole('dialog');
+    const employeeSelect = within(dialog).getByLabelText('Employee');
+    const submitButton = within(dialog).getByRole('button', {
+      name: 'Create user',
+    });
+
+    // 1. While page 2 (containing EMP-002's account) is still loading, Employee select & Submit are disabled
+    expect(employeeSelect.hasAttribute('disabled')).toBe(true);
+    expect(submitButton.hasAttribute('disabled')).toBe(true);
+    const loadingOptionTexts = Array.from(
+      employeeSelect.querySelectorAll('option')
+    ).map((option) => option.textContent ?? '');
+    expect(loadingOptionTexts).toEqual(['Loading employees...']);
+    expect(loadingOptionTexts.some((text) => text.includes('EMP-002'))).toBe(
+      false
+    );
+
+    // 2. Let page 2 fail -> shows Employees unavailable warning + Retry, keeping Employee select disabled
+    releaseSecondPage?.();
+    expect(
+      await within(dialog).findByText('Employees unavailable')
+    ).toBeDefined();
+    expect(employeeSelect.hasAttribute('disabled')).toBe(true);
+    expect(submitButton.hasAttribute('disabled')).toBe(true);
+
+    // 3. Retry with a fresh gate -> disables while retrying, then resolves and excludes EMP-002 from page 2
+    failSecondPage = false;
+    secondPageGate = new Promise<void>((resolve) => {
+      releaseSecondPage = resolve;
+    });
+
+    await user.click(within(dialog).getByRole('button', { name: 'Retry' }));
+    expect(employeeSelect.hasAttribute('disabled')).toBe(true);
+
+    releaseSecondPage?.();
+    await waitFor(() => {
+      expect(within(dialog).queryByText('Employees unavailable')).toBeNull();
+      expect(employeeSelect.hasAttribute('disabled')).toBe(false);
+    });
+
+    const readyOptionTexts = Array.from(
+      employeeSelect.querySelectorAll('option')
+    ).map((option) => option.textContent ?? '');
+    expect(readyOptionTexts).toContain('EMP-003 — Youssef Tarek');
+    expect(readyOptionTexts.some((text) => text.includes('EMP-001'))).toBe(
+      false
+    );
+    expect(readyOptionTexts.some((text) => text.includes('EMP-002'))).toBe(
+      false
+    );
+  });
 });

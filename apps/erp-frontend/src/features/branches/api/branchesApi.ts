@@ -3,7 +3,10 @@ import {
   buildMutationConfig,
   type MutationRequestOptions,
 } from '../../../lib/api/idempotency';
-import { parsePagedResult } from '../../../lib/api/pagination';
+import {
+  normalizeCursorParam,
+  parsePagedResult,
+} from '../../../lib/api/pagination';
 import type {
   ApiComponents,
   BranchDto,
@@ -28,8 +31,17 @@ export interface ListBranchesParams {
 export async function listBranches(
   params: ListBranchesParams = {}
 ): Promise<PagedResult<BranchDto>> {
+  const cursor = normalizeCursorParam(params.cursor);
+  const queryParams: ListBranchesParams = {
+    ...(cursor !== undefined ? { cursor } : {}),
+    ...(params.limit !== undefined ? { limit: params.limit } : {}),
+    ...(params.includeInactive !== undefined
+      ? { includeInactive: params.includeInactive }
+      : {}),
+  };
+
   const { data } = await apiClient.get<PagedBranchDto>('/branches', {
-    params,
+    params: queryParams,
   });
 
   return parsePagedResult<BranchDto>(data, '/branches');

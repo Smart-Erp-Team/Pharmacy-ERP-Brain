@@ -63,7 +63,12 @@ export function useUsersPageState() {
   });
 
   const isCreatingUser = formModalState.open && formModalState.user === null;
-  const allUsersQuery = useAllUsersQuery({ enabled: isCreatingUser });
+  const hasCompleteFirstPageUsers =
+    pageIndex === 0 &&
+    usersQuery.isSuccess &&
+    usersQuery.data.nextCursor === null;
+  const needsFullUsersDirectory = isCreatingUser && !hasCompleteFirstPageUsers;
+  const allUsersQuery = useAllUsersQuery({ enabled: needsFullUsersDirectory });
 
   const employeesQuery = useAllEmployeesQuery();
 
@@ -97,16 +102,33 @@ export function useUsersPageState() {
   }, [employees]);
 
   const eligibleEmployees = useMemo(() => {
-    const knownUsers = allUsersQuery.data ?? users;
+    if (employeesQuery.isError) {
+      return [];
+    }
+    const completeUsers = hasCompleteFirstPageUsers
+      ? usersQuery.data.items
+      : allUsersQuery.isError
+        ? null
+        : (allUsersQuery.data ?? null);
+    if (!completeUsers) {
+      return [];
+    }
     const assignedIds = new Set(
-      knownUsers.map((user) => user.employee_id.toLowerCase())
+      completeUsers.map((user) => user.employee_id.toLowerCase())
     );
     return employees.filter(
       (employee) =>
         employee.is_active &&
         !assignedIds.has(employee.employee_id.toLowerCase())
     );
-  }, [allUsersQuery.data, employees, users]);
+  }, [
+    allUsersQuery.data,
+    allUsersQuery.isError,
+    employees,
+    employeesQuery.isError,
+    hasCompleteFirstPageUsers,
+    usersQuery.data,
+  ]);
 
   const getEmployeeDisplay = (employeeId: string): EmployeeDisplay => {
     if (employeesQuery.isError) {
@@ -229,14 +251,28 @@ export function useUsersPageState() {
 
   const referenceNowMs = Math.max(mountNowMs, usersQuery.dataUpdatedAt);
 
+  const isEmployeesLoading =
+    employeesQuery.isPending ||
+    (employeesQuery.isError && employeesQuery.isFetching);
+  const isAllUsersLoading =
+    needsFullUsersDirectory &&
+    (allUsersQuery.isPending ||
+      (allUsersQuery.isError && allUsersQuery.isFetching));
+  const isAllUsersError = needsFullUsersDirectory && allUsersQuery.isError;
+
   const employeesDirectory: DirectoryQueryStatus = {
-    isLoading:
-      employeesQuery.isPending ||
-      (employeesQuery.isError && employeesQuery.isFetching),
-    isError: employeesQuery.isError,
-    isRetrying: employeesQuery.isFetching,
+    isLoading: isEmployeesLoading || isAllUsersLoading,
+    isError: employeesQuery.isError || isAllUsersError,
+    isRetrying:
+      employeesQuery.isFetching ||
+      (needsFullUsersDirectory && allUsersQuery.isFetching),
     onRetry: () => {
-      void employeesQuery.refetch();
+      if (employeesQuery.isError) {
+        void employeesQuery.refetch();
+      }
+      if (isAllUsersError) {
+        void allUsersQuery.refetch();
+      }
     },
   };
 

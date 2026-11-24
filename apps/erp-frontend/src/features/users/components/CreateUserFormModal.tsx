@@ -52,6 +52,11 @@ export function CreateUserFormModal({
     !employeesDirectory.isError &&
     eligibleEmployees.length === 0;
 
+  const isEmployeeSelectionBlocked =
+    employeesDirectory.isLoading ||
+    employeesDirectory.isError ||
+    hasNoEligibleEmployees;
+
   const handleClose = () => {
     if (!isPending) onClose();
   };
@@ -79,7 +84,7 @@ export function CreateUserFormModal({
   };
 
   const onSubmit = form.handleSubmit(async (values) => {
-    if (isPending || hasNoEligibleEmployees) return;
+    if (isPending || isEmployeeSelectionBlocked) return;
     setSubmitError(null);
     try {
       await createMutation.mutateAsync({
@@ -105,7 +110,7 @@ export function CreateUserFormModal({
       errorTitle="Could not create user account"
       submitError={submitError}
       isPending={isPending}
-      isSubmitDisabled={isPending || hasNoEligibleEmployees}
+      isSubmitDisabled={isPending || isEmployeeSelectionBlocked}
       employeesDirectory={employeesDirectory}
       branchesDirectory={branchesDirectory}
       onClose={handleClose}
