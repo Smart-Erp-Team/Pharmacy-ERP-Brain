@@ -323,9 +323,12 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
             {
                 var fetchedBaseUoms = await _productUomRepo.GetActiveBaseUomsByProductIdsAsync(
                     organizationId, productIdsNeedingBaseUom, cancellationToken);
-                foreach (var baseUom in fetchedBaseUoms)
+                if (fetchedBaseUoms != null)
                 {
-                    baseUomIdsByProductId.TryAdd(baseUom.ProductId, baseUom.ProductUomId);
+                    foreach (var baseUom in fetchedBaseUoms)
+                    {
+                        baseUomIdsByProductId.TryAdd(baseUom.ProductId, baseUom.ProductUomId);
+                    }
                 }
             }
         }

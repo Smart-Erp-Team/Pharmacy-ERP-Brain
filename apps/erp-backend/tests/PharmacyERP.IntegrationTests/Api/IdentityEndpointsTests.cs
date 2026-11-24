@@ -102,44 +102,44 @@ public sealed class IdentityEndpointsTests : IClassFixture<WebApplicationFactory
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", CreatePlatformProvisionerToken(keyProvider));
         using var organizationResponse = await SendWithIdempotencyAsync(client, HttpMethod.Post, "/api/v1/organizations", "org-e2e-1", new
         {
-            organizationCode = "E2E-PHARMACY",
+            organization_code = "E2E-PHARMACY",
             name = "End To End Pharmacy",
-            baseCurrency = "EGP",
-            timeZoneId = "Africa/Cairo",
+            base_currency = "EGP",
+            time_zone_id = "Africa/Cairo",
             address = Address("Organization Street"),
-            initialBranch = new { branchCode = "MAIN", name = "Main Branch", address = Address("Main Street") },
-            initialEmployee = new
+            initial_branch = new { branch_code = "MAIN", name = "Main Branch", address = Address("Main Street") },
+            initial_employee = new
             {
-                branchId = Guid.Empty,
-                employeeNo = "EMP-001",
-                fullName = "Initial Administrator",
-                jobTitle = "Administrator",
+                branch_id = Guid.Empty,
+                employee_no = "EMP-001",
+                full_name = "Initial Administrator",
+                job_title = "Administrator",
                 address = Address("Employee Street"),
-                hiredOn = "2025-01-01"
+                hired_on = "2025-01-01"
             },
-            initialAdmin = new { username = "owner", password = "OwnerPassword123!" }
+            initial_admin = new { username = "owner", password = "OwnerPassword123!" }
         });
         Assert.Equal(HttpStatusCode.Created, organizationResponse.StatusCode);
         using var organizationBody = JsonDocument.Parse(await organizationResponse.Content.ReadAsStringAsync());
-        var organizationId = organizationBody.RootElement.GetProperty("organizationId").GetGuid();
+        var organizationId = organizationBody.RootElement.GetProperty("organization_id").GetGuid();
         Assert.Equal($"/api/v1/organizations/{organizationId}", organizationResponse.Headers.Location?.ToString());
-        var firstBranchId = organizationBody.RootElement.GetProperty("initialBranchId").GetGuid();
-        var initialEmployeeId = organizationBody.RootElement.GetProperty("initialEmployeeId").GetGuid();
-        var adminUserId = organizationBody.RootElement.GetProperty("initialAdminUserId").GetGuid();
+        var firstBranchId = organizationBody.RootElement.GetProperty("initial_branch_id").GetGuid();
+        var initialEmployeeId = organizationBody.RootElement.GetProperty("initial_employee_id").GetGuid();
+        var adminUserId = organizationBody.RootElement.GetProperty("initial_admin_user_id").GetGuid();
         Assert.Contains(store.OutboxCursors, x => x.OrganizationId == organizationId);
         Assert.Contains(firstBranchId, store.SeededBranches);
 
         client.DefaultRequestHeaders.Authorization = null;
         using var adminLoginResponse = await client.PostAsJsonAsync("/api/v1/auth/login", new
         {
-            organizationCode = "E2E-PHARMACY",
+            organization_code = "E2E-PHARMACY",
             username = "owner",
             password = "OwnerPassword123!"
         });
         Assert.Equal(HttpStatusCode.OK, adminLoginResponse.StatusCode);
         using var adminLoginBody = JsonDocument.Parse(await adminLoginResponse.Content.ReadAsStringAsync());
-        var adminAccessToken = adminLoginBody.RootElement.GetProperty("accessToken").GetString()!;
-        var originalRefreshToken = adminLoginBody.RootElement.GetProperty("refreshToken").GetString()!;
+        var adminAccessToken = adminLoginBody.RootElement.GetProperty("access_token").GetString()!;
+        var originalRefreshToken = adminLoginBody.RootElement.GetProperty("refresh_token").GetString()!;
 
         using var jwksResponse = await client.GetAsync("/.well-known/jwks.json");
         Assert.Equal(HttpStatusCode.OK, jwksResponse.StatusCode);
@@ -148,20 +148,20 @@ public sealed class IdentityEndpointsTests : IClassFixture<WebApplicationFactory
         using var meResponse = await client.GetAsync("/api/v1/auth/me");
         Assert.Equal(HttpStatusCode.OK, meResponse.StatusCode);
         using var meBody = JsonDocument.Parse(await meResponse.Content.ReadAsStringAsync());
-        Assert.Equal(organizationId, meBody.RootElement.GetProperty("organizationId").GetGuid());
-        Assert.Equal(adminUserId, meBody.RootElement.GetProperty("userId").GetGuid());
+        Assert.Equal(organizationId, meBody.RootElement.GetProperty("organization_id").GetGuid());
+        Assert.Equal(adminUserId, meBody.RootElement.GetProperty("user_id").GetGuid());
         Assert.Equal("owner", meBody.RootElement.GetProperty("username").GetString());
-        Assert.Equal("ALL", meBody.RootElement.GetProperty("branchScope").GetString());
+        Assert.Equal("ALL", meBody.RootElement.GetProperty("branch_scope").GetString());
 
         using var createBranchResponse = await SendWithIdempotencyAsync(client, HttpMethod.Post, "/api/v1/branches", "branch-e2e-1", new
         {
-            branchCode = "SECOND",
+            branch_code = "SECOND",
             name = "Second Branch",
             address = Address("Second Street")
         });
         Assert.Equal(HttpStatusCode.Created, createBranchResponse.StatusCode);
         using var branchBody = JsonDocument.Parse(await createBranchResponse.Content.ReadAsStringAsync());
-        var secondBranchId = branchBody.RootElement.GetProperty("branchId").GetGuid();
+        var secondBranchId = branchBody.RootElement.GetProperty("branch_id").GetGuid();
         Assert.Equal($"/api/v1/branches/{secondBranchId}", createBranchResponse.Headers.Location?.ToString());
         Assert.Contains(secondBranchId, store.SeededBranches);
 
@@ -175,66 +175,66 @@ public sealed class IdentityEndpointsTests : IClassFixture<WebApplicationFactory
         using var enrollmentRedeemResponse = await client.PostAsJsonAsync("/api/v1/branch-enrollment", new { token = enrollmentToken });
         Assert.Equal(HttpStatusCode.OK, enrollmentRedeemResponse.StatusCode);
         using var enrollmentRedeemBody = JsonDocument.Parse(await enrollmentRedeemResponse.Content.ReadAsStringAsync());
-        Assert.Equal(organizationId, enrollmentRedeemBody.RootElement.GetProperty("organizationId").GetGuid());
-        Assert.Equal(secondBranchId, enrollmentRedeemBody.RootElement.GetProperty("branchId").GetGuid());
+        Assert.Equal(organizationId, enrollmentRedeemBody.RootElement.GetProperty("organization_id").GetGuid());
+        Assert.Equal(secondBranchId, enrollmentRedeemBody.RootElement.GetProperty("branch_id").GetGuid());
         using var enrollmentReplayResponse = await client.PostAsJsonAsync("/api/v1/branch-enrollment", new { token = enrollmentToken });
         Assert.Equal(HttpStatusCode.Unauthorized, enrollmentReplayResponse.StatusCode);
 
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminAccessToken);
         using var employeeResponse = await SendWithIdempotencyAsync(client, HttpMethod.Post, "/api/v1/employees", "emp-e2e-1", new
         {
-            branchId = secondBranchId,
-            employeeNo = "PHARM-001",
-            fullName = "Second Branch Pharmacist",
+            branch_id = secondBranchId,
+            employee_no = "PHARM-001",
+            full_name = "Second Branch Pharmacist",
             email = "pharmacist@example.test",
-            jobTitle = "Pharmacist",
+            job_title = "Pharmacist",
             address = Address("Pharmacist Street"),
-            hiredOn = "2025-02-01"
+            hired_on = "2025-02-01"
         });
         Assert.Equal(HttpStatusCode.Created, employeeResponse.StatusCode);
         using var employeeBody = JsonDocument.Parse(await employeeResponse.Content.ReadAsStringAsync());
-        var pharmacistEmployeeId = employeeBody.RootElement.GetProperty("employeeId").GetGuid();
+        var pharmacistEmployeeId = employeeBody.RootElement.GetProperty("employee_id").GetGuid();
         Assert.Equal($"/api/v1/employees/{pharmacistEmployeeId}", employeeResponse.Headers.Location?.ToString());
         Assert.NotEqual(initialEmployeeId, pharmacistEmployeeId);
 
         using var userResponse = await SendWithIdempotencyAsync(client, HttpMethod.Post, "/api/v1/users", "user-e2e-1", new
         {
-            employeeId = pharmacistEmployeeId,
+            employee_id = pharmacistEmployeeId,
             username = "pharmacist",
             password = "PharmacistPassword123!",
-            role = 2,
-            branchScope = 2,
-            branchIds = new[] { secondBranchId }
+            role = "Pharmacist",
+            branch_scope = "ASSIGNED",
+            branch_ids = new[] { secondBranchId }
         });
         Assert.Equal(HttpStatusCode.Created, userResponse.StatusCode);
         using var userBody = JsonDocument.Parse(await userResponse.Content.ReadAsStringAsync());
-        var pharmacistUserId = userBody.RootElement.GetProperty("userId").GetGuid();
+        var pharmacistUserId = userBody.RootElement.GetProperty("user_id").GetGuid();
         Assert.Equal($"/api/v1/users/{pharmacistUserId}", userResponse.Headers.Location?.ToString());
 
         client.DefaultRequestHeaders.Authorization = null;
         using var pharmacistLoginResponse = await client.PostAsJsonAsync("/api/v1/auth/login", new
         {
-            organizationCode = "E2E-PHARMACY",
+            organization_code = "E2E-PHARMACY",
             username = "pharmacist",
             password = "PharmacistPassword123!"
         });
         Assert.Equal(HttpStatusCode.OK, pharmacistLoginResponse.StatusCode);
         using var pharmacistLoginBody = JsonDocument.Parse(await pharmacistLoginResponse.Content.ReadAsStringAsync());
-        var pharmacistAccessToken = pharmacistLoginBody.RootElement.GetProperty("accessToken").GetString()!;
+        var pharmacistAccessToken = pharmacistLoginBody.RootElement.GetProperty("access_token").GetString()!;
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", pharmacistAccessToken);
         using var forbiddenUsersResponse = await client.GetAsync("/api/v1/users");
         Assert.Equal(HttpStatusCode.Forbidden, forbiddenUsersResponse.StatusCode);
         await AssertErrorEnvelopeAsync(forbiddenUsersResponse, "FORBIDDEN");
 
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminAccessToken);
-        using var rotateResponse = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = originalRefreshToken });
+        using var rotateResponse = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { refresh_token = originalRefreshToken });
         Assert.Equal(HttpStatusCode.OK, rotateResponse.StatusCode);
         using var rotateBody = JsonDocument.Parse(await rotateResponse.Content.ReadAsStringAsync());
-        var rotatedRefreshToken = rotateBody.RootElement.GetProperty("refreshToken").GetString()!;
+        var rotatedRefreshToken = rotateBody.RootElement.GetProperty("refresh_token").GetString()!;
 
-        using var reusedRefreshResponse = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = originalRefreshToken });
+        using var reusedRefreshResponse = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { refresh_token = originalRefreshToken });
         Assert.Equal(HttpStatusCode.Unauthorized, reusedRefreshResponse.StatusCode);
-        using var revokedFamilyResponse = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = rotatedRefreshToken });
+        using var revokedFamilyResponse = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { refresh_token = rotatedRefreshToken });
         Assert.Equal(HttpStatusCode.Unauthorized, revokedFamilyResponse.StatusCode);
 
         Assert.Single(store.Organizations);
@@ -279,7 +279,7 @@ public sealed class IdentityEndpointsTests : IClassFixture<WebApplicationFactory
     {
         line1,
         city = "Cairo",
-        countryCode = "EG"
+        country_code = "EG"
     };
 
     private static string CreatePlatformProvisionerToken(JwksKeyProvider keyProvider)
@@ -288,7 +288,7 @@ public sealed class IdentityEndpointsTests : IClassFixture<WebApplicationFactory
         var token = new JwtSecurityToken(
             issuer: "PharmacyERP",
             audience: "PharmacyERP.Api",
-            claims: new[] { new Claim("role", "PlatformProvisioner") },
+            claims: new[] { new Claim("roles", "[\"PlatformProvisioner\"]", JsonClaimValueTypes.JsonArray) },
             notBefore: now.AddSeconds(-10),
             expires: now.AddMinutes(5),
             signingCredentials: keyProvider.CreateSigningCredentials());

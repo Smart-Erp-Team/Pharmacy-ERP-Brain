@@ -347,4 +347,97 @@ public class InventoryApplicationServicesTests
         Assert.Equal(ErrorCode.NOT_FOUND, result.ErrorCode);
         _unitOfWorkMock.Verify(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    [Fact]
+    public async Task PostAdjustmentAsync_MultiUomInput_NormalizesLedgerLineToBaseUomPerBlueprint8912()
+    {
+        var uomRepoMock = new Mock<IProductUomRepository>();
+        var productRepoMock = new Mock<IProductRepository>();
+        InventoryTxn? capturedTxn = null;
+        _txnRepoMock.Setup(t => t.AddAsync(It.IsAny<InventoryTxn>(), It.IsAny<CancellationToken>()))
+            .Callback<InventoryTxn, CancellationToken>((txn, _) => capturedTxn = txn)
+            .Returns(Task.CompletedTask);
+
+        var service = new InventoryAdjustmentService(
+            _txnRepoMock.Object, _stockRepoMock.Object, _batchRepoMock.Object, _locationRepoMock.Object,
+            _tenantContextMock.Object, _currentUserMock.Object, _runtimeModeMock.Object,
+            _dateTimeProviderMock.Object, _unitOfWorkMock.Object, _idempotencyMock.Object,
+            _outboxMock.Object, _auditLoggerMock.Object,
+            productUomRepo: uomRepoMock.Object, productRepo: productRepoMock.Object);
+
+        var product = Product.Create(
+            _orgId,
+            Guid.NewGuid(),
+            "MED-AUG-1000",
+            null,
+            "Augmentin 1g",
+            null,
+            null,
+            "TAB",
+            0m,
+            null,
+            true,
+            30,
+            new[] { new InitialUomDefinition("TAB", "Tablet", 1m, 10.50m, true, true, true) });
+        var baseUom = product.Uoms.Single(u => u.IsBase);
+        var boxUom = product.AddUom("BOX", "Box of 14", 14m, 138.00m, false, true, true);
+
+        var location = InventoryLocation.CreateDefaultSellable(_orgId, _branchId, DateTimeOffset.UtcNow);
+        var expiresOn = new DateOnly(2027, 1, 28);
+        var batch = InventoryBatch.CreateDatedBatch(_orgId, product.ProductId, "LOT-2601", expiresOn);
+        var stockBalance = StockBalance.CreateInitial(_orgId, location.LocationId, batch.BatchId, 0m, 0m, DateTimeOffset.UtcNow);
+
+        _locationRepoMock.Setup(l => l.GetByIdsAsync(_orgId, _branchId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<InventoryLocation> { location });
+        productRepoMock.Setup(p => p.GetByIdsAsync(_orgId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Product> { product });
+        uomRepoMock.Setup(u => u.GetByIdsAsync(_orgId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ProductUom> { boxUom });
+        uomRepoMock.Setup(u => u.GetActiveBaseUomsByProductIdsAsync(_orgId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ProductUom> { baseUom });
+        _batchRepoMock.Setup(b => b.GetOrCreateBatchesAsync(
+                _orgId,
+                It.IsAny<IReadOnlyCollection<(Guid ProductId, string BatchNumber, DateOnly? ExpiresOn, DateOnly? ManufacturedOn)>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, InventoryBatch> { [batch.BatchId] = batch });
+        _stockRepoMock.Setup(s => s.GetOrCreateForUpdateBatchAsync(
+                _orgId,
+                It.IsAny<IReadOnlyCollection<(Guid LocationId, Guid BatchId)>>(),
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<(Guid LocationId, Guid BatchId), StockBalance> { [(location.LocationId, batch.BatchId)] = stockBalance });
+
+        // Caller submits 2 Boxes (14 Tabs/Box) at 100.80/Box -> 28 Tabs at 7.20/Tab
+        var request = new CreateInventoryAdjustmentRequest(
+            _branchId,
+            InventoryTransactionType.ADJUSTMENT_IN,
+            "COUNT",
+            "Multi-UOM restock",
+            null,
+            new List<CreateInventoryAdjustmentLineRequest>
+            {
+                new(product.ProductId, boxUom.ProductUomId, location.LocationId, "LOT-2601", null, expiresOn, 2m, 100.80m)
+            },
+            "IDEM-MULTI-UOM");
+
+        var result = await service.PostAdjustmentAsync(request);
+
+        Assert.True(result.IsSuccess);
+        var responseLine = Assert.Single(result.Value!.Lines);
+        Assert.Equal(baseUom.ProductUomId, responseLine.ProductUomId);
+        Assert.Equal(28m, responseLine.EnteredQty);
+        Assert.Equal(1m, responseLine.ConversionSnapshot);
+        Assert.Equal(28m, responseLine.QuantityDeltaBase);
+        Assert.Equal(7.20m, responseLine.UnitCostBase);
+
+        Assert.NotNull(capturedTxn);
+        var persistedLine = Assert.Single(capturedTxn!.Lines);
+        Assert.Equal(baseUom.ProductUomId, persistedLine.ProductUomId);
+        Assert.Equal(28m, persistedLine.EnteredQty);
+        Assert.Equal(1m, persistedLine.ConversionSnapshot);
+        Assert.Equal(28m, persistedLine.QuantityDeltaBase);
+        Assert.Equal(7.20m, persistedLine.UnitCostBase);
+        Assert.Equal(28m, stockBalance.OnHandQtyBase);
+        Assert.Equal(7.20m, stockBalance.AverageUnitCost);
+    }
 }

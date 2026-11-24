@@ -18,8 +18,9 @@ public sealed class Level1AApiContractTests : IClassFixture<WebApplicationFactor
 {
     private static readonly JsonSerializerOptions TestJsonOptions = new()
     {
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         PropertyNameCaseInsensitive = true,
-        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: false) }
     };
 
     private readonly WebApplicationFactory<PharmacyERP.Api.Program> _factory;
@@ -93,14 +94,14 @@ public sealed class Level1AApiContractTests : IClassFixture<WebApplicationFactor
         // 1. Broken JSON syntax -> 400 MALFORMED_REQUEST
         using var brokenJson = await client.PostAsync(
             "/api/v1/auth/login",
-            new StringContent("{ \"organizationCode\": \"ACME\", ", Encoding.UTF8, "application/json"));
+            new StringContent("{ \"organization_code\": \"ACME\", ", Encoding.UTF8, "application/json"));
         Assert.Equal(HttpStatusCode.BadRequest, brokenJson.StatusCode);
         await AssertErrorEnvelopeAsync(brokenJson, "MALFORMED_REQUEST");
 
         // 2. Unquoted invalid token inside property -> 400 MALFORMED_REQUEST
         using var nestedSyntaxError = await client.PostAsync(
             "/api/v1/auth/login",
-            new StringContent("{ \"organizationCode\": broken_token }", Encoding.UTF8, "application/json"));
+            new StringContent("{ \"organization_code\": broken_token }", Encoding.UTF8, "application/json"));
         Assert.Equal(HttpStatusCode.BadRequest, nestedSyntaxError.StatusCode);
         await AssertErrorEnvelopeAsync(nestedSyntaxError, "MALFORMED_REQUEST");
 
@@ -114,7 +115,7 @@ public sealed class Level1AApiContractTests : IClassFixture<WebApplicationFactor
         // 4. Valid JSON with missing required fields -> 422 VALIDATION_ERROR
         using var missingFields = await client.PostAsync(
             "/api/v1/auth/login",
-            new StringContent("{ \"organizationCode\": \"\", \"username\": \"\", \"password\": \"\" }", Encoding.UTF8, "application/json"));
+            new StringContent("{ \"organization_code\": \"\", \"username\": \"\", \"password\": \"\" }", Encoding.UTF8, "application/json"));
         Assert.Equal(HttpStatusCode.UnprocessableEntity, missingFields.StatusCode);
         await AssertErrorEnvelopeAsync(missingFields, "VALIDATION_ERROR");
 
@@ -123,7 +124,7 @@ public sealed class Level1AApiContractTests : IClassFixture<WebApplicationFactor
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
         using var wrongTypeReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/branches")
         {
-            Content = new StringContent("{ \"branchCode\": 12345, \"name\": \"Bad Type\" }", Encoding.UTF8, "application/json")
+            Content = new StringContent("{ \"branch_code\": 12345, \"name\": \"Bad Type\" }", Encoding.UTF8, "application/json")
         };
         wrongTypeReq.Headers.Add("Idempotency-Key", "wrong-type-1");
         using var wrongTypeResp = await client.SendAsync(wrongTypeReq);
@@ -146,7 +147,7 @@ public sealed class Level1AApiContractTests : IClassFixture<WebApplicationFactor
         Assert.Equal(HttpStatusCode.OK, meResp.StatusCode);
 
         using var doc = JsonDocument.Parse(await meResp.Content.ReadAsStringAsync());
-        Assert.Equal(orgId, doc.RootElement.GetProperty("organizationId").GetGuid());
+        Assert.Equal(orgId, doc.RootElement.GetProperty("organization_id").GetGuid());
         Assert.Equal("dr.ahmed.admin", doc.RootElement.GetProperty("username").GetString());
         Assert.Equal("Admin", doc.RootElement.GetProperty("role").GetString());
     }
@@ -163,22 +164,22 @@ public sealed class Level1AApiContractTests : IClassFixture<WebApplicationFactor
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", CreatePlatformProvisionerToken(keyProvider));
         var orgPayload = new
         {
-            organizationCode = "IDEMP-ORG",
+            organization_code = "IDEMP-ORG",
             name = "Idempotent Pharmacy",
-            baseCurrency = "EGP",
-            timeZoneId = "Africa/Cairo",
+            base_currency = "EGP",
+            time_zone_id = "Africa/Cairo",
             address = Address("Org St"),
-            initialBranch = new { branchCode = "MAIN", name = "Main", address = Address("Branch St") },
-            initialEmployee = new
+            initial_branch = new { branch_code = "MAIN", name = "Main", address = Address("Branch St") },
+            initial_employee = new
             {
-                branchId = Guid.Empty,
-                employeeNo = "EMP-001",
-                fullName = "Org Admin",
-                jobTitle = "Admin",
+                branch_id = Guid.Empty,
+                employee_no = "EMP-001",
+                full_name = "Org Admin",
+                job_title = "Admin",
                 address = Address("Emp St"),
-                hiredOn = "2025-01-01"
+                hired_on = "2025-01-01"
             },
-            initialAdmin = new { username = "orgadmin", password = "AdminPassword123!" }
+            initial_admin = new { username = "orgadmin", password = "AdminPassword123!" }
         };
 
         using var orgMissingKey = await client.PostAsJsonAsync("/api/v1/organizations", orgPayload);
@@ -188,34 +189,34 @@ public sealed class Level1AApiContractTests : IClassFixture<WebApplicationFactor
         // 1b. POST /api/v1/organizations: first call -> 201 Created + Location, replay -> same orgId, mismatch -> 409 IDEMPOTENCY_MISMATCH
         using var orgFirst = await SendJsonAsync(client, HttpMethod.Post, "/api/v1/organizations", orgPayload, "idem-org-1");
         Assert.Equal(HttpStatusCode.Created, orgFirst.StatusCode);
-        var org1 = await orgFirst.Content.ReadFromJsonAsync<OrganizationDto>();
+        var org1 = await orgFirst.Content.ReadFromJsonAsync<OrganizationDto>(TestJsonOptions);
         Assert.NotNull(org1);
         Assert.Equal($"/api/v1/organizations/{org1!.OrganizationId}", orgFirst.Headers.Location?.ToString());
 
         using var orgReplay = await SendJsonAsync(client, HttpMethod.Post, "/api/v1/organizations", orgPayload, "idem-org-1");
         Assert.Equal(HttpStatusCode.Created, orgReplay.StatusCode);
-        var orgReplayed = await orgReplay.Content.ReadFromJsonAsync<OrganizationDto>();
+        var orgReplayed = await orgReplay.Content.ReadFromJsonAsync<OrganizationDto>(TestJsonOptions);
         Assert.Equal(org1.OrganizationId, orgReplayed!.OrganizationId);
         Assert.Single(store.Organizations);
 
         var orgDifferentPayload = new
         {
-            organizationCode = "OTHER-ORG",
+            organization_code = "OTHER-ORG",
             name = "Different Pharmacy",
-            baseCurrency = "EGP",
-            timeZoneId = "Africa/Cairo",
+            base_currency = "EGP",
+            time_zone_id = "Africa/Cairo",
             address = Address("Org St"),
-            initialBranch = new { branchCode = "MAIN", name = "Main", address = Address("Branch St") },
-            initialEmployee = new
+            initial_branch = new { branch_code = "MAIN", name = "Main", address = Address("Branch St") },
+            initial_employee = new
             {
-                branchId = Guid.Empty,
-                employeeNo = "EMP-001",
-                fullName = "Org Admin",
-                jobTitle = "Admin",
+                branch_id = Guid.Empty,
+                employee_no = "EMP-001",
+                full_name = "Org Admin",
+                job_title = "Admin",
                 address = Address("Emp St"),
-                hiredOn = "2025-01-01"
+                hired_on = "2025-01-01"
             },
-            initialAdmin = new { username = "orgadmin", password = "AdminPassword123!" }
+            initial_admin = new { username = "orgadmin", password = "AdminPassword123!" }
         };
         using var orgMismatch = await SendJsonAsync(client, HttpMethod.Post, "/api/v1/organizations", orgDifferentPayload, "idem-org-1");
         Assert.Equal(HttpStatusCode.Conflict, orgMismatch.StatusCode);
@@ -225,38 +226,38 @@ public sealed class Level1AApiContractTests : IClassFixture<WebApplicationFactor
         client.DefaultRequestHeaders.Authorization = null;
         using var loginResp = await client.PostAsJsonAsync("/api/v1/auth/login", new
         {
-            organizationCode = "IDEMP-ORG",
+            organization_code = "IDEMP-ORG",
             username = "orgadmin",
             password = "AdminPassword123!"
         });
         Assert.Equal(HttpStatusCode.OK, loginResp.StatusCode);
         using var loginDoc = JsonDocument.Parse(await loginResp.Content.ReadAsStringAsync());
-        var adminToken = loginDoc.RootElement.GetProperty("accessToken").GetString()!;
+        var adminToken = loginDoc.RootElement.GetProperty("access_token").GetString()!;
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
 
         // 2. POST & PATCH /api/v1/branches: missing key -> 400, create -> 201 + replay + mismatch, patch -> 200 + replay + mismatch
-        var branchPayload = new { branchCode = "BR-02", name = "Branch Two", address = Address("Two St") };
+        var branchPayload = new { branch_code = "BR-02", name = "Branch Two", address = Address("Two St") };
         using var brMissing = await client.PostAsJsonAsync("/api/v1/branches", branchPayload);
         Assert.Equal(HttpStatusCode.BadRequest, brMissing.StatusCode);
         await AssertErrorEnvelopeAsync(brMissing, "MALFORMED_REQUEST");
 
         using var brFirst = await SendJsonAsync(client, HttpMethod.Post, "/api/v1/branches", branchPayload, "idem-br-1");
         Assert.Equal(HttpStatusCode.Created, brFirst.StatusCode);
-        var br1 = await brFirst.Content.ReadFromJsonAsync<BranchDto>();
+        var br1 = await brFirst.Content.ReadFromJsonAsync<BranchDto>(TestJsonOptions);
         Assert.NotNull(br1);
         Assert.Equal($"/api/v1/branches/{br1!.BranchId}", brFirst.Headers.Location?.ToString());
 
         using var brReplay = await SendJsonAsync(client, HttpMethod.Post, "/api/v1/branches", branchPayload, "idem-br-1");
         Assert.Equal(HttpStatusCode.Created, brReplay.StatusCode);
-        Assert.Equal(br1.BranchId, (await brReplay.Content.ReadFromJsonAsync<BranchDto>())!.BranchId);
+        Assert.Equal(br1.BranchId, (await brReplay.Content.ReadFromJsonAsync<BranchDto>(TestJsonOptions))!.BranchId);
         Assert.Equal(2, store.Branches.Count);
 
         using var brMismatch = await SendJsonAsync(client, HttpMethod.Post, "/api/v1/branches",
-            new { branchCode = "BR-03", name = "Branch Three", address = Address("Three St") }, "idem-br-1");
+            new { branch_code = "BR-03", name = "Branch Three", address = Address("Three St") }, "idem-br-1");
         Assert.Equal(HttpStatusCode.Conflict, brMismatch.StatusCode);
         await AssertErrorEnvelopeAsync(brMismatch, "IDEMPOTENCY_MISMATCH");
 
-        var brPatchPayload = new { name = "Branch Two Renamed", address = Address("Two St"), isActive = true };
+        var brPatchPayload = new { name = "Branch Two Renamed", address = Address("Two St"), is_active = true };
         using var brPatchMissing = await SendJsonAsync(client, HttpMethod.Patch, $"/api/v1/branches/{br1.BranchId}", brPatchPayload, null);
         Assert.Equal(HttpStatusCode.BadRequest, brPatchMissing.StatusCode);
         await AssertErrorEnvelopeAsync(brPatchMissing, "MALFORMED_REQUEST");
@@ -266,7 +267,7 @@ public sealed class Level1AApiContractTests : IClassFixture<WebApplicationFactor
         using var brPatchReplay = await SendJsonAsync(client, HttpMethod.Patch, $"/api/v1/branches/{br1.BranchId}", brPatchPayload, "idem-br-patch-1");
         Assert.Equal(HttpStatusCode.OK, brPatchReplay.StatusCode);
         using var brPatchMismatch = await SendJsonAsync(client, HttpMethod.Patch, $"/api/v1/branches/{br1.BranchId}",
-            new { name = "Tampered Name", address = Address("Two St"), isActive = true }, "idem-br-patch-1");
+            new { name = "Tampered Name", address = Address("Two St"), is_active = true }, "idem-br-patch-1");
         Assert.Equal(HttpStatusCode.Conflict, brPatchMismatch.StatusCode);
         await AssertErrorEnvelopeAsync(brPatchMismatch, "IDEMPOTENCY_MISMATCH");
 
@@ -277,21 +278,21 @@ public sealed class Level1AApiContractTests : IClassFixture<WebApplicationFactor
 
         using var enrollFirst = await SendJsonAsync(client, HttpMethod.Post, $"/api/v1/branches/{br1.BranchId}/enrollment-tokens", null, "idem-enroll-1");
         Assert.Equal(HttpStatusCode.Created, enrollFirst.StatusCode);
-        var enroll1 = await enrollFirst.Content.ReadFromJsonAsync<EnrollmentTokenResponse>();
+        var enroll1 = await enrollFirst.Content.ReadFromJsonAsync<EnrollmentTokenResponse>(TestJsonOptions);
         using var enrollReplay = await SendJsonAsync(client, HttpMethod.Post, $"/api/v1/branches/{br1.BranchId}/enrollment-tokens", null, "idem-enroll-1");
         Assert.Equal(HttpStatusCode.Created, enrollReplay.StatusCode);
-        Assert.Equal(enroll1!.Token, (await enrollReplay.Content.ReadFromJsonAsync<EnrollmentTokenResponse>())!.Token);
+        Assert.Equal(enroll1!.Token, (await enrollReplay.Content.ReadFromJsonAsync<EnrollmentTokenResponse>(TestJsonOptions))!.Token);
         Assert.Single(store.Enrollments);
 
         // 4. POST & PATCH /api/v1/employees: missing key -> 400, create -> 201 + replay + mismatch, patch -> 200 + replay + mismatch
         var empPayload = new
         {
-            branchId = br1.BranchId,
-            employeeNo = "EMP-002",
-            fullName = "Second Employee",
-            jobTitle = "Pharmacist",
+            branch_id = br1.BranchId,
+            employee_no = "EMP-002",
+            full_name = "Second Employee",
+            job_title = "Pharmacist",
             address = Address("Emp 2 St"),
-            hiredOn = "2025-03-01"
+            hired_on = "2025-03-01"
         };
         using var empMissing = await client.PostAsJsonAsync("/api/v1/employees", empPayload);
         Assert.Equal(HttpStatusCode.BadRequest, empMissing.StatusCode);
@@ -299,27 +300,27 @@ public sealed class Level1AApiContractTests : IClassFixture<WebApplicationFactor
 
         using var empFirst = await SendJsonAsync(client, HttpMethod.Post, "/api/v1/employees", empPayload, "idem-emp-1");
         Assert.Equal(HttpStatusCode.Created, empFirst.StatusCode);
-        var emp1 = await empFirst.Content.ReadFromJsonAsync<EmployeeDto>();
+        var emp1 = await empFirst.Content.ReadFromJsonAsync<EmployeeDto>(TestJsonOptions);
         Assert.Equal($"/api/v1/employees/{emp1!.EmployeeId}", empFirst.Headers.Location?.ToString());
 
         using var empReplay = await SendJsonAsync(client, HttpMethod.Post, "/api/v1/employees", empPayload, "idem-emp-1");
         Assert.Equal(HttpStatusCode.Created, empReplay.StatusCode);
-        Assert.Equal(emp1.EmployeeId, (await empReplay.Content.ReadFromJsonAsync<EmployeeDto>())!.EmployeeId);
+        Assert.Equal(emp1.EmployeeId, (await empReplay.Content.ReadFromJsonAsync<EmployeeDto>(TestJsonOptions))!.EmployeeId);
 
         using var empMismatch = await SendJsonAsync(client, HttpMethod.Post, "/api/v1/employees",
-            new { branchId = br1.BranchId, employeeNo = "EMP-003", fullName = "Other", jobTitle = "Cashier", address = Address("Other"), hiredOn = "2025-03-01" }, "idem-emp-1");
+            new { branch_id = br1.BranchId, employee_no = "EMP-003", full_name = "Other", job_title = "Cashier", address = Address("Other"), hired_on = "2025-03-01" }, "idem-emp-1");
         Assert.Equal(HttpStatusCode.Conflict, empMismatch.StatusCode);
         await AssertErrorEnvelopeAsync(empMismatch, "IDEMPOTENCY_MISMATCH");
 
         // 5. POST/PATCH /api/v1/users, POST password-reset (204), POST revoke-sessions (204): missing key -> 400, replay + mismatch
         var userPayload = new
         {
-            employeeId = emp1.EmployeeId,
+            employee_id = emp1.EmployeeId,
             username = "pharm2",
             password = "Pharm2Password123!",
             role = "Pharmacist",
-            branchScope = "ASSIGNED",
-            branchIds = new[] { br1.BranchId }
+            branch_scope = "ASSIGNED",
+            branch_ids = new[] { br1.BranchId }
         };
         using var userMissing = await client.PostAsJsonAsync("/api/v1/users", userPayload);
         Assert.Equal(HttpStatusCode.BadRequest, userMissing.StatusCode);
@@ -335,20 +336,20 @@ public sealed class Level1AApiContractTests : IClassFixture<WebApplicationFactor
         Assert.Equal(user1.UserId, (await userReplay.Content.ReadFromJsonAsync<UserDto>(TestJsonOptions))!.UserId);
 
         using var userMismatch = await SendJsonAsync(client, HttpMethod.Post, "/api/v1/users",
-            new { employeeId = emp1.EmployeeId, username = "different", password = "Pharm2Password123!", role = "Pharmacist", branchScope = "ASSIGNED", branchIds = new[] { br1.BranchId } }, "idem-user-1");
+            new { employee_id = emp1.EmployeeId, username = "different", password = "Pharm2Password123!", role = "Pharmacist", branch_scope = "ASSIGNED", branch_ids = new[] { br1.BranchId } }, "idem-user-1");
         Assert.Equal(HttpStatusCode.Conflict, userMismatch.StatusCode);
         await AssertErrorEnvelopeAsync(userMismatch, "IDEMPOTENCY_MISMATCH");
 
         // Password reset: missing key -> 400, first -> 204, replay -> 204, mismatch -> 409
-        using var resetMissing = await client.PostAsJsonAsync($"/api/v1/users/{user1.UserId}/password-reset", new { newPassword = "ResetPassword123!" });
+        using var resetMissing = await client.PostAsJsonAsync($"/api/v1/users/{user1.UserId}/password-reset", new { new_password = "ResetPassword123!" });
         Assert.Equal(HttpStatusCode.BadRequest, resetMissing.StatusCode);
         await AssertErrorEnvelopeAsync(resetMissing, "MALFORMED_REQUEST");
 
-        using var resetFirst = await SendJsonAsync(client, HttpMethod.Post, $"/api/v1/users/{user1.UserId}/password-reset", new { newPassword = "ResetPassword123!" }, "idem-reset-1");
+        using var resetFirst = await SendJsonAsync(client, HttpMethod.Post, $"/api/v1/users/{user1.UserId}/password-reset", new { new_password = "ResetPassword123!" }, "idem-reset-1");
         Assert.Equal(HttpStatusCode.NoContent, resetFirst.StatusCode);
-        using var resetReplay = await SendJsonAsync(client, HttpMethod.Post, $"/api/v1/users/{user1.UserId}/password-reset", new { newPassword = "ResetPassword123!" }, "idem-reset-1");
+        using var resetReplay = await SendJsonAsync(client, HttpMethod.Post, $"/api/v1/users/{user1.UserId}/password-reset", new { new_password = "ResetPassword123!" }, "idem-reset-1");
         Assert.Equal(HttpStatusCode.NoContent, resetReplay.StatusCode);
-        using var resetMismatch = await SendJsonAsync(client, HttpMethod.Post, $"/api/v1/users/{user1.UserId}/password-reset", new { newPassword = "DifferentPassword123!" }, "idem-reset-1");
+        using var resetMismatch = await SendJsonAsync(client, HttpMethod.Post, $"/api/v1/users/{user1.UserId}/password-reset", new { new_password = "DifferentPassword123!" }, "idem-reset-1");
         Assert.Equal(HttpStatusCode.Conflict, resetMismatch.StatusCode);
         await AssertErrorEnvelopeAsync(resetMismatch, "IDEMPOTENCY_MISMATCH");
 
@@ -429,17 +430,17 @@ public sealed class Level1AApiContractTests : IClassFixture<WebApplicationFactor
         await AssertErrorEnvelopeAsync(catMissing, "MALFORMED_REQUEST");
 
         using var rrMissing = await SendJsonAsync(cloudClient, HttpMethod.Put, $"/api/v1/branches/{provisionedBranchId}/products/{productId}/reorder-rule",
-            new { reorderPointBase = 10, reorderQuantityBase = 20, maxQuantityBase = 50, isActive = true }, null);
+            new { reorder_point_base = 10, reorder_quantity_base = 20, max_quantity_base = 50, is_active = true }, null);
         Assert.Equal(HttpStatusCode.BadRequest, rrMissing.StatusCode);
         await AssertErrorEnvelopeAsync(rrMissing, "MALFORMED_REQUEST");
 
         using var locMissing = await SendJsonAsync(cloudClient, HttpMethod.Post, "/api/v1/inventory/locations",
-            new { branchId = provisionedBranchId, locationCode = "LOC-1", name = "Shelf", locationType = "SELLABLE", isSellable = true }, null);
+            new { branch_id = provisionedBranchId, location_code = "LOC-1", name = "Shelf", location_type = "SELLABLE", is_sellable = true }, null);
         Assert.Equal(HttpStatusCode.BadRequest, locMissing.StatusCode);
         await AssertErrorEnvelopeAsync(locMissing, "MALFORMED_REQUEST");
 
         using var canonMissing = await SendJsonAsync(cloudClient, HttpMethod.Post, "/api/v1/canonical/configuration/products",
-            new { requestId = Guid.NewGuid(), sourcePromptId = "p1", action = "CreateProduct" }, null);
+            new { request_id = Guid.NewGuid(), source_prompt_id = "p1", action = "CreateProduct" }, null);
         Assert.Equal(HttpStatusCode.BadRequest, canonMissing.StatusCode);
         await AssertErrorEnvelopeAsync(canonMissing, "MALFORMED_REQUEST");
 
@@ -449,33 +450,33 @@ public sealed class Level1AApiContractTests : IClassFixture<WebApplicationFactor
         Assert.Equal($"/api/v1/product-categories/{categoryId}", catCreated.Headers.Location?.ToString());
 
         using var prodCreated = await SendJsonAsync(cloudClient, HttpMethod.Post, "/api/v1/products",
-            new { categoryId, sku = "SKU1", name = "Prod", baseUomCode = "TAB", taxRate = 0, lotTrackingRequired = false, expiryAlertDays = 0, uoms = Array.Empty<object>() }, "k-prod-1");
+            new { category_id = categoryId, sku = "SKU1", name = "Prod", base_uom_code = "TAB", tax_rate = 0, lot_tracking_required = false, expiry_alert_days = 0, uoms = Array.Empty<object>() }, "k-prod-1");
         Assert.Equal(HttpStatusCode.Created, prodCreated.StatusCode);
         Assert.Equal($"/api/v1/products/{productId}", prodCreated.Headers.Location?.ToString());
 
         using var uomCreated = await SendJsonAsync(cloudClient, HttpMethod.Post, $"/api/v1/products/{productId}/uoms",
-            new { uomCode = "BOX", displayName = "Box", conversionToBase = 10, isBase = false, isSellable = true, isPurchasable = true }, "k-uom-1");
+            new { uom_code = "BOX", display_name = "Box", conversion_to_base = 10, is_base = false, is_sellable = true, is_purchasable = true }, "k-uom-1");
         Assert.Equal(HttpStatusCode.Created, uomCreated.StatusCode);
         Assert.Equal($"/api/v1/products/{productId}/uoms/{uomId}", uomCreated.Headers.Location?.ToString());
 
         using var locCreated = await SendJsonAsync(cloudClient, HttpMethod.Post, "/api/v1/inventory/locations",
-            new { branchId, locationCode = "LOC-1", name = "Shelf", locationType = "SELLABLE", isSellable = true }, "k-loc-1");
+            new { branch_id = branchId, location_code = "LOC-1", name = "Shelf", location_type = "SELLABLE", is_sellable = true }, "k-loc-1");
         Assert.Equal(HttpStatusCode.Created, locCreated.StatusCode);
         Assert.Equal($"/api/v1/inventory/locations/{locationId}", locCreated.Headers.Location?.ToString());
 
         using var canonCreateProd = await SendJsonAsync(cloudClient, HttpMethod.Post, "/api/v1/canonical/configuration/products",
-            new { requestId = Guid.NewGuid(), sourcePromptId = "p1", action = "CreateProduct" }, "k-canon-1");
+            new { request_id = Guid.NewGuid(), source_prompt_id = "p1", action = "CreateProduct" }, "k-canon-1");
         Assert.Equal(HttpStatusCode.Created, canonCreateProd.StatusCode);
         Assert.Equal($"/api/v1/products/{productId}", canonCreateProd.Headers.Location?.ToString());
 
         using var canonAddUom = await SendJsonAsync(cloudClient, HttpMethod.Post, "/api/v1/canonical/configuration/products",
-            new { requestId = Guid.NewGuid(), sourcePromptId = "p2", action = "AddUom", productId }, "k-canon-2");
+            new { request_id = Guid.NewGuid(), source_prompt_id = "p2", action = "AddUom", product_id = productId }, "k-canon-2");
         Assert.Equal(HttpStatusCode.Created, canonAddUom.StatusCode);
         Assert.Equal($"/api/v1/products/{productId}/uoms/{uomId}", canonAddUom.Headers.Location?.ToString());
 
         // Canonical UpdateProduct stays 200 OK
         using var canonUpdateProd = await SendJsonAsync(cloudClient, HttpMethod.Post, "/api/v1/canonical/configuration/products",
-            new { requestId = Guid.NewGuid(), sourcePromptId = "p3", action = "UpdateProduct", productId }, "k-canon-3");
+            new { request_id = Guid.NewGuid(), source_prompt_id = "p3", action = "UpdateProduct", product_id = productId }, "k-canon-3");
         Assert.Equal(HttpStatusCode.OK, canonUpdateProd.StatusCode);
 
         // BranchLocal factory for POST /api/v1/inventory/adjustments (201 Created + 400 on missing key)
@@ -487,19 +488,19 @@ public sealed class Level1AApiContractTests : IClassFixture<WebApplicationFactor
         using var localClient = branchLocalFactory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         using var localLogin = await localClient.PostAsJsonAsync("/api/v1/auth/login", new
         {
-            organizationCode = "DIFF004",
+            organization_code = "DIFF004",
             username = "owner",
             password = "OwnerPassword123!"
         });
         Assert.Equal(HttpStatusCode.OK, localLogin.StatusCode);
         using var localLoginDoc = JsonDocument.Parse(await localLogin.Content.ReadAsStringAsync());
-        localClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", localLoginDoc.RootElement.GetProperty("accessToken").GetString()!);
+        localClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", localLoginDoc.RootElement.GetProperty("access_token").GetString()!);
 
         var adjPayload = new
         {
-            branchId = provisionedBranchId,
-            transactionType = "ADJUSTMENT_IN",
-            reasonCode = "COUNT",
+            branch_id = provisionedBranchId,
+            transaction_type = "ADJUSTMENT_IN",
+            reason_code = "COUNT",
             lines = Array.Empty<object>()
         };
         using var adjMissing = await SendJsonAsync(localClient, HttpMethod.Post, "/api/v1/inventory/adjustments", adjPayload, null);
@@ -579,36 +580,36 @@ public sealed class Level1AApiContractTests : IClassFixture<WebApplicationFactor
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", CreatePlatformProvisionerToken(keyProvider));
         using var orgResp = await SendJsonAsync(client, HttpMethod.Post, "/api/v1/organizations", new
         {
-            organizationCode = orgCode,
+            organization_code = orgCode,
             name = $"{orgCode} Pharmacy",
-            baseCurrency = "EGP",
-            timeZoneId = "Africa/Cairo",
+            base_currency = "EGP",
+            time_zone_id = "Africa/Cairo",
             address = Address("Org St"),
-            initialBranch = new { branchCode = "MAIN", name = "Main Branch", address = Address("Main St") },
-            initialEmployee = new
+            initial_branch = new { branch_code = "MAIN", name = "Main Branch", address = Address("Main St") },
+            initial_employee = new
             {
-                branchId = Guid.Empty,
-                employeeNo = "EMP-001",
-                fullName = "Initial Admin",
-                jobTitle = "Admin",
+                branch_id = Guid.Empty,
+                employee_no = "EMP-001",
+                full_name = "Initial Admin",
+                job_title = "Admin",
                 address = Address("Emp St"),
-                hiredOn = "2025-01-01"
+                hired_on = "2025-01-01"
             },
-            initialAdmin = new { username = adminUsername, password = "OwnerPassword123!" }
+            initial_admin = new { username = adminUsername, password = "OwnerPassword123!" }
         }, $"prov-{orgCode}");
         Assert.Equal(HttpStatusCode.Created, orgResp.StatusCode);
-        var orgDto = await orgResp.Content.ReadFromJsonAsync<OrganizationDto>();
+        var orgDto = await orgResp.Content.ReadFromJsonAsync<OrganizationDto>(TestJsonOptions);
 
         client.DefaultRequestHeaders.Authorization = null;
         using var loginResp = await client.PostAsJsonAsync("/api/v1/auth/login", new
         {
-            organizationCode = orgCode,
+            organization_code = orgCode,
             username = adminUsername,
             password = "OwnerPassword123!"
         });
         Assert.Equal(HttpStatusCode.OK, loginResp.StatusCode);
         using var loginDoc = JsonDocument.Parse(await loginResp.Content.ReadAsStringAsync());
-        var token = loginDoc.RootElement.GetProperty("accessToken").GetString()!;
+        var token = loginDoc.RootElement.GetProperty("access_token").GetString()!;
         return (orgDto!.OrganizationId, orgDto.InitialBranchId, token);
     }
 
@@ -624,37 +625,37 @@ public sealed class Level1AApiContractTests : IClassFixture<WebApplicationFactor
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
         using var empResp = await SendJsonAsync(client, HttpMethod.Post, "/api/v1/employees", new
         {
-            branchId,
-            employeeNo,
-            fullName = username,
-            jobTitle = role.ToString(),
+            branch_id = branchId,
+            employee_no = employeeNo,
+            full_name = username,
+            job_title = role.ToString(),
             address = Address("Staff St"),
-            hiredOn = "2025-01-01"
+            hired_on = "2025-01-01"
         }, $"emp-{username}");
         Assert.Equal(HttpStatusCode.Created, empResp.StatusCode);
-        var emp = await empResp.Content.ReadFromJsonAsync<EmployeeDto>();
+        var emp = await empResp.Content.ReadFromJsonAsync<EmployeeDto>(TestJsonOptions);
 
         using var userResp = await SendJsonAsync(client, HttpMethod.Post, "/api/v1/users", new
         {
-            employeeId = emp!.EmployeeId,
+            employee_id = emp!.EmployeeId,
             username,
             password = "StaffPassword123!",
             role = role.ToString(),
-            branchScope = "ASSIGNED",
-            branchIds = new[] { branchId }
+            branch_scope = "ASSIGNED",
+            branch_ids = new[] { branchId }
         }, $"user-{username}");
         Assert.Equal(HttpStatusCode.Created, userResp.StatusCode);
 
         client.DefaultRequestHeaders.Authorization = null;
         using var loginResp = await client.PostAsJsonAsync("/api/v1/auth/login", new
         {
-            organizationCode = orgCode,
+            organization_code = orgCode,
             username,
             password = "StaffPassword123!"
         });
         Assert.Equal(HttpStatusCode.OK, loginResp.StatusCode);
         using var loginDoc = JsonDocument.Parse(await loginResp.Content.ReadAsStringAsync());
-        return loginDoc.RootElement.GetProperty("accessToken").GetString()!;
+        return loginDoc.RootElement.GetProperty("access_token").GetString()!;
     }
 
     private static Task<HttpResponseMessage> SendJsonAsync(
@@ -691,7 +692,7 @@ public sealed class Level1AApiContractTests : IClassFixture<WebApplicationFactor
         Assert.False(string.IsNullOrWhiteSpace(error.GetProperty("trace_id").GetString()));
     }
 
-    private static object Address(string line1) => new { line1, city = "Cairo", countryCode = "EG" };
+    private static object Address(string line1) => new { line1, city = "Cairo", country_code = "EG" };
 
     private static string CreatePlatformProvisionerToken(JwksKeyProvider keyProvider)
     {
@@ -699,7 +700,7 @@ public sealed class Level1AApiContractTests : IClassFixture<WebApplicationFactor
         var token = new JwtSecurityToken(
             issuer: "PharmacyERP",
             audience: "PharmacyERP.Api",
-            claims: new[] { new Claim("role", "PlatformProvisioner") },
+            claims: new[] { new Claim("roles", "[\"PlatformProvisioner\"]", JsonClaimValueTypes.JsonArray) },
             notBefore: now.AddSeconds(-10),
             expires: now.AddMinutes(5),
             signingCredentials: keyProvider.CreateSigningCredentials());
