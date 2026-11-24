@@ -50,6 +50,6 @@ public class InventoryEndpointsTests : IClassFixture<CustomWebApplicationFactory
         requestMessage1.Content = JsonContent.Create(openingRequest);
 
         var openingResponse = await _client.SendAsync(requestMessage1);
-        Assert.True(openingResponse.StatusCode == HttpStatusCode.OK || openingResponse.StatusCode == HttpStatusCode.Unauthorized);
+        Assert.True(openingResponse.StatusCode == HttpStatusCode.Created || openingResponse.StatusCode == HttpStatusCode.Unauthorized);
     }
 }

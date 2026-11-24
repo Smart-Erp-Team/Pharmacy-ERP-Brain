@@ -19,6 +19,18 @@ internal sealed class AllowHeaderIdempotencyKeyAttribute : ActionFilterAttribute
     internal static readonly string ImplicitRequiredErrorMessage =
         new RequiredAttribute().FormatErrorMessage("IdempotencyKey");
 
+    internal static readonly string SnakeCaseRequiredErrorMessage =
+        new RequiredAttribute().FormatErrorMessage("idempotency_key");
+
+    private static readonly string[] CandidateModelStateKeys =
+    [
+        "IdempotencyKey",
+        "request.IdempotencyKey",
+        "idempotency_key",
+        "$.idempotency_key",
+        "request.idempotency_key"
+    ];
+
     public AllowHeaderIdempotencyKeyAttribute()
     {
         Order = -3000;
@@ -34,13 +46,15 @@ internal sealed class AllowHeaderIdempotencyKeyAttribute : ActionFilterAttribute
         var idempotencyProp = requestObj.GetType().GetProperty("IdempotencyKey");
         if (idempotencyProp == null ||
             idempotencyProp.PropertyType != typeof(string) ||
-            idempotencyProp.GetValue(requestObj) != null)
+            !string.IsNullOrEmpty(idempotencyProp.GetValue(requestObj) as string))
         {
             return;
         }
 
-        RemoveImplicitRequiredError(context, "IdempotencyKey");
-        RemoveImplicitRequiredError(context, "request.IdempotencyKey");
+        foreach (var candidateKey in CandidateModelStateKeys)
+        {
+            RemoveImplicitRequiredError(context, candidateKey);
+        }
     }
 
     private static void RemoveImplicitRequiredError(ActionExecutingContext context, string key)
@@ -53,7 +67,8 @@ internal sealed class AllowHeaderIdempotencyKeyAttribute : ActionFilterAttribute
         var matchingErrors = entry.Errors
             .Where(e =>
                 e.Exception == null &&
-                string.Equals(e.ErrorMessage, ImplicitRequiredErrorMessage, StringComparison.Ordinal))
+                (string.Equals(e.ErrorMessage, ImplicitRequiredErrorMessage, StringComparison.Ordinal) ||
+                 string.Equals(e.ErrorMessage, SnakeCaseRequiredErrorMessage, StringComparison.Ordinal)))
             .ToList();
 
         if (matchingErrors.Count == 0)

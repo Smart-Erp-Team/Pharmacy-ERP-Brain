@@ -42,9 +42,25 @@ public sealed class CanonicalCatalogController : ControllerBase
             return ApiResultMapper.ToErrorResult(this, ErrorCode.MALFORMED_REQUEST, ErrorMessages.MalformedRequest, _currentUser.TraceId);
         }
 
-        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey : request.IdempotencyKey ?? string.Empty;
+        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey.Trim() : request.IdempotencyKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(effectiveKey))
+        {
+            return ApiResultMapper.ToMissingIdempotencyKeyResult(this, _currentUser.TraceId);
+        }
+
         var requestWithKey = request with { IdempotencyKey = effectiveKey };
         var result = await _service.ConfigureProductAsync(requestWithKey, ct);
+
+        if (requestWithKey.Action is CatalogConfigurationAction.CreateProduct or CatalogConfigurationAction.AddUom)
+        {
+            var locationUri = result.IsSuccess
+                ? requestWithKey.Action == CatalogConfigurationAction.CreateProduct
+                    ? $"/api/v1/products/{result.Value!.TargetEntityId}"
+                    : $"/api/v1/products/{requestWithKey.ProductId}/uoms/{result.Value!.TargetEntityId}"
+                : null;
+            return ApiResultMapper.ToCreatedResult(this, result, _currentUser.TraceId, locationUri);
+        }
+
         return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
     }
 
@@ -61,7 +77,12 @@ public sealed class CanonicalCatalogController : ControllerBase
             return ApiResultMapper.ToErrorResult(this, ErrorCode.MALFORMED_REQUEST, ErrorMessages.MalformedRequest, _currentUser.TraceId);
         }
 
-        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey : request.IdempotencyKey ?? string.Empty;
+        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey.Trim() : request.IdempotencyKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(effectiveKey))
+        {
+            return ApiResultMapper.ToMissingIdempotencyKeyResult(this, _currentUser.TraceId);
+        }
+
         var requestWithKey = request with { IdempotencyKey = effectiveKey };
         var result = await _service.ConfigureReorderRuleAsync(requestWithKey, ct);
         return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);

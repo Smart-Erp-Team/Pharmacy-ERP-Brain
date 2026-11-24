@@ -5,6 +5,7 @@ public sealed record CreateBranchRequest
     [Required, StringLength(30)] public string BranchCode { get; init; } = string.Empty;
     [Required, StringLength(150)] public string Name { get; init; } = string.Empty;
     [Required] public AddressDto Address { get; init; } = new();
+    public string? IdempotencyKey { get; init; }
 }
 
 public sealed record UpdateBranchRequest
@@ -12,6 +13,7 @@ public sealed record UpdateBranchRequest
     [Required, StringLength(150)] public string Name { get; init; } = string.Empty;
     [Required] public AddressDto Address { get; init; } = new();
     public bool? IsActive { get; init; }
+    public string? IdempotencyKey { get; init; }
 }
 
 public sealed record BranchDto(Guid BranchId, Guid OrganizationId, string BranchCode, string Name, AddressDto Address, bool IsActive);

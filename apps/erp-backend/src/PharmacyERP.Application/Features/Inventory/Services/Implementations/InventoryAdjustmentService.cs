@@ -299,15 +299,39 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
         }
 
         Dictionary<(Guid ProductId, Guid ProductUomId), ProductUom>? uomsByKey = null;
+        Dictionary<Guid, Guid>? baseUomIdsByProductId = null;
         if (_productUomRepo != null)
         {
             var distinctUomIds = request.Lines.Select(line => line.ProductUomId).Distinct().ToArray();
-            uomsByKey = (await _productUomRepo.GetByIdsAsync(organizationId, distinctUomIds, cancellationToken))
-                .ToDictionary(uom => (uom.ProductId, uom.ProductUomId));
+            var fetchedUoms = await _productUomRepo.GetByIdsAsync(organizationId, distinctUomIds, cancellationToken);
+            uomsByKey = fetchedUoms.ToDictionary(uom => (uom.ProductId, uom.ProductUomId));
+
+            // Seed known active base UOMs from the already-fetched set, then batch-fetch missing base UOMs
+            // for any product where the caller entered a non-base unit (e.g., BOX/STRIP).
+            baseUomIdsByProductId = fetchedUoms
+                .Where(uom => uom.IsBase && uom.IsActive)
+                .GroupBy(uom => uom.ProductId)
+                .ToDictionary(group => group.Key, group => group.First().ProductUomId);
+
+            var productIdsNeedingBaseUom = request.Lines
+                .Select(line => line.ProductId)
+                .Distinct()
+                .Where(productId => !baseUomIdsByProductId.ContainsKey(productId))
+                .ToArray();
+
+            if (productIdsNeedingBaseUom.Length > 0)
+            {
+                var fetchedBaseUoms = await _productUomRepo.GetActiveBaseUomsByProductIdsAsync(
+                    organizationId, productIdsNeedingBaseUom, cancellationToken);
+                foreach (var baseUom in fetchedBaseUoms)
+                {
+                    baseUomIdsByProductId.TryAdd(baseUom.ProductId, baseUom.ProductUomId);
+                }
+            }
         }
 
         var batchRequests = new List<(Guid ProductId, string BatchNumber, DateOnly? ExpiresOn, DateOnly? ManufacturedOn)>(request.Lines.Count);
-        var validatedLines = new List<(CreateInventoryAdjustmentLineRequest LineRequest, Guid ComputedBatchId, decimal ConversionFactor)>(request.Lines.Count);
+        var validatedLines = new List<(CreateInventoryAdjustmentLineRequest LineRequest, Guid ComputedBatchId, Guid BaseProductUomId, decimal ConversionFactor)>(request.Lines.Count);
 
         foreach (var lineRequest in request.Lines)
         {
@@ -349,6 +373,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
 
             // Default conversion factor of 1m supports unit tests constructed without an optional UOM repository.
             decimal conversionFactor = 1m;
+            Guid baseProductUomId = lineRequest.ProductUomId;
             if (uomsByKey != null)
             {
                 if (!uomsByKey.TryGetValue((lineRequest.ProductId, lineRequest.ProductUomId), out var uom) || !uom.IsActive)
@@ -359,6 +384,19 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                 if (uom.ConversionToBase > 0m)
                 {
                     conversionFactor = uom.ConversionToBase;
+                }
+
+                if (uom.IsBase)
+                {
+                    baseProductUomId = uom.ProductUomId;
+                }
+                else if (baseUomIdsByProductId != null && baseUomIdsByProductId.TryGetValue(lineRequest.ProductId, out var resolvedBaseUomId))
+                {
+                    baseProductUomId = resolvedBaseUomId;
+                }
+                else
+                {
+                    return Result<InventoryTxnDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.InvalidBaseUomInvariant);
                 }
             }
 
@@ -373,7 +411,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                 : DeterministicBatchIdGenerator.GenerateNonLotBatchId(organizationId, lineRequest.ProductId);
 
             batchRequests.Add((lineRequest.ProductId, effectiveBatchNumber, effectiveExpiresOn, effectiveManufacturedOn));
-            validatedLines.Add((lineRequest, computedBatchId, conversionFactor));
+            validatedLines.Add((lineRequest, computedBatchId, baseProductUomId, conversionFactor));
         }
 
         // Batch-upsert/fetch all distinct batches in one round-trip.
@@ -415,12 +453,14 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
             }
         }
 
-        foreach (var (lineRequest, batchId, conversionFactor) in orderedLines)
+        foreach (var (lineRequest, batchId, baseProductUomId, conversionFactor) in orderedLines)
         {
             var stockBalance = lockedBalances[(lineRequest.LocationId, batchId)];
 
             // Convert entered UOM quantity and unit cost into base units:
             // baseQty = enteredQty * conversionToBase, baseUnitCost = enteredUnitCost / conversionToBase.
+            // Blueprint §8.9.12: Every persisted and returned inventory ledger line is normalized to the
+            // product's active base UOM (product_uom_id = baseUomId, entered_qty = abs(quantity_delta_base), conversion_snapshot = 1).
             decimal quantityBase = Math.Round(lineRequest.EnteredQty * conversionFactor, 4, MidpointRounding.AwayFromZero);
             decimal baseUnitCost = lineRequest.UnitCostEntered.HasValue
                 ? Math.Round(lineRequest.UnitCostEntered.Value / conversionFactor, 4, MidpointRounding.AwayFromZero)
@@ -429,7 +469,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
             if (request.TransactionType == InventoryTransactionType.OPENING_BALANCE || request.TransactionType == InventoryTransactionType.ADJUSTMENT_IN)
             {
                 stockBalance.ApplyIncomingStock(quantityBase, baseUnitCost, now);
-                inventoryTransaction.AddLine(lineRequest.ProductId, lineRequest.LocationId, batchId, lineRequest.ProductUomId, lineRequest.EnteredQty, conversionFactor, quantityBase, baseUnitCost);
+                inventoryTransaction.AddLine(lineRequest.ProductId, lineRequest.LocationId, batchId, baseProductUomId, quantityBase, 1m, quantityBase, baseUnitCost);
             }
             else if (request.TransactionType == InventoryTransactionType.ADJUSTMENT_OUT)
             {
@@ -439,7 +479,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                 }
 
                 baseUnitCost = stockBalance.ApplyOutgoingStock(quantityBase, now);
-                inventoryTransaction.AddLine(lineRequest.ProductId, lineRequest.LocationId, batchId, lineRequest.ProductUomId, lineRequest.EnteredQty, conversionFactor, -quantityBase, baseUnitCost);
+                inventoryTransaction.AddLine(lineRequest.ProductId, lineRequest.LocationId, batchId, baseProductUomId, quantityBase, 1m, -quantityBase, baseUnitCost);
             }
         }
 

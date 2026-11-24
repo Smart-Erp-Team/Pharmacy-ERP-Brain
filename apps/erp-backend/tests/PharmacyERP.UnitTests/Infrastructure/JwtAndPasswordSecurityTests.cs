@@ -65,6 +65,7 @@ public sealed class JwtAndPasswordSecurityTests
         Assert.True(principal.Identity?.IsAuthenticated);
         Assert.Equal(user.UserId.ToString(), root.GetProperty("sub").GetString());
         Assert.Equal(user.EmployeeId.ToString(), root.GetProperty("employee_id").GetString());
+        Assert.Equal(user.Username, root.GetProperty("username").GetString());
         Assert.Equal("Pharmacist", root.GetProperty("role").GetString());
         Assert.Equal(user.OrganizationId.ToString(), root.GetProperty("organization_id").GetString());
         Assert.Equal("ASSIGNED", root.GetProperty("branch_scope").GetString());

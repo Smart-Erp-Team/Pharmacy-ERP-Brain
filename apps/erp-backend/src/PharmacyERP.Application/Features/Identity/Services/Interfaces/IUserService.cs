@@ -7,5 +7,5 @@ public interface IUserService
     Task<Result<UserDto>> CreateAsync(CreateUserRequest request, CancellationToken ct = default);
     Task<Result<UserDto>> UpdateAsync(Guid userId, UpdateUserRequest request, CancellationToken ct = default);
     Task<Result> ResetPasswordAsync(Guid userId, ResetPasswordRequest request, CancellationToken ct = default);
-    Task<Result> RevokeSessionsAsync(Guid userId, CancellationToken ct = default);
+    Task<Result> RevokeSessionsAsync(Guid userId, string idempotencyKey, CancellationToken ct = default);
 }

@@ -500,7 +500,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         var rootKey = Guid.NewGuid().ToString();
         var rootReq = new CreateProductCategoryRequest(null, "ROOT-" + Guid.NewGuid().ToString("N")[..8], "Root Category", "Root description", rootKey);
         var rootResp = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/product-categories", rootReq, rootKey));
-        Assert.Equal(HttpStatusCode.OK, rootResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, rootResp.StatusCode);
         var rootCat = await rootResp.Content.ReadFromJsonAsync<ProductCategoryDto>(JsonOptions);
         Assert.NotNull(rootCat);
         Assert.Null(rootCat!.ParentCategoryId);
@@ -509,7 +509,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         var childKey = Guid.NewGuid().ToString();
         var childReq = new CreateProductCategoryRequest(rootCat.CategoryId, "CHILD-" + Guid.NewGuid().ToString("N")[..8], "Child Category", "Child description", childKey);
         var childResp = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/product-categories", childReq, childKey));
-        Assert.Equal(HttpStatusCode.OK, childResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, childResp.StatusCode);
         var childCat = await childResp.Content.ReadFromJsonAsync<ProductCategoryDto>(JsonOptions);
         Assert.NotNull(childCat);
         Assert.Equal(rootCat.CategoryId, childCat!.ParentCategoryId);
@@ -558,7 +558,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
             prodKey);
 
         var prodResp = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/products", prodReq, prodKey));
-        Assert.Equal(HttpStatusCode.OK, prodResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, prodResp.StatusCode);
         var prod = await prodResp.Content.ReadFromJsonAsync<ProductDto>(JsonOptions);
         Assert.NotNull(prod);
         Assert.True(prod!.LotTrackingRequired);
@@ -569,13 +569,13 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         var uom2Key = Guid.NewGuid().ToString();
         var uom2Req = new CreateProductUomRequest("strip", "Strip of 10", 10m, 25.00m, false, true, true, uom2Key);
         var uom2Resp = await client.SendAsync(CreateRequest(HttpMethod.Post, $"/api/v1/products/{prod.ProductId}/uoms", uom2Req, uom2Key));
-        Assert.Equal(HttpStatusCode.OK, uom2Resp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, uom2Resp.StatusCode);
 
         // 3. Add Third UOM "box" (conversion factor 30)
         var uom3Key = Guid.NewGuid().ToString();
         var uom3Req = new CreateProductUomRequest("box", "Box of 30", 30m, 75.00m, false, true, true, uom3Key);
         var uom3Resp = await client.SendAsync(CreateRequest(HttpMethod.Post, $"/api/v1/products/{prod.ProductId}/uoms", uom3Req, uom3Key));
-        Assert.Equal(HttpStatusCode.OK, uom3Resp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, uom3Resp.StatusCode);
 
         // 4. Verify GET /products/{id} includes UOMs
         var getProdResp = await client.GetAsync($"/api/v1/products/{prod.ProductId}");
@@ -625,7 +625,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
             nonLotKey);
 
         var nonLotResp = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/products", nonLotReq, nonLotKey));
-        Assert.Equal(HttpStatusCode.OK, nonLotResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, nonLotResp.StatusCode);
         var nonLotProd = await nonLotResp.Content.ReadFromJsonAsync<ProductDto>(JsonOptions);
         Assert.NotNull(nonLotProd);
 
@@ -653,7 +653,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
             lotKey);
 
         var lotResp = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/products", lotReq, lotKey));
-        Assert.Equal(HttpStatusCode.OK, lotResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, lotResp.StatusCode);
 
         // Assert Spy was NOT invoked again
         Assert.Single(_fixture.Factory.SpyInitializer.Invocations);
@@ -688,13 +688,13 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
 
         // 1. First execution
         var firstResp = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/products", originalReq, sharedKey));
-        Assert.Equal(HttpStatusCode.OK, firstResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, firstResp.StatusCode);
         var firstResult = await firstResp.Content.ReadFromJsonAsync<ProductDto>(JsonOptions);
         Assert.NotNull(firstResult);
 
         // 2. Replay with identical payload and same key
         var replayResp = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/products", originalReq, sharedKey));
-        Assert.Equal(HttpStatusCode.OK, replayResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, replayResp.StatusCode);
         var replayResult = await replayResp.Content.ReadFromJsonAsync<ProductDto>(JsonOptions);
         Assert.NotNull(replayResult);
         Assert.Equal(firstResult!.ProductId, replayResult!.ProductId);
@@ -777,7 +777,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
             var pResp = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/products",
                 new CreateProductRequest(cat!.CategoryId, $"SKU-PAGE-{i}-" + Guid.NewGuid().ToString("N")[..6], null, $"Paged Med {i}", null, null, "tab", 0.14m, null, true, 30,
                 new[] { new CreateProductUomItemRequest("tab", "Tab", 1m, 5m, true, true, true) }, pKey), pKey));
-            Assert.Equal(HttpStatusCode.OK, pResp.StatusCode);
+            Assert.Equal(HttpStatusCode.Created, pResp.StatusCode);
             var p = await pResp.Content.ReadFromJsonAsync<ProductDto>(JsonOptions);
             createdProductIds.Add(p!.ProductId);
         }
@@ -851,7 +851,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
             Uoms: new[] { new CanonicalUomItemDto("box", "Box", 1m, 100m, true, true, true) });
 
         var createConfigResp = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/canonical/configuration/products", createConfigReq, createConfigKey));
-        Assert.Equal(HttpStatusCode.OK, createConfigResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, createConfigResp.StatusCode);
         var createWriteResult = await createConfigResp.Content.ReadFromJsonAsync<CanonicalWriteResultDto>(JsonOptions);
         Assert.NotNull(createWriteResult);
         Assert.Equal("APPLIED", createWriteResult!.Status);
@@ -952,28 +952,28 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
 
     #region Hardening Tests: Exact Status Codes
     [SkipWhenPostgresUnavailableFact]
-    public async Task MissingIdempotencyKey_OnCreateCategoryAndProduct_ReturnsExact422ValidationError()
+    public async Task MissingIdempotencyKey_OnCreateCategoryAndProduct_ReturnsExact400MalformedRequest()
     {
         var client = CreateClient();
 
-        // 1. Missing key on POST /api/v1/product-categories -> exact 422 VALIDATION_ERROR
+        // 1. Missing key on POST /api/v1/product-categories -> exact 400 MALFORMED_REQUEST
         var catReq = new CreateProductCategoryRequest(null, "NOKEY-" + Guid.NewGuid().ToString("N")[..6], "No Key Cat", null, string.Empty);
         var catResp = await client.PostAsync("/api/v1/product-categories", JsonContent.Create(catReq));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, catResp.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, catResp.StatusCode);
         var catErr = await catResp.Content.ReadFromJsonAsync<ApiErrorEnvelopeDto>(JsonOptions);
         Assert.NotNull(catErr);
-        Assert.Equal("VALIDATION_ERROR", catErr!.Error.Code);
+        Assert.Equal("MALFORMED_REQUEST", catErr!.Error.Code);
 
-        // 2. Missing key on POST /api/v1/products -> exact 422 VALIDATION_ERROR
+        // 2. Missing key on POST /api/v1/products -> exact 400 MALFORMED_REQUEST
         var prodReq = new CreateProductRequest(
             Guid.NewGuid(), "SKU-NOKEY", null, "No Key Product", null, null, "pcs", 0.14m, null, true, 30,
             new[] { new CreateProductUomItemRequest("pcs", "Pcs", 1m, 10m, true, true, true) },
             string.Empty);
         var prodResp = await client.PostAsync("/api/v1/products", JsonContent.Create(prodReq));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, prodResp.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, prodResp.StatusCode);
         var prodErr = await prodResp.Content.ReadFromJsonAsync<ApiErrorEnvelopeDto>(JsonOptions);
         Assert.NotNull(prodErr);
-        Assert.Equal("VALIDATION_ERROR", prodErr!.Error.Code);
+        Assert.Equal("MALFORMED_REQUEST", prodErr!.Error.Code);
     }
 
     [SkipWhenPostgresUnavailableFact]
@@ -1125,7 +1125,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         var pResp = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/products",
             new CreateProductRequest(cat.CategoryId, "SKU-BASE-" + Guid.NewGuid().ToString("N")[..6], sharedBarcode, "Base Prod", null, null, "pcs", 0.14m, null, true, 30,
             new[] { new CreateProductUomItemRequest("pcs", "Pcs", 1m, 10m, true, true, true) }, pKey), pKey));
-        Assert.Equal(HttpStatusCode.OK, pResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, pResp.StatusCode);
         var prod = await pResp.Content.ReadFromJsonAsync<ProductDto>(JsonOptions);
 
         // 5. Duplicate Barcode within same organization -> 409 CONFLICT
@@ -1435,12 +1435,12 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         var content = new StringContent("{ this is definitely not valid json }", Encoding.UTF8, "application/json");
 
         var resp = await client.PostAsync("/api/v1/products", content);
-        // InvalidModelStateResponseFactory returns unified 422 VALIDATION_ERROR envelope for model-binding/JSON failures.
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
+        // InvalidModelStateResponseFactory returns unified 400 MALFORMED_REQUEST envelope for malformed JSON syntax.
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
         Assert.True(resp.Headers.Contains("X-Trace-Id"));
         var errEnv = await resp.Content.ReadFromJsonAsync<ApiErrorEnvelopeDto>(JsonOptions);
         Assert.NotNull(errEnv);
-        Assert.Equal("VALIDATION_ERROR", errEnv!.Error.Code);
+        Assert.Equal("MALFORMED_REQUEST", errEnv!.Error.Code);
         Assert.False(string.IsNullOrWhiteSpace(errEnv.Error.TraceId));
     }
 
@@ -1462,7 +1462,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         var req1 = new CreateProductRequest(cat!.CategoryId, sharedSku, null, "Product 1", null, null, "pcs", 0.14m, null, true, 30,
             new[] { new CreateProductUomItemRequest("pcs", "Pcs", 1m, 10m, true, true, true) }, key1);
         var resp1 = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/products", req1, key1));
-        Assert.Equal(HttpStatusCode.OK, resp1.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, resp1.StatusCode);
 
         // Second product with duplicate SKU (different idempotency key)
         var key2 = Guid.NewGuid().ToString();
@@ -1928,7 +1928,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
             pKey);
 
         var pResp = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/products", pReq, pKey));
-        Assert.Equal(HttpStatusCode.OK, pResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, pResp.StatusCode);
         var createdProd = await pResp.Content.ReadFromJsonAsync<ProductDto>(JsonOptions);
         Assert.NotNull(createdProd);
         Assert.Equal(0.14m, createdProd!.TaxRate);
@@ -1939,7 +1939,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         var stripKey = Guid.NewGuid().ToString();
         var stripReq = new CreateProductUomRequest("STRIP", "Strip of 10", 10.0m, 25.00m, false, true, true, stripKey);
         var stripResp = await client.SendAsync(CreateRequest(HttpMethod.Post, $"/api/v1/products/{createdProd.ProductId}/uoms", stripReq, stripKey));
-        Assert.Equal(HttpStatusCode.OK, stripResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, stripResp.StatusCode);
         var stripDto = await stripResp.Content.ReadFromJsonAsync<ProductUomDto>(JsonOptions);
         Assert.NotNull(stripDto);
         Assert.Equal(10.0m, stripDto!.ConversionToBase);
@@ -1952,7 +1952,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         var boxKey = Guid.NewGuid().ToString();
         var boxReq = new CreateProductUomRequest("BOX", "Box of 30", 30.0m, 75.00m, false, true, true, boxKey);
         var boxResp = await client.SendAsync(CreateRequest(HttpMethod.Post, $"/api/v1/products/{createdProd.ProductId}/uoms", boxReq, boxKey));
-        Assert.Equal(HttpStatusCode.OK, boxResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, boxResp.StatusCode);
         var boxDto = await boxResp.Content.ReadFromJsonAsync<ProductUomDto>(JsonOptions);
         Assert.NotNull(boxDto);
         Assert.Equal(30.0m, boxDto!.ConversionToBase);
@@ -2050,7 +2050,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
                 new[] { new CreateProductUomItemRequest("tab", "Tab", 1m, 5m, true, true, true) },
                 pKey);
             var pResp = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/products", pReq, pKey));
-            Assert.Equal(HttpStatusCode.OK, pResp.StatusCode);
+            Assert.Equal(HttpStatusCode.Created, pResp.StatusCode);
             var p = await pResp.Content.ReadFromJsonAsync<ProductDto>(JsonOptions);
             createdIds.Add(p!.ProductId);
             await Task.Delay(15);
@@ -2129,7 +2129,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
                 new[] { new CreateProductUomItemRequest("tab", "Tab", 1m, 5m, true, true, true) },
                 k);
             var r = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/products", req, k));
-            Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+            Assert.Equal(HttpStatusCode.Created, r.StatusCode);
             var p = await r.Content.ReadFromJsonAsync<ProductDto>(JsonOptions);
             ids.Add(p!.ProductId);
             await Task.Delay(25);
@@ -2184,16 +2184,16 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
             ExpiryAlertDays: 30,
             Uoms: new[] { new CanonicalUomItemDto("box", "Box", 1m, 50m, true, true, true) });
 
-        // 1. First execution -> 200 OK
+        // 1. First execution -> 201 Created
         var resp1 = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/canonical/configuration/products", configReq, configKey));
-        Assert.Equal(HttpStatusCode.OK, resp1.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, resp1.StatusCode);
         var res1 = await resp1.Content.ReadFromJsonAsync<CanonicalWriteResultDto>(JsonOptions);
         Assert.NotNull(res1);
         Assert.Equal("APPLIED", res1!.Status);
 
-        // 2. Replay with identical payload and key -> 200 OK replay
+        // 2. Replay with identical payload and key -> 201 Created replay
         var resp2 = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/canonical/configuration/products", configReq, configKey));
-        Assert.Equal(HttpStatusCode.OK, resp2.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, resp2.StatusCode);
         var res2 = await resp2.Content.ReadFromJsonAsync<CanonicalWriteResultDto>(JsonOptions);
         Assert.NotNull(res2);
         Assert.Equal(res1.RequestId, res2!.RequestId);
@@ -2255,7 +2255,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         pMsg.Headers.Add("Idempotency-Key", pKey);
 
         var pResp = await client.SendAsync(pMsg);
-        Assert.Equal(HttpStatusCode.OK, pResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, pResp.StatusCode);
         var pResult = await pResp.Content.ReadFromJsonAsync<CanonicalWriteResultDto>(JsonOptions);
         Assert.NotNull(pResult);
 
@@ -2372,7 +2372,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
             pKey);
 
         var pResp = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/products", pReq, pKey));
-        Assert.Equal(HttpStatusCode.OK, pResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, pResp.StatusCode);
         var prod = await pResp.Content.ReadFromJsonAsync<ProductDto>(JsonOptions);
         Assert.NotNull(prod);
 
@@ -2380,7 +2380,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         var uKey = Guid.NewGuid().ToString();
         var uReq = new CreateProductUomRequest("STRIP", "Strip", 10m, 2m, false, true, true, uKey);
         var uResp = await client.SendAsync(CreateRequest(HttpMethod.Post, $"/api/v1/products/{prod!.ProductId}/uoms", uReq, uKey));
-        Assert.Equal(HttpStatusCode.OK, uResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, uResp.StatusCode);
         var uom = await uResp.Content.ReadFromJsonAsync<ProductUomDto>(JsonOptions);
         Assert.NotNull(uom);
 
@@ -2499,28 +2499,25 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
     {
         var client = CreateClient("Pharmacist");
 
-        // 1. Malformed JSON (InvalidModelStateResponseFactory returns unified 422 ApiErrorEnvelopeDto)
+        // 1. Malformed JSON (InvalidModelStateResponseFactory returns unified 400 MALFORMED_REQUEST ApiErrorEnvelopeDto)
         var malformedContent = new StringContent("{ \"sku\": \"broken json ...", Encoding.UTF8, "application/json");
         var malformedResp = await client.PostAsync("/api/v1/products", malformedContent);
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, malformedResp.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, malformedResp.StatusCode);
 
         var malformedBody = await malformedResp.Content.ReadAsStringAsync();
         using var malformedDoc = JsonDocument.Parse(malformedBody);
         var malformedRoot = malformedDoc.RootElement;
+        Assert.Equal("MALFORMED_REQUEST", malformedRoot.GetProperty("error").GetProperty("code").GetString());
 
-        // InvalidModelStateResponseFactory produces ApiErrorEnvelopeDto for unparseable JSON
-        Assert.True(malformedRoot.TryGetProperty("title", out _) || malformedRoot.TryGetProperty("errors", out _) || malformedRoot.TryGetProperty("error", out _),
-            "Observed shape must be either ASP.NET Core ProblemDetails or ApiErrorEnvelopeDto.");
-
-        // 2. Empty Body on create endpoint
+        // 2. Empty Body on create endpoint -> 400 MALFORMED_REQUEST
         var emptyContent = new StringContent(string.Empty, Encoding.UTF8, "application/json");
         var emptyResp = await client.PostAsync("/api/v1/products", emptyContent);
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, emptyResp.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, emptyResp.StatusCode);
 
         var emptyBody = await emptyResp.Content.ReadAsStringAsync();
         using var emptyDoc = JsonDocument.Parse(emptyBody);
         var emptyRoot = emptyDoc.RootElement;
-        Assert.True(emptyRoot.TryGetProperty("title", out _) || emptyRoot.TryGetProperty("errors", out _) || emptyRoot.TryGetProperty("error", out _));
+        Assert.Equal("MALFORMED_REQUEST", emptyRoot.GetProperty("error").GetProperty("code").GetString());
     }
 
     [SkipWhenPostgresUnavailableFact]
@@ -2529,49 +2526,49 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         var client = CreateClient("Pharmacist");
         var (catId, prodId, uomId) = await EnsureBaselineEntitiesAsync();
 
-        // 1. Missing key on PATCH /product-categories/{id} -> 422 VALIDATION_ERROR
+        // 1. Missing key on PATCH /product-categories/{id} -> 400 MALFORMED_REQUEST
         var patchCatMsg = new HttpRequestMessage(HttpMethod.Patch, $"/api/v1/product-categories/{catId}")
         {
             Content = JsonContent.Create(new UpdateProductCategoryRequest(null, "Renamed Cat", null, null, string.Empty))
         };
         var patchCatResp = await client.SendAsync(patchCatMsg);
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, patchCatResp.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, patchCatResp.StatusCode);
         var catErr = await patchCatResp.Content.ReadFromJsonAsync<ApiErrorEnvelopeDto>(JsonOptions);
         Assert.NotNull(catErr);
-        Assert.Equal("VALIDATION_ERROR", catErr!.Error.Code);
+        Assert.Equal("MALFORMED_REQUEST", catErr!.Error.Code);
 
-        // 2. Missing key on PATCH /products/{id} -> 422 VALIDATION_ERROR
+        // 2. Missing key on PATCH /products/{id} -> 400 MALFORMED_REQUEST
         var patchProdMsg = new HttpRequestMessage(HttpMethod.Patch, $"/api/v1/products/{prodId}")
         {
             Content = JsonContent.Create(new UpdateProductRequest(null, null, null, "Renamed Prod", null, null, null, null, null, null, null, null, string.Empty))
         };
         var patchProdResp = await client.SendAsync(patchProdMsg);
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, patchProdResp.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, patchProdResp.StatusCode);
         var prodErr = await patchProdResp.Content.ReadFromJsonAsync<ApiErrorEnvelopeDto>(JsonOptions);
         Assert.NotNull(prodErr);
-        Assert.Equal("VALIDATION_ERROR", prodErr!.Error.Code);
+        Assert.Equal("MALFORMED_REQUEST", prodErr!.Error.Code);
 
-        // 3. Missing key on PATCH /products/{id}/uoms/{uomId} -> 422 VALIDATION_ERROR
+        // 3. Missing key on PATCH /products/{id}/uoms/{uomId} -> 400 MALFORMED_REQUEST
         var patchUomMsg = new HttpRequestMessage(HttpMethod.Patch, $"/api/v1/products/{prodId}/uoms/{uomId}")
         {
             Content = JsonContent.Create(new UpdateProductUomRequest("Renamed Uom", null, null, null, null, null, string.Empty))
         };
         var patchUomResp = await client.SendAsync(patchUomMsg);
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, patchUomResp.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, patchUomResp.StatusCode);
         var uomErr = await patchUomResp.Content.ReadFromJsonAsync<ApiErrorEnvelopeDto>(JsonOptions);
         Assert.NotNull(uomErr);
-        Assert.Equal("VALIDATION_ERROR", uomErr!.Error.Code);
+        Assert.Equal("MALFORMED_REQUEST", uomErr!.Error.Code);
 
-        // 4. Missing key on PUT reorder-rule -> 422 VALIDATION_ERROR
+        // 4. Missing key on PUT reorder-rule -> 400 MALFORMED_REQUEST
         var putRrMsg = new HttpRequestMessage(HttpMethod.Put, $"/api/v1/branches/{_fixture.BranchA1Id}/products/{prodId}/reorder-rule")
         {
             Content = JsonContent.Create(new UpsertReorderRuleRequest(50m, 20m, 100m, true, string.Empty))
         };
         var putRrResp = await client.SendAsync(putRrMsg);
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, putRrResp.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, putRrResp.StatusCode);
         var rrErr = await putRrResp.Content.ReadFromJsonAsync<ApiErrorEnvelopeDto>(JsonOptions);
         Assert.NotNull(rrErr);
-        Assert.Equal("VALIDATION_ERROR", rrErr!.Error.Code);
+        Assert.Equal("MALFORMED_REQUEST", rrErr!.Error.Code);
 
         // 5. Header wins over body key: Header = HEADER_KEY, Body = BODY_KEY
         var headerKey = "HDR-" + Guid.NewGuid().ToString("N");
@@ -2637,7 +2634,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
             new[] { new CreateProductUomItemRequest("unit", "Unit", 1m, 10m, true, true, true) },
             newProdKey);
         var newProdResp = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/products", newProdReq, newProdKey));
-        Assert.Equal(HttpStatusCode.OK, newProdResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, newProdResp.StatusCode);
         var newProd = await newProdResp.Content.ReadFromJsonAsync<ProductDto>(JsonOptions);
 
         var getRrResp = await client.GetAsync($"/api/v1/branches/{_fixture.BranchA1Id}/products/{newProd!.ProductId}/reorder-rule");
@@ -2715,23 +2712,23 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         }
         """;
 
-        // 1a. Header missing, body omitted -> 422 VALIDATION_ERROR
+        // 1a. Header missing, body omitted -> 400 MALFORMED_REQUEST
         var catNoKeyResp = await client.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/product-categories", rawCreateCatJson));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, catNoKeyResp.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, catNoKeyResp.StatusCode);
         var catNoKeyErr = await catNoKeyResp.Content.ReadFromJsonAsync<ApiErrorEnvelopeDto>(JsonOptions);
-        Assert.Equal("VALIDATION_ERROR", catNoKeyErr!.Error.Code);
+        Assert.Equal("MALFORMED_REQUEST", catNoKeyErr!.Error.Code);
 
-        // 1b. Header present, body omitted -> 200 OK
+        // 1b. Header present, body omitted -> 201 Created
         var catHeaderKey = "HDR-CAT-CR-" + Guid.NewGuid().ToString("N");
         var catCreatedResp = await client.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/product-categories", rawCreateCatJson, catHeaderKey));
-        Assert.Equal(HttpStatusCode.OK, catCreatedResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, catCreatedResp.StatusCode);
         var createdCat = await catCreatedResp.Content.ReadFromJsonAsync<ProductCategoryDto>(JsonOptions);
         Assert.NotNull(createdCat);
         Assert.Equal(catCode, createdCat!.Code);
 
-        // 1c. Replay with identical raw JSON (no body key) and same header key -> 200 OK
+        // 1c. Replay with identical raw JSON (no body key) and same header key -> 201 Created
         var catReplayResp = await client.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/product-categories", rawCreateCatJson, catHeaderKey));
-        Assert.Equal(HttpStatusCode.OK, catReplayResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, catReplayResp.StatusCode);
         var replayedCat = await catReplayResp.Content.ReadFromJsonAsync<ProductCategoryDto>(JsonOptions);
         Assert.Equal(createdCat.CategoryId, replayedCat!.CategoryId);
 
@@ -2758,7 +2755,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         }
         """;
         var catPatchNoKeyResp = await client.SendAsync(RawJsonRequest(HttpMethod.Patch, $"/api/v1/product-categories/{createdCat.CategoryId}", rawPatchCatJson));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, catPatchNoKeyResp.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, catPatchNoKeyResp.StatusCode);
 
         var catPatchHeaderKey = "HDR-CAT-UP-" + Guid.NewGuid().ToString("N");
         var catPatchOkResp = await client.SendAsync(RawJsonRequest(HttpMethod.Patch, $"/api/v1/product-categories/{createdCat.CategoryId}", rawPatchCatJson, catPatchHeaderKey));
@@ -2805,11 +2802,11 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         """;
 
         var prodNoKeyResp = await client.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/products", rawCreateProdJson));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, prodNoKeyResp.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, prodNoKeyResp.StatusCode);
 
         var prodHeaderKey = "HDR-PROD-CR-" + Guid.NewGuid().ToString("N");
         var prodCreatedResp = await client.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/products", rawCreateProdJson, prodHeaderKey));
-        Assert.Equal(HttpStatusCode.OK, prodCreatedResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, prodCreatedResp.StatusCode);
         var createdProd = await prodCreatedResp.Content.ReadFromJsonAsync<ProductDto>(JsonOptions);
         Assert.NotNull(createdProd);
 
@@ -2819,7 +2816,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         }
         """;
         var prodPatchNoKeyResp = await client.SendAsync(RawJsonRequest(HttpMethod.Patch, $"/api/v1/products/{createdProd!.ProductId}", rawPatchProdJson));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, prodPatchNoKeyResp.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, prodPatchNoKeyResp.StatusCode);
 
         var prodPatchHeaderKey = "HDR-PROD-UP-" + Guid.NewGuid().ToString("N");
         var prodPatchOkResp = await client.SendAsync(RawJsonRequest(HttpMethod.Patch, $"/api/v1/products/{createdProd.ProductId}", rawPatchProdJson, prodPatchHeaderKey));
@@ -2840,11 +2837,11 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         }
         """;
         var uomNoKeyResp = await client.SendAsync(RawJsonRequest(HttpMethod.Post, $"/api/v1/products/{createdProd.ProductId}/uoms", rawCreateUomJson));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, uomNoKeyResp.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, uomNoKeyResp.StatusCode);
 
         var uomHeaderKey = "HDR-UOM-CR-" + Guid.NewGuid().ToString("N");
         var uomCreatedResp = await client.SendAsync(RawJsonRequest(HttpMethod.Post, $"/api/v1/products/{createdProd.ProductId}/uoms", rawCreateUomJson, uomHeaderKey));
-        Assert.Equal(HttpStatusCode.OK, uomCreatedResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, uomCreatedResp.StatusCode);
         var createdUom = await uomCreatedResp.Content.ReadFromJsonAsync<ProductUomDto>(JsonOptions);
         Assert.NotNull(createdUom);
 
@@ -2854,7 +2851,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         }
         """;
         var uomPatchNoKeyResp = await client.SendAsync(RawJsonRequest(HttpMethod.Patch, $"/api/v1/products/{createdProd.ProductId}/uoms/{createdUom!.ProductUomId}", rawPatchUomJson));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, uomPatchNoKeyResp.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, uomPatchNoKeyResp.StatusCode);
 
         var uomPatchHeaderKey = "HDR-UOM-UP-" + Guid.NewGuid().ToString("N");
         var uomPatchOkResp = await client.SendAsync(RawJsonRequest(HttpMethod.Patch, $"/api/v1/products/{createdProd.ProductId}/uoms/{createdUom.ProductUomId}", rawPatchUomJson, uomPatchHeaderKey));
@@ -2872,7 +2869,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         }
         """;
         var rrNoKeyResp = await client.SendAsync(RawJsonRequest(HttpMethod.Put, $"/api/v1/branches/{_fixture.BranchA1Id}/products/{createdProd.ProductId}/reorder-rule", rawUpsertRrJson));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, rrNoKeyResp.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, rrNoKeyResp.StatusCode);
 
         var rrHeaderKey = "HDR-RR-UP-" + Guid.NewGuid().ToString("N");
         var rrOkResp = await client.SendAsync(RawJsonRequest(HttpMethod.Put, $"/api/v1/branches/{_fixture.BranchA1Id}/products/{createdProd.ProductId}/reorder-rule", rawUpsertRrJson, rrHeaderKey));
@@ -2891,7 +2888,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         }
         """;
         var canonProdNoKeyResp = await client.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/canonical/configuration/products", rawCanonProdJson));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, canonProdNoKeyResp.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, canonProdNoKeyResp.StatusCode);
 
         var canonProdHeaderKey = "HDR-CANON-P-" + Guid.NewGuid().ToString("N");
         var canonProdOkResp = await client.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/canonical/configuration/products", rawCanonProdJson, canonProdHeaderKey));
@@ -2910,14 +2907,14 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         }
         """;
         var canonRrNoKeyResp = await client.SendAsync(RawJsonRequest(HttpMethod.Put, "/api/v1/canonical/configuration/reorder-rules", rawCanonRrJson));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, canonRrNoKeyResp.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, canonRrNoKeyResp.StatusCode);
 
         var canonRrHeaderKey = "HDR-CANON-RR-" + Guid.NewGuid().ToString("N");
         var canonRrOkResp = await client.SendAsync(RawJsonRequest(HttpMethod.Put, "/api/v1/canonical/configuration/reorder-rules", rawCanonRrJson, canonRrHeaderKey));
         Assert.Equal(HttpStatusCode.OK, canonRrOkResp.StatusCode);
 
         // =========================================================================
-        // 6. Header present, body property explicitly null ("idempotencyKey": null) -> 200 OK
+        // 6. Header present, body property explicitly null ("idempotencyKey": null) -> 201 Created
         // =========================================================================
         var explicitNullCatCode = "NULLKEY-" + Guid.NewGuid().ToString("N")[..6];
         var rawExplicitNullKeyJson = $$"""
@@ -2931,7 +2928,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         """;
         var explicitNullHeaderKey = "HDR-EXPLICIT-NULL-" + Guid.NewGuid().ToString("N");
         var explicitNullResp = await client.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/product-categories", rawExplicitNullKeyJson, explicitNullHeaderKey));
-        Assert.Equal(HttpStatusCode.OK, explicitNullResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, explicitNullResp.StatusCode);
 
         // =========================================================================
         // 7. Both header and body present in raw JSON -> header precedence preserved
@@ -2998,10 +2995,10 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         Assert.Equal(HttpStatusCode.UnprocessableEntity, missingPromptResp.StatusCode);
 
         // =========================================================================
-        // 9. Malformed JSON (even with Idempotency-Key header present) -> STILL REJECTED (422 Unprocessable Entity)
+        // 9. Malformed JSON (even with Idempotency-Key header present) -> REJECTED (400 Bad Request / MALFORMED_REQUEST)
         // =========================================================================
         var malformedWithHeaderResp = await client.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/product-categories", "{ \"code\": \"BROKEN\", ", Guid.NewGuid().ToString()));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, malformedWithHeaderResp.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, malformedWithHeaderResp.StatusCode);
 
         var wrongTypeIdempotencyKeyJson = $$"""
         {
@@ -3209,7 +3206,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
             "/api/v1/product-categories",
             new CreateProductCategoryRequest(null, $"CA-{token}", $"Alpha Category {token}", null, catAlphaKey),
             catAlphaKey));
-        Assert.Equal(HttpStatusCode.OK, catAlphaResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, catAlphaResp.StatusCode);
         var catAlpha = (await catAlphaResp.Content.ReadFromJsonAsync<ProductCategoryDto>(JsonOptions))!;
 
         var catBetaKey = Guid.NewGuid().ToString();
@@ -3218,7 +3215,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
             "/api/v1/product-categories",
             new CreateProductCategoryRequest(null, $"CB-{token}", $"Beta Category {token}", null, catBetaKey),
             catBetaKey));
-        Assert.Equal(HttpStatusCode.OK, catBetaResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, catBetaResp.StatusCode);
         var catBeta = (await catBetaResp.Content.ReadFromJsonAsync<ProductCategoryDto>(JsonOptions))!;
 
         // 2. Seed 3 products in catAlpha and 1 product in catBeta
@@ -3240,7 +3237,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
                 new[] { new CreateProductUomItemRequest("tab", "Tablet", 1m, 10m, true, true, true) },
                 key);
             var resp = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/products", req, key));
-            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+            Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
             return (await resp.Content.ReadFromJsonAsync<ProductDto>(JsonOptions))!;
         }
 
@@ -3349,7 +3346,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
             var key = Guid.NewGuid().ToString();
             var req = new CreateProductCategoryRequest(parentId, code, name, null, key);
             var resp = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/product-categories", req, key));
-            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+            Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
             return (await resp.Content.ReadFromJsonAsync<ProductCategoryDto>(JsonOptions))!;
         }
 
@@ -3449,7 +3446,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
             new[] { new CreateProductUomItemRequest("TAB", "Tablet", 1.0m, 5.00m, true, true, true) },
             prodKey);
         var prodResp = await client.SendAsync(CreateRequest(HttpMethod.Post, "/api/v1/products", prodReq, prodKey));
-        Assert.Equal(HttpStatusCode.OK, prodResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, prodResp.StatusCode);
         var prod = (await prodResp.Content.ReadFromJsonAsync<ProductDto>(JsonOptions))!;
         var baseUom = Assert.Single(prod.Uoms);
         Assert.True(baseUom.IsBase);
@@ -3459,7 +3456,7 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         var secKey = Guid.NewGuid().ToString();
         var secReq = new CreateProductUomRequest("STRIP", "Strip of 10", 10.0m, 50.00m, false, true, true, secKey);
         var secResp = await client.SendAsync(CreateRequest(HttpMethod.Post, $"/api/v1/products/{prod.ProductId}/uoms", secReq, secKey));
-        Assert.Equal(HttpStatusCode.OK, secResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, secResp.StatusCode);
         var secUom = (await secResp.Content.ReadFromJsonAsync<ProductUomDto>(JsonOptions))!;
         Assert.False(secUom.IsBase);
         Assert.True(secUom.IsActive);

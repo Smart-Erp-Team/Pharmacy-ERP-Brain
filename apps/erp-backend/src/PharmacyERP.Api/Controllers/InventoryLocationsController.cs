@@ -18,11 +18,11 @@ public class InventoryLocationsController : ControllerBase
     [HttpGet]
     [Authorize(Roles = "Admin,Pharmacist,Cashier")]
     public async Task<IActionResult> GetLocations(
-        [FromQuery] Guid branchId,
-        [FromQuery] bool? isSellable,
-        [FromQuery] bool includeInactive = false,
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
+        [FromQuery(Name = "branch_id")] Guid branchId,
+        [FromQuery(Name = "is_sellable")] bool? isSellable,
+        [FromQuery(Name = "include_inactive")] bool includeInactive = false,
+        [FromQuery(Name = "page")] int page = 1,
+        [FromQuery(Name = "page_size")] int pageSize = 20,
         CancellationToken ct = default)
     {
         var result = await _locationService.GetPagedAsync(branchId, isSellable, includeInactive, page, pageSize, ct);
@@ -42,10 +42,16 @@ public class InventoryLocationsController : ControllerBase
             return ApiResultMapper.ToErrorResult(this, ErrorCode.MALFORMED_REQUEST, ErrorMessages.MalformedRequest, _currentUser.TraceId);
         }
 
-        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey : request.IdempotencyKey ?? string.Empty;
+        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey.Trim() : request.IdempotencyKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(effectiveKey))
+        {
+            return ApiResultMapper.ToMissingIdempotencyKeyResult(this, _currentUser.TraceId);
+        }
+
         var requestWithKey = request with { IdempotencyKey = effectiveKey };
         var result = await _locationService.CreateAsync(requestWithKey, ct);
-        return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
+        var locationUri = result.IsSuccess ? $"/api/v1/inventory/locations/{result.Value!.LocationId}" : null;
+        return ApiResultMapper.ToCreatedResult(this, result, _currentUser.TraceId, locationUri);
     }
 
     [AllowHeaderIdempotencyKey]
@@ -62,7 +68,12 @@ public class InventoryLocationsController : ControllerBase
             return ApiResultMapper.ToErrorResult(this, ErrorCode.MALFORMED_REQUEST, ErrorMessages.MalformedRequest, _currentUser.TraceId);
         }
 
-        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey : request.IdempotencyKey ?? string.Empty;
+        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey.Trim() : request.IdempotencyKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(effectiveKey))
+        {
+            return ApiResultMapper.ToMissingIdempotencyKeyResult(this, _currentUser.TraceId);
+        }
+
         var requestWithKey = request with { IdempotencyKey = effectiveKey };
         var result = await _locationService.UpdateAsync(id, requestWithKey, ct);
         return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);

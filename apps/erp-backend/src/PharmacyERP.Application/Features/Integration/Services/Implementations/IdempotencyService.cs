@@ -70,6 +70,43 @@ public class IdempotencyService : IIdempotencyService
         return new IdempotencyCheckResult<TResponse> { IsReplay = false };
     }
 
+    public async Task<IdempotencyCheckResult<TResponse>> CheckGlobalAsync<TRequest, TResponse>(
+        string operationScope, string idempotencyKey, TRequest requestPayload, CancellationToken ct = default)
+    {
+        if (!_tenantContext.IsSystemBypassEnabled)
+        {
+            throw new InvalidOperationException("System bypass must be enabled to perform global provisioning idempotency checks.");
+        }
+
+        if (string.IsNullOrWhiteSpace(operationScope))
+        {
+            throw new IntegrationDomainException("OperationScope is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            throw new IntegrationDomainException("IdempotencyKey is required.");
+        }
+
+        var payloadHash = CanonicalJsonHasher.ComputeSha256Hex(requestPayload);
+
+        await _repository.AcquireGlobalLockAsync(operationScope, idempotencyKey, ct);
+        var existingRecord = await _repository.FindByScopeAndKeyAsync(operationScope, idempotencyKey, ct);
+
+        if (existingRecord != null)
+        {
+            if (existingRecord.PayloadHash != payloadHash)
+            {
+                throw new IntegrationDomainException("IDEMPOTENCY_MISMATCH");
+            }
+
+            var replayedResponse = JsonSerializer.Deserialize<TResponse>(existingRecord.ResponseBody, IdempotencyJsonOptions);
+            return new IdempotencyCheckResult<TResponse> { IsReplay = true, ReplayedResponse = replayedResponse };
+        }
+
+        return new IdempotencyCheckResult<TResponse> { IsReplay = false };
+    }
+
     public async Task PersistResponseAsync<TRequest, TResponse>(
         string operationScope, string idempotencyKey, Guid? branchId, TRequest requestPayload, TResponse responseBody, CancellationToken ct = default)
     {

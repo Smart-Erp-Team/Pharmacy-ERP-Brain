@@ -27,7 +27,28 @@ public class CurrentUser : ICurrentUser
 
     public Guid? OrganizationId => TryGetGuidClaim("organization_id");
 
-    public string? Role => Principal?.FindFirst(ClaimTypes.Role)?.Value ?? Principal?.FindFirst("role")?.Value;
+    public string? Username => Principal?.FindFirst("username")?.Value ?? Principal?.FindFirst("preferred_username")?.Value;
+
+    public string? Role
+    {
+        get
+        {
+            if (Principal is null)
+            {
+                return null;
+            }
+
+            foreach (var roleValue in ExtractClaimValues(Principal.FindAll("roles")))
+            {
+                if (!string.IsNullOrWhiteSpace(roleValue))
+                {
+                    return roleValue;
+                }
+            }
+
+            return Principal.FindFirst(ClaimTypes.Role)?.Value ?? Principal.FindFirst("role")?.Value;
+        }
+    }
 
     public string? BranchScope => Principal?.FindFirst("branch_scope")?.Value;
 
@@ -40,10 +61,8 @@ public class CurrentUser : ICurrentUser
                 return new HashSet<Guid>();
             }
 
-            var branchClaims = Principal.FindAll("branch_ids").Select(c => c.Value);
             var result = new HashSet<Guid>();
-
-            foreach (var claimValue in branchClaims)
+            foreach (var claimValue in ExtractClaimValues(Principal.FindAll("branch_ids")))
             {
                 foreach (var part in claimValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 {
@@ -67,10 +86,12 @@ public class CurrentUser : ICurrentUser
                 return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             }
 
-            var scopeClaims = Principal.FindAll("scope").Concat(Principal.FindAll("scp")).Select(c => c.Value);
+            var scopeClaims = Principal.FindAll("scopes")
+                .Concat(Principal.FindAll("scope"))
+                .Concat(Principal.FindAll("scp"));
             var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var raw in scopeClaims)
+            foreach (var raw in ExtractClaimValues(scopeClaims))
             {
                 foreach (var item in raw.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 {
@@ -136,5 +157,46 @@ public class CurrentUser : ICurrentUser
     {
         var value = Principal?.FindFirst(claimType)?.Value;
         return Guid.TryParse(value, out var parsed) ? parsed : null;
+    }
+
+    private static IEnumerable<string> ExtractClaimValues(IEnumerable<Claim> claims)
+    {
+        foreach (var claim in claims)
+        {
+            var value = claim.Value;
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            // Support both unpacked individual claims from JwtBearer and raw JsonArray claim values.
+            if (value.StartsWith('[') && value.EndsWith(']'))
+            {
+                string[]? parsed = null;
+                try
+                {
+                    parsed = JsonSerializer.Deserialize<string[]>(value);
+                }
+                catch (JsonException)
+                {
+                    // Fall through to yield raw claim value.
+                }
+
+                if (parsed is not null)
+                {
+                    foreach (var item in parsed)
+                    {
+                        if (!string.IsNullOrWhiteSpace(item))
+                        {
+                            yield return item;
+                        }
+                    }
+
+                    continue;
+                }
+            }
+
+            yield return value;
+        }
     }
 }

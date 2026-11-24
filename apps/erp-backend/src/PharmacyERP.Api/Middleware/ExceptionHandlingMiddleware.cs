@@ -56,7 +56,7 @@ public class ExceptionHandlingMiddleware
         var errorBody = new ApiErrorBodyDto(errorCode, message, details, traceId);
         var errorEnvelope = new ApiErrorEnvelopeDto(errorBody);
 
-        var serializedError = JsonSerializer.Serialize(errorEnvelope);
+        var serializedError = JsonSerializer.Serialize(errorEnvelope, DependencyInjection.ApiJsonSerializerOptions);
         await context.Response.WriteAsync(serializedError, context.RequestAborted);
     }
 

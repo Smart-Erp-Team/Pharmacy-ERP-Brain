@@ -12,15 +12,16 @@ public sealed class BranchService : IBranchService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IAuditLogger _audit;
     private readonly IOutboxService _outbox;
+    private readonly IIdempotencyService _idempotency;
     private readonly ITenantContext _tenant;
     private readonly ICurrentUser _currentUser;
     private readonly IDateTimeProvider _clock;
     private readonly IRuntimeModeProvider _runtimeMode;
 
     public BranchService(IBranchRepository branches, IBranchEnrollmentRepository enrollments, IBranchDefaultLocationSeeder locationSeeder,
-        IUnitOfWork unitOfWork, IAuditLogger audit, IOutboxService outbox, ITenantContext tenant,
+        IUnitOfWork unitOfWork, IAuditLogger audit, IOutboxService outbox, IIdempotencyService idempotency, ITenantContext tenant,
         ICurrentUser currentUser, IDateTimeProvider clock, IRuntimeModeProvider runtimeMode)
-    { _branches = branches; _enrollments = enrollments; _locationSeeder = locationSeeder; _unitOfWork = unitOfWork; _audit = audit; _outbox = outbox; _tenant = tenant; _currentUser = currentUser; _clock = clock; _runtimeMode = runtimeMode; }
+    { _branches = branches; _enrollments = enrollments; _locationSeeder = locationSeeder; _unitOfWork = unitOfWork; _audit = audit; _outbox = outbox; _idempotency = idempotency; _tenant = tenant; _currentUser = currentUser; _clock = clock; _runtimeMode = runtimeMode; }
 
     public async Task<Result<PagedResult<BranchDto>>> GetPagedAsync(bool includeInactive, string? search, int page, int pageSize, CancellationToken ct = default)
     {
@@ -68,16 +69,37 @@ public sealed class BranchService : IBranchService
     {
         if (!IsAllBranchAdmin()) return IdentityResults.Failure<BranchDto>(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
         if (_tenant.OrganizationId is not Guid organizationId) return IdentityResults.Failure<BranchDto>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
+        if (string.IsNullOrWhiteSpace(request.IdempotencyKey)) return IdentityResults.MissingIdempotencyKey<BranchDto>();
+
+        var idempotencyKey = request.IdempotencyKey.Trim();
+        var normalizedRequest = request with { IdempotencyKey = idempotencyKey };
+
         await _unitOfWork.BeginTransactionAsync(ct);
         try
         {
-            if (await _branches.ExistsByCodeAsync(organizationId, request.BranchCode, ct))
+            try
+            {
+                var idempotencyCheck = await _idempotency.CheckAsync<CreateBranchRequest, BranchDto>(
+                    "identity.branch.create", idempotencyKey, null, normalizedRequest, ct);
+                if (idempotencyCheck.IsReplay && idempotencyCheck.ReplayedResponse is not null)
+                {
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                    return Result<BranchDto>.Success(idempotencyCheck.ReplayedResponse);
+                }
+            }
+            catch (IntegrationDomainException ex) when (string.Equals(ex.Message, "IDEMPOTENCY_MISMATCH", StringComparison.OrdinalIgnoreCase))
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                return IdentityResults.Failure<BranchDto>(ErrorCode.IDEMPOTENCY_MISMATCH, ErrorMessages.IdempotencyMismatch);
+            }
+
+            if (await _branches.ExistsByCodeAsync(organizationId, normalizedRequest.BranchCode, ct))
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<BranchDto>(ErrorCode.CONFLICT, ErrorMessages.DuplicateBranchCode);
             }
             Branch branch;
-            try { branch = Branch.Create(organizationId, request.BranchCode, request.Name, request.Address.ToValueObject()); }
+            try { branch = Branch.Create(organizationId, normalizedRequest.BranchCode, normalizedRequest.Name, normalizedRequest.Address.ToValueObject()); }
             catch (Exception exception) when (exception is ArgumentException or IdentityDomainException)
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
@@ -88,8 +110,12 @@ public sealed class BranchService : IBranchService
             await _locationSeeder.SeedDefaultLocationsAsync(organizationId, branch.BranchId, ct);
             await _audit.LogAsync("branch.created", "identity", "BRANCH", branch.BranchId, null, new { branch.BranchCode, branch.Name }, branch.BranchId, ct: ct);
             await _outbox.EnqueueAsync("identity.branch.created", branch.BranchId, new { branch.BranchId, branch.BranchCode }, ct: ct);
+
+            var dto = BranchDtoMapper.From(branch);
+            await _idempotency.PersistResponseAsync("identity.branch.create", idempotencyKey, null, normalizedRequest, dto, ct);
+
             await _unitOfWork.CommitTransactionAsync(ct);
-            return Result<BranchDto>.Success(BranchDtoMapper.From(branch));
+            return Result<BranchDto>.Success(dto);
         }
         catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
@@ -98,6 +124,12 @@ public sealed class BranchService : IBranchService
     {
         if (!IsAdmin()) return IdentityResults.Failure<BranchDto>(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
         if (_tenant.OrganizationId is not Guid organizationId) return IdentityResults.Failure<BranchDto>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
+        if (string.IsNullOrWhiteSpace(request.IdempotencyKey)) return IdentityResults.MissingIdempotencyKey<BranchDto>();
+
+        var idempotencyKey = request.IdempotencyKey.Trim();
+        var normalizedRequest = request with { IdempotencyKey = idempotencyKey };
+        var idempotencyPayload = new { BranchId = branchId, Request = normalizedRequest };
+
         await _unitOfWork.BeginTransactionAsync(ct);
         try
         {
@@ -112,30 +144,56 @@ public sealed class BranchService : IBranchService
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<BranchDto>(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
             }
-            if (request.IsActive.HasValue && request.IsActive.Value != branch.IsActive && !IsAllBranchAdmin())
+            if (normalizedRequest.IsActive.HasValue && normalizedRequest.IsActive.Value != branch.IsActive && !IsAllBranchAdmin())
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<BranchDto>(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
             }
-            try { branch.UpdateDetails(request.Name, request.Address.ToValueObject()); }
+
+            try
+            {
+                var idempotencyCheck = await _idempotency.CheckAsync<object, BranchDto>(
+                    "identity.branch.update", idempotencyKey, branchId, idempotencyPayload, ct);
+                if (idempotencyCheck.IsReplay && idempotencyCheck.ReplayedResponse is not null)
+                {
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                    return Result<BranchDto>.Success(idempotencyCheck.ReplayedResponse);
+                }
+            }
+            catch (IntegrationDomainException ex) when (string.Equals(ex.Message, "IDEMPOTENCY_MISMATCH", StringComparison.OrdinalIgnoreCase))
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                return IdentityResults.Failure<BranchDto>(ErrorCode.IDEMPOTENCY_MISMATCH, ErrorMessages.IdempotencyMismatch);
+            }
+
+            try { branch.UpdateDetails(normalizedRequest.Name, normalizedRequest.Address.ToValueObject()); }
             catch (Exception exception) when (exception is ArgumentException or IdentityDomainException)
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<BranchDto>(ErrorCode.VALIDATION_ERROR, exception.Message);
             }
-            if (request.IsActive.HasValue) branch.SetActive(request.IsActive.Value);
+            if (normalizedRequest.IsActive.HasValue) branch.SetActive(normalizedRequest.IsActive.Value);
             await _audit.LogAsync("branch.updated", "identity", "BRANCH", branch.BranchId, null, new { branch.Name, branch.IsActive }, branch.BranchId, ct: ct);
             await _outbox.EnqueueAsync("identity.branch.updated", branch.BranchId, new { branch.BranchId, branch.IsActive }, ct: ct);
+
+            var dto = BranchDtoMapper.From(branch);
+            await _idempotency.PersistResponseAsync("identity.branch.update", idempotencyKey, branchId, idempotencyPayload, dto, ct);
+
             await _unitOfWork.CommitTransactionAsync(ct);
-            return Result<BranchDto>.Success(BranchDtoMapper.From(branch));
+            return Result<BranchDto>.Success(dto);
         }
         catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
 
-    public async Task<Result<EnrollmentTokenResponse>> IssueEnrollmentTokenAsync(Guid branchId, CancellationToken ct = default)
+    public async Task<Result<EnrollmentTokenResponse>> IssueEnrollmentTokenAsync(Guid branchId, string idempotencyKey, CancellationToken ct = default)
     {
         if (!IsAdmin()) return IdentityResults.Failure<EnrollmentTokenResponse>(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
         if (_tenant.OrganizationId is not Guid organizationId) return IdentityResults.Failure<EnrollmentTokenResponse>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
+        if (string.IsNullOrWhiteSpace(idempotencyKey)) return IdentityResults.MissingIdempotencyKey<EnrollmentTokenResponse>();
+
+        var normalizedKey = idempotencyKey.Trim();
+        var idempotencyPayload = new { BranchId = branchId };
+
         await _unitOfWork.BeginTransactionAsync(ct);
         try
         {
@@ -150,14 +208,35 @@ public sealed class BranchService : IBranchService
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<EnrollmentTokenResponse>(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
             }
+
+            try
+            {
+                var idempotencyCheck = await _idempotency.CheckAsync<object, EnrollmentTokenResponse>(
+                    "identity.branch.enrollment_token.issue", normalizedKey, branchId, idempotencyPayload, ct);
+                if (idempotencyCheck.IsReplay && idempotencyCheck.ReplayedResponse is not null)
+                {
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                    return Result<EnrollmentTokenResponse>.Success(idempotencyCheck.ReplayedResponse);
+                }
+            }
+            catch (IntegrationDomainException ex) when (string.Equals(ex.Message, "IDEMPOTENCY_MISMATCH", StringComparison.OrdinalIgnoreCase))
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                return IdentityResults.Failure<EnrollmentTokenResponse>(ErrorCode.IDEMPOTENCY_MISMATCH, ErrorMessages.IdempotencyMismatch);
+            }
+
             var now = _clock.UtcNow;
             var clearToken = Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
             var enrollment = BranchEnrollment.Create(organizationId, branchId, HashToken(clearToken), now.AddMinutes(15), now);
             await _enrollments.AddAsync(enrollment, ct);
             await _audit.LogAsync("branch.enrollment_token.issued", "identity", "BRANCH_ENROLLMENT", enrollment.EnrollmentId, null, new { enrollment.ExpiresAt }, branchId, ct: ct);
             await _outbox.EnqueueAsync("identity.branch.enrollment_issued", branchId, new { enrollment.EnrollmentId, enrollment.ExpiresAt }, ct: ct);
+
+            var dto = new EnrollmentTokenResponse(clearToken, enrollment.ExpiresAt);
+            await _idempotency.PersistResponseAsync("identity.branch.enrollment_token.issue", normalizedKey, branchId, idempotencyPayload, dto, ct);
+
             await _unitOfWork.CommitTransactionAsync(ct);
-            return Result<EnrollmentTokenResponse>.Success(new EnrollmentTokenResponse(clearToken, enrollment.ExpiresAt));
+            return Result<EnrollmentTokenResponse>.Success(dto);
         }
         catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }

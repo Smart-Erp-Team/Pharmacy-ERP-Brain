@@ -23,11 +23,11 @@ public class InventoryController : ControllerBase
     [HttpGet("batches")]
     [Authorize]
     public async Task<IActionResult> GetBatches(
-        [FromQuery] Guid? productId,
-        [FromQuery] BatchQualityStatus? status,
-        [FromQuery] DateOnly? expiringBefore,
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
+        [FromQuery(Name = "product_id")] Guid? productId,
+        [FromQuery(Name = "status")] BatchQualityStatus? status,
+        [FromQuery(Name = "expiring_before")] DateOnly? expiringBefore,
+        [FromQuery(Name = "page")] int page = 1,
+        [FromQuery(Name = "page_size")] int pageSize = 20,
         CancellationToken ct = default)
     {
         var result = await _queryService.GetBatchesAsync(productId, status, expiringBefore, page, pageSize, ct);
@@ -37,10 +37,10 @@ public class InventoryController : ControllerBase
     [HttpGet("balances")]
     [Authorize]
     public async Task<IActionResult> GetBalances(
-        [FromQuery] Guid branchId,
-        [FromQuery] Guid? productId,
-        [FromQuery] Guid? locationId,
-        [FromQuery] Guid? batchId,
+        [FromQuery(Name = "branch_id")] Guid branchId,
+        [FromQuery(Name = "product_id")] Guid? productId,
+        [FromQuery(Name = "location_id")] Guid? locationId,
+        [FromQuery(Name = "batch_id")] Guid? batchId,
         CancellationToken ct = default)
     {
         var result = await _queryService.GetBalancesAsync(branchId, productId, locationId, batchId, ct);
@@ -50,13 +50,13 @@ public class InventoryController : ControllerBase
     [HttpGet("transactions")]
     [Authorize]
     public async Task<IActionResult> GetTransactions(
-        [FromQuery] Guid branchId,
-        [FromQuery] InventoryTransactionType? type = null,
-        [FromQuery] Guid? productId = null,
-        [FromQuery] DateTimeOffset? fromDate = null,
-        [FromQuery] DateTimeOffset? toDate = null,
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
+        [FromQuery(Name = "branch_id")] Guid branchId,
+        [FromQuery(Name = "type")] InventoryTransactionType? type = null,
+        [FromQuery(Name = "product_id")] Guid? productId = null,
+        [FromQuery(Name = "from_date")] DateTimeOffset? fromDate = null,
+        [FromQuery(Name = "to_date")] DateTimeOffset? toDate = null,
+        [FromQuery(Name = "page")] int page = 1,
+        [FromQuery(Name = "page_size")] int pageSize = 20,
         CancellationToken ct = default)
     {
         var result = await _queryService.GetTransactionsAsync(
@@ -77,9 +77,15 @@ public class InventoryController : ControllerBase
             return ApiResultMapper.ToErrorResult(this, ErrorCode.MALFORMED_REQUEST, ErrorMessages.MalformedRequest, _currentUser.TraceId);
         }
 
-        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey : request.IdempotencyKey ?? string.Empty;
+        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey.Trim() : request.IdempotencyKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(effectiveKey))
+        {
+            return ApiResultMapper.ToMissingIdempotencyKeyResult(this, _currentUser.TraceId);
+        }
+
         var requestWithKey = request with { IdempotencyKey = effectiveKey };
         var result = await _adjustmentService.PostAdjustmentAsync(requestWithKey, ct);
-        return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
+        var locationUri = result.IsSuccess ? $"/api/v1/inventory/transactions/{result.Value!.InventoryTxnId}" : null;
+        return ApiResultMapper.ToCreatedResult(this, result, _currentUser.TraceId, locationUri);
     }
 }

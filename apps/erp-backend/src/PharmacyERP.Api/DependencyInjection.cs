@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Cors.Infrastructure;
+using Microsoft.AspNetCore.Mvc.Formatters;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using PharmacyERP.Api.Auth;
@@ -10,6 +12,27 @@ namespace PharmacyERP.Api;
 public static class DependencyInjection
 {
     public const string DefaultCorsPolicyName = "DefaultCorsPolicy";
+
+    /// <summary>
+    /// Shared <see cref="JsonSerializerOptions"/> enforcing Blueprint v1.1 <c>snake_case</c>
+    /// property naming and strict string-only enum serialization across controllers, middlewares,
+    /// and JWT/authorization error handlers.
+    /// </summary>
+    internal static readonly JsonSerializerOptions ApiJsonSerializerOptions = CreateApiJsonSerializerOptions();
+
+    private static JsonSerializerOptions CreateApiJsonSerializerOptions()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        ConfigureApiJsonOptions(options);
+        return options;
+    }
+
+    private static void ConfigureApiJsonOptions(JsonSerializerOptions options)
+    {
+        options.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
+        options.PropertyNameCaseInsensitive = true;
+        options.Converters.Add(new JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: false));
+    }
 
     public static IServiceCollection AddApiServices(this IServiceCollection services)
     {
@@ -49,7 +72,7 @@ public static class DependencyInjection
         services.AddControllers()
             .AddJsonOptions(options =>
             {
-                options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+                ConfigureApiJsonOptions(options.JsonSerializerOptions);
             })
             .ConfigureApiBehaviorOptions(options =>
             {
@@ -59,26 +82,36 @@ public static class DependencyInjection
                         ?? context.HttpContext.TraceIdentifier
                         ?? Guid.NewGuid().ToString();
 
+                    var isMalformedRequest = IsMalformedJsonOrProtocolRequest(context.ModelState);
+
                     var details = context.ModelState
                         .Where(entry => entry.Value != null && entry.Value.Errors.Count > 0)
                         .SelectMany(entry => entry.Value!.Errors.Select(modelError =>
                             new ApiErrorDetailDto(
                                 entry.Key,
-                                string.IsNullOrWhiteSpace(modelError.ErrorMessage)
-                                    ? "Invalid value."
-                                    : modelError.ErrorMessage)))
+                                !string.IsNullOrWhiteSpace(modelError.ErrorMessage)
+                                    ? modelError.ErrorMessage
+                                    : isMalformedRequest
+                                        ? "Malformed JSON request payload."
+                                        : "Invalid value.")))
                         .ToList();
+
+                    var errorCode = isMalformedRequest ? ErrorCode.MALFORMED_REQUEST : ErrorCode.VALIDATION_ERROR;
+                    var message = isMalformedRequest ? ErrorMessages.MalformedRequest : ErrorMessages.ValidationError;
+                    var statusCode = isMalformedRequest
+                        ? StatusCodes.Status400BadRequest
+                        : StatusCodes.Status422UnprocessableEntity;
 
                     var envelope = new ApiErrorEnvelopeDto(
                         new ApiErrorBodyDto(
-                            ErrorCode.VALIDATION_ERROR.ToString(),
-                            ErrorMessages.ValidationError,
+                            errorCode.ToString(),
+                            message,
                             details,
                             traceId));
 
                     return new ObjectResult(envelope)
                     {
-                        StatusCode = StatusCodes.Status422UnprocessableEntity
+                        StatusCode = statusCode
                     };
                 };
             });
@@ -102,10 +135,29 @@ public static class DependencyInjection
                     RequireSignedTokens = true,
                     ClockSkew = TimeSpan.FromSeconds(30),
                     NameClaimType = "sub",
-                    RoleClaimType = "role"
+                    RoleClaimType = "roles"
                 };
                 options.Events = new JwtBearerEvents
                 {
+                    OnChallenge = async context =>
+                    {
+                        context.HandleResponse();
+                        await ApiErrorAuthorizationMiddlewareResultHandler.WriteAuthErrorAsync(
+                            context.HttpContext,
+                            StatusCodes.Status401Unauthorized,
+                            ErrorCode.UNAUTHORIZED,
+                            ErrorMessages.Unauthorized,
+                            includeBearerChallengeHeader: true);
+                    },
+                    OnForbidden = async context =>
+                    {
+                        await ApiErrorAuthorizationMiddlewareResultHandler.WriteAuthErrorAsync(
+                            context.HttpContext,
+                            StatusCodes.Status403Forbidden,
+                            ErrorCode.FORBIDDEN,
+                            ErrorMessages.Forbidden,
+                            includeBearerChallengeHeader: false);
+                    },
                     OnTokenValidated = async context =>
                     {
                         var principal = context.Principal;
@@ -115,12 +167,13 @@ public static class DependencyInjection
                             return;
                         }
 
-                        var role = principal.FindFirst("role")?.Value;
+                        var isPlatformProvisioner = principal.IsInRole("PlatformProvisioner")
+                            || principal.FindAll("roles").Any(claim => string.Equals(claim.Value, "PlatformProvisioner", StringComparison.Ordinal));
                         var orgClaim = principal.FindFirst("organization_id")?.Value;
                         var subClaim = principal.FindFirst("sub")?.Value;
 
                         // Deployment-only PlatformProvisioner tokens are not tenant USER_ACCOUNT principals.
-                        if (string.Equals(role, "PlatformProvisioner", StringComparison.Ordinal)
+                        if (isPlatformProvisioner
                             && string.IsNullOrWhiteSpace(orgClaim)
                             && string.IsNullOrWhiteSpace(subClaim))
                         {
@@ -146,6 +199,7 @@ public static class DependencyInjection
                     }
                 };
             });
+        services.AddSingleton<IAuthorizationMiddlewareResultHandler, ApiErrorAuthorizationMiddlewareResultHandler>();
         services.AddIdentityAuthorizationPolicies();
         services.AddJwksEndpoint();
 
@@ -154,5 +208,65 @@ public static class DependencyInjection
             options.SwaggerDoc("v1", new OpenApiInfo { Title = "Pharmacy ERP API", Version = "v1" });
         });
         return services;
+    }
+
+    private static bool IsMalformedJsonOrProtocolRequest(ModelStateDictionary modelState)
+    {
+        foreach (var (key, entry) in modelState)
+        {
+            if (entry is null || entry.Errors.Count == 0)
+            {
+                continue;
+            }
+
+            foreach (var error in entry.Errors)
+            {
+                var message = !string.IsNullOrWhiteSpace(error.ErrorMessage)
+                    ? error.ErrorMessage
+                    : error.Exception?.Message ?? string.Empty;
+
+                // System.Text.Json syntax errors throw JsonReaderException; valid JSON with wrong field types
+                // or invalid/integer enum values emits "The JSON value could not be converted to ..." under a
+                // "$.property" path and must return 422 VALIDATION_ERROR per Blueprint §8.6 & §8.9.11.
+                var isJsonTypeConversionError =
+                    message.StartsWith("The JSON value could not be converted to ", StringComparison.OrdinalIgnoreCase);
+
+                if (error.Exception is JsonException jsonException)
+                {
+                    if (string.Equals(jsonException.GetType().Name, "JsonReaderException", StringComparison.Ordinal)
+                        || string.IsNullOrEmpty(key)
+                        || string.Equals(key, "$", StringComparison.Ordinal)
+                        || !isJsonTypeConversionError)
+                    {
+                        return true;
+                    }
+                }
+
+                if (error.Exception is InputFormatterException)
+                {
+                    return true;
+                }
+
+                if (string.Equals(key, "$", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                if (key.StartsWith("$.", StringComparison.Ordinal) && !isJsonTypeConversionError)
+                {
+                    return true;
+                }
+
+                if (string.IsNullOrEmpty(key)
+                    && (message.Contains("request body", StringComparison.OrdinalIgnoreCase)
+                        || message.Contains("JSON", StringComparison.OrdinalIgnoreCase)
+                        || message.Contains("end of data", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 }

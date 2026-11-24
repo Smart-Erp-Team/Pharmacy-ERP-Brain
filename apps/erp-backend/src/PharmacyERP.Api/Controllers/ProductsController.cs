@@ -23,11 +23,11 @@ public sealed class ProductsController : ControllerBase
     [Authorize(Roles = "Admin,Pharmacist,Cashier")]
     [HttpGet]
     public async Task<IActionResult> GetProducts(
-        [FromQuery] Guid? categoryId,
-        [FromQuery] bool includeInactive = false,
-        [FromQuery] string? search = null,
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 25,
+        [FromQuery(Name = "category_id")] Guid? categoryId,
+        [FromQuery(Name = "include_inactive")] bool includeInactive = false,
+        [FromQuery(Name = "search")] string? search = null,
+        [FromQuery(Name = "page")] int page = 1,
+        [FromQuery(Name = "page_size")] int pageSize = 25,
         CancellationToken ct = default)
     {
         var result = await _productService.GetProductsAsync(categoryId, includeInactive, search, page, pageSize, ct);
@@ -47,10 +47,16 @@ public sealed class ProductsController : ControllerBase
             return ApiResultMapper.ToErrorResult(this, ErrorCode.MALFORMED_REQUEST, ErrorMessages.MalformedRequest, _currentUser.TraceId);
         }
 
-        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey : request.IdempotencyKey ?? string.Empty;
+        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey.Trim() : request.IdempotencyKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(effectiveKey))
+        {
+            return ApiResultMapper.ToMissingIdempotencyKeyResult(this, _currentUser.TraceId);
+        }
+
         var requestWithKey = request with { IdempotencyKey = effectiveKey };
         var result = await _productService.CreateProductAsync(requestWithKey, ct);
-        return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
+        var locationUri = result.IsSuccess ? $"/api/v1/products/{result.Value!.ProductId}" : null;
+        return ApiResultMapper.ToCreatedResult(this, result, _currentUser.TraceId, locationUri);
     }
 
     [Authorize(Roles = "Admin,Pharmacist,Cashier")]
@@ -75,7 +81,12 @@ public sealed class ProductsController : ControllerBase
             return ApiResultMapper.ToErrorResult(this, ErrorCode.MALFORMED_REQUEST, ErrorMessages.MalformedRequest, _currentUser.TraceId);
         }
 
-        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey : request.IdempotencyKey ?? string.Empty;
+        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey.Trim() : request.IdempotencyKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(effectiveKey))
+        {
+            return ApiResultMapper.ToMissingIdempotencyKeyResult(this, _currentUser.TraceId);
+        }
+
         var requestWithKey = request with { IdempotencyKey = effectiveKey };
         var result = await _productService.UpdateProductAsync(id, requestWithKey, ct);
         return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
@@ -103,10 +114,16 @@ public sealed class ProductsController : ControllerBase
             return ApiResultMapper.ToErrorResult(this, ErrorCode.MALFORMED_REQUEST, ErrorMessages.MalformedRequest, _currentUser.TraceId);
         }
 
-        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey : request.IdempotencyKey ?? string.Empty;
+        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey.Trim() : request.IdempotencyKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(effectiveKey))
+        {
+            return ApiResultMapper.ToMissingIdempotencyKeyResult(this, _currentUser.TraceId);
+        }
+
         var requestWithKey = request with { IdempotencyKey = effectiveKey };
         var result = await _uomService.CreateProductUomAsync(id, requestWithKey, ct);
-        return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
+        var locationUri = result.IsSuccess ? $"/api/v1/products/{id}/uoms/{result.Value!.ProductUomId}" : null;
+        return ApiResultMapper.ToCreatedResult(this, result, _currentUser.TraceId, locationUri);
     }
 
     [AllowHeaderIdempotencyKey]
@@ -124,7 +141,12 @@ public sealed class ProductsController : ControllerBase
             return ApiResultMapper.ToErrorResult(this, ErrorCode.MALFORMED_REQUEST, ErrorMessages.MalformedRequest, _currentUser.TraceId);
         }
 
-        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey : request.IdempotencyKey ?? string.Empty;
+        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey.Trim() : request.IdempotencyKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(effectiveKey))
+        {
+            return ApiResultMapper.ToMissingIdempotencyKeyResult(this, _currentUser.TraceId);
+        }
+
         var requestWithKey = request with { IdempotencyKey = effectiveKey };
         var result = await _uomService.UpdateProductUomAsync(id, uomId, requestWithKey, ct);
         return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);

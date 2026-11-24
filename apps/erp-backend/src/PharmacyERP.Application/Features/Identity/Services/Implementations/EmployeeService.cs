@@ -10,13 +10,14 @@ public sealed class EmployeeService : IEmployeeService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IAuditLogger _audit;
     private readonly IOutboxService _outbox;
+    private readonly IIdempotencyService _idempotency;
     private readonly ITenantContext _tenant;
     private readonly ICurrentUser _currentUser;
     private readonly IDateTimeProvider _clock;
 
     public EmployeeService(IEmployeeRepository employees, IBranchRepository branches, IUnitOfWork unitOfWork,
-        IAuditLogger audit, IOutboxService outbox, ITenantContext tenant, ICurrentUser currentUser, IDateTimeProvider clock)
-    { _employees = employees; _branches = branches; _unitOfWork = unitOfWork; _audit = audit; _outbox = outbox; _tenant = tenant; _currentUser = currentUser; _clock = clock; }
+        IAuditLogger audit, IOutboxService outbox, IIdempotencyService idempotency, ITenantContext tenant, ICurrentUser currentUser, IDateTimeProvider clock)
+    { _employees = employees; _branches = branches; _unitOfWork = unitOfWork; _audit = audit; _outbox = outbox; _idempotency = idempotency; _tenant = tenant; _currentUser = currentUser; _clock = clock; }
 
     public async Task<Result<PagedResult<EmployeeDto>>> GetPagedAsync(Guid? branchId, bool includeInactive, string? search, int page, int pageSize, CancellationToken ct = default)
     {
@@ -62,22 +63,43 @@ public sealed class EmployeeService : IEmployeeService
         if (!IsAdmin()) return IdentityResults.Failure<EmployeeDto>(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
         if (_tenant.OrganizationId is not Guid organizationId) return IdentityResults.Failure<EmployeeDto>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
         if (!_currentUser.CanAccessBranch(request.BranchId)) return IdentityResults.Failure<EmployeeDto>(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
+        if (string.IsNullOrWhiteSpace(request.IdempotencyKey)) return IdentityResults.MissingIdempotencyKey<EmployeeDto>();
+
+        var idempotencyKey = request.IdempotencyKey.Trim();
+        var normalizedRequest = request with { IdempotencyKey = idempotencyKey };
+
         await _unitOfWork.BeginTransactionAsync(ct);
         try
         {
-            var branch = await _branches.GetByIdAsync(organizationId, request.BranchId, ct);
+            try
+            {
+                var idempotencyCheck = await _idempotency.CheckAsync<CreateEmployeeRequest, EmployeeDto>(
+                    "identity.employee.create", idempotencyKey, normalizedRequest.BranchId, normalizedRequest, ct);
+                if (idempotencyCheck.IsReplay && idempotencyCheck.ReplayedResponse is not null)
+                {
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                    return Result<EmployeeDto>.Success(idempotencyCheck.ReplayedResponse);
+                }
+            }
+            catch (IntegrationDomainException ex) when (string.Equals(ex.Message, "IDEMPOTENCY_MISMATCH", StringComparison.OrdinalIgnoreCase))
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                return IdentityResults.Failure<EmployeeDto>(ErrorCode.IDEMPOTENCY_MISMATCH, ErrorMessages.IdempotencyMismatch);
+            }
+
+            var branch = await _branches.GetByIdAsync(organizationId, normalizedRequest.BranchId, ct);
             if (branch is null || !branch.IsActive)
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<EmployeeDto>(ErrorCode.NOT_FOUND, ErrorMessages.NotFound);
             }
-            if (await _employees.ExistsByEmployeeNoAsync(organizationId, request.BranchId, request.EmployeeNo, ct))
+            if (await _employees.ExistsByEmployeeNoAsync(organizationId, normalizedRequest.BranchId, normalizedRequest.EmployeeNo, ct))
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<EmployeeDto>(ErrorCode.CONFLICT, ErrorMessages.DuplicateEmployeeNo);
             }
             Employee employee;
-            try { employee = Employee.Create(organizationId, request.BranchId, request.EmployeeNo, request.FullName, request.Email, request.Phone, request.JobTitle, request.Address.ToValueObject(), request.HiredOn); }
+            try { employee = Employee.Create(organizationId, normalizedRequest.BranchId, normalizedRequest.EmployeeNo, normalizedRequest.FullName, normalizedRequest.Email, normalizedRequest.Phone, normalizedRequest.JobTitle, normalizedRequest.Address.ToValueObject(), normalizedRequest.HiredOn); }
             catch (Exception exception) when (exception is ArgumentException or IdentityDomainException)
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
@@ -87,8 +109,12 @@ public sealed class EmployeeService : IEmployeeService
             await _audit.LogAsync("employee.created", "identity", "EMPLOYEE", employee.EmployeeId, null,
                 new { employee.EmployeeNo, employee.FullName }, employee.BranchId, ct: ct);
             await _outbox.EnqueueAsync("identity.employee.created", employee.BranchId, new { employee.EmployeeId, employee.EmployeeNo }, ct: ct);
+
+            var dto = EmployeeDtoMapper.From(employee);
+            await _idempotency.PersistResponseAsync("identity.employee.create", idempotencyKey, employee.BranchId, normalizedRequest, dto, ct);
+
             await _unitOfWork.CommitTransactionAsync(ct);
-            return Result<EmployeeDto>.Success(EmployeeDtoMapper.From(employee));
+            return Result<EmployeeDto>.Success(dto);
         }
         catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }
@@ -97,6 +123,12 @@ public sealed class EmployeeService : IEmployeeService
     {
         if (!IsAdmin()) return IdentityResults.Failure<EmployeeDto>(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
         if (_tenant.OrganizationId is not Guid organizationId) return IdentityResults.Failure<EmployeeDto>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
+        if (string.IsNullOrWhiteSpace(request.IdempotencyKey)) return IdentityResults.MissingIdempotencyKey<EmployeeDto>();
+
+        var idempotencyKey = request.IdempotencyKey.Trim();
+        var normalizedRequest = request with { IdempotencyKey = idempotencyKey };
+        var idempotencyPayload = new { EmployeeId = employeeId, Request = normalizedRequest };
+
         await _unitOfWork.BeginTransactionAsync(ct);
         try
         {
@@ -111,18 +143,39 @@ public sealed class EmployeeService : IEmployeeService
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<EmployeeDto>(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
             }
-            try { employee.UpdateDetails(request.FullName, request.Email, request.Phone, request.JobTitle, request.Address.ToValueObject()); }
+
+            try
+            {
+                var idempotencyCheck = await _idempotency.CheckAsync<object, EmployeeDto>(
+                    "identity.employee.update", idempotencyKey, employee.BranchId, idempotencyPayload, ct);
+                if (idempotencyCheck.IsReplay && idempotencyCheck.ReplayedResponse is not null)
+                {
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                    return Result<EmployeeDto>.Success(idempotencyCheck.ReplayedResponse);
+                }
+            }
+            catch (IntegrationDomainException ex) when (string.Equals(ex.Message, "IDEMPOTENCY_MISMATCH", StringComparison.OrdinalIgnoreCase))
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                return IdentityResults.Failure<EmployeeDto>(ErrorCode.IDEMPOTENCY_MISMATCH, ErrorMessages.IdempotencyMismatch);
+            }
+
+            try { employee.UpdateDetails(normalizedRequest.FullName, normalizedRequest.Email, normalizedRequest.Phone, normalizedRequest.JobTitle, normalizedRequest.Address.ToValueObject()); }
             catch (Exception exception) when (exception is ArgumentException or IdentityDomainException)
             {
                 await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
                 return IdentityResults.Failure<EmployeeDto>(ErrorCode.VALIDATION_ERROR, exception.Message);
             }
-            if (request.IsActive.HasValue) employee.SetActive(request.IsActive.Value);
+            if (normalizedRequest.IsActive.HasValue) employee.SetActive(normalizedRequest.IsActive.Value);
             await _audit.LogAsync("employee.updated", "identity", "EMPLOYEE", employee.EmployeeId, null,
                 new { employee.FullName, employee.Email, employee.Phone, employee.JobTitle, employee.IsActive }, employee.BranchId, ct: ct);
             await _outbox.EnqueueAsync("identity.employee.updated", employee.BranchId, new { employee.EmployeeId, employee.IsActive }, ct: ct);
+
+            var dto = EmployeeDtoMapper.From(employee);
+            await _idempotency.PersistResponseAsync("identity.employee.update", idempotencyKey, employee.BranchId, idempotencyPayload, dto, ct);
+
             await _unitOfWork.CommitTransactionAsync(ct);
-            return Result<EmployeeDto>.Success(EmployeeDtoMapper.From(employee));
+            return Result<EmployeeDto>.Success(dto);
         }
         catch { await _unitOfWork.RollbackTransactionAsync(CancellationToken.None); throw; }
     }

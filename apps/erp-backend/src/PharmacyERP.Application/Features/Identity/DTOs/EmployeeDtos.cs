@@ -10,6 +10,7 @@ public sealed record CreateEmployeeRequest
     [Required, StringLength(80)] public string JobTitle { get; init; } = string.Empty;
     [Required] public AddressDto Address { get; init; } = new();
     public DateOnly HiredOn { get; init; } = DateOnly.FromDateTime(DateTime.UtcNow);
+    public string? IdempotencyKey { get; init; }
 }
 
 public sealed record UpdateEmployeeRequest
@@ -20,6 +21,7 @@ public sealed record UpdateEmployeeRequest
     [Required, StringLength(80)] public string JobTitle { get; init; } = string.Empty;
     [Required] public AddressDto Address { get; init; } = new();
     public bool? IsActive { get; init; }
+    public string? IdempotencyKey { get; init; }
 }
 
 public sealed record EmployeeDto(Guid EmployeeId, Guid OrganizationId, Guid BranchId, string EmployeeNo,

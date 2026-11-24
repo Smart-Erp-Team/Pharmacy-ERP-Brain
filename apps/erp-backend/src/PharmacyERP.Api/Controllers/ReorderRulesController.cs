@@ -40,7 +40,12 @@ public sealed class ReorderRulesController : ControllerBase
             return ApiResultMapper.ToErrorResult(this, ErrorCode.MALFORMED_REQUEST, ErrorMessages.MalformedRequest, _currentUser.TraceId);
         }
 
-        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey : request.IdempotencyKey ?? string.Empty;
+        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey.Trim() : request.IdempotencyKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(effectiveKey))
+        {
+            return ApiResultMapper.ToMissingIdempotencyKeyResult(this, _currentUser.TraceId);
+        }
+
         var requestWithKey = request with { IdempotencyKey = effectiveKey };
         var result = await _service.UpsertReorderRuleAsync(branchId, productId, requestWithKey, ct);
         return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);

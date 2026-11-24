@@ -14,6 +14,7 @@ internal sealed class IdentityApiTestStore
     public List<BranchEnrollment> Enrollments { get; } = [];
     public List<UserRefreshToken> RefreshTokens { get; } = [];
     public List<OutboxEventCursor> OutboxCursors { get; } = [];
+    public List<IdempotencyRecord> IdempotencyRecords { get; } = [];
     public List<Guid> SeededBranches { get; } = [];
 
     public IOrganizationRepository OrganizationsRepo => new OrganizationRepository(this);
@@ -23,6 +24,7 @@ internal sealed class IdentityApiTestStore
     public IBranchEnrollmentRepository BranchEnrollmentsRepo => new BranchEnrollmentRepository(this);
     public IUserRefreshTokenRepository RefreshTokensRepo => new UserRefreshTokenRepository(this);
     public IGenericRepository<OutboxEventCursor> OutboxCursorsRepo => new OutboxCursorRepository(this);
+    public IIdempotencyRepository IdempotencyRepo => new InMemoryIdempotencyRepository(this);
 
     internal static void SetNavigation<TEntity, TValue>(TEntity entity, string propertyName, TValue value)
         where TEntity : class
@@ -307,6 +309,34 @@ internal sealed class IdentityApiTestStore
 
         public void Update(OutboxEventCursor entity) { }
         public IQueryable<OutboxEventCursor> AsQueryable() => store.OutboxCursors.AsQueryable();
+    }
+
+    private sealed class InMemoryIdempotencyRepository(IdentityApiTestStore store) : IIdempotencyRepository
+    {
+        public Task AcquireLockAsync(Guid organizationId, Guid? branchId, string operationScope, string idempotencyKey, CancellationToken ct = default)
+            => Task.CompletedTask;
+
+        public Task AcquireGlobalLockAsync(string operationScope, string idempotencyKey, CancellationToken ct = default)
+            => Task.CompletedTask;
+
+        public Task<IdempotencyRecord?> GetAsync(Guid organizationId, Guid? branchId, string operationScope, string idempotencyKey, CancellationToken ct = default)
+            => Task.FromResult(store.IdempotencyRecords.FirstOrDefault(x =>
+                x.OrganizationId == organizationId
+                && x.BranchId == branchId
+                && x.OperationScope == operationScope
+                && x.IdempotencyKey == idempotencyKey));
+
+        public Task<IdempotencyRecord?> FindByScopeAndKeyAsync(string operationScope, string idempotencyKey, CancellationToken ct = default)
+            => Task.FromResult(store.IdempotencyRecords.FirstOrDefault(x =>
+                x.BranchId == null
+                && x.OperationScope == operationScope
+                && x.IdempotencyKey == idempotencyKey));
+
+        public Task AddAsync(IdempotencyRecord record, CancellationToken ct = default)
+        {
+            store.IdempotencyRecords.Add(record);
+            return Task.CompletedTask;
+        }
     }
 
     private static PagedResult<T> Page<T>(IOrderedEnumerable<T> query, int page, int pageSize)

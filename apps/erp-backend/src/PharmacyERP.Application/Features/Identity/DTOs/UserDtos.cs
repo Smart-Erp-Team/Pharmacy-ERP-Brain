@@ -8,6 +8,7 @@ public sealed record CreateUserRequest
     public UserRole Role { get; init; }
     public BranchScope BranchScope { get; init; } = BranchScope.ASSIGNED;
     public IReadOnlyCollection<Guid> BranchIds { get; init; } = Array.Empty<Guid>();
+    public string? IdempotencyKey { get; init; }
 }
 
 public sealed record UpdateUserRequest
@@ -16,9 +17,14 @@ public sealed record UpdateUserRequest
     public BranchScope BranchScope { get; init; }
     public IReadOnlyCollection<Guid> BranchIds { get; init; } = Array.Empty<Guid>();
     public bool? IsActive { get; init; }
+    public string? IdempotencyKey { get; init; }
 }
 
-public sealed record ResetPasswordRequest { [Required, MinLength(12)] public string NewPassword { get; init; } = string.Empty; }
+public sealed record ResetPasswordRequest
+{
+    [Required, MinLength(12)] public string NewPassword { get; init; } = string.Empty;
+    public string? IdempotencyKey { get; init; }
+}
 public sealed record UserDto(Guid UserId, Guid EmployeeId, Guid OrganizationId, string Username, UserRole Role,
     BranchScope BranchScope, bool IsActive, IReadOnlyCollection<Guid> BranchIds);
 

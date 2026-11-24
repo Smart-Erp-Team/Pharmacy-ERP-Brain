@@ -82,7 +82,7 @@ public class RuntimeModeGuardMiddleware
         var errorBody = new ApiErrorBodyDto(ErrorCode.NOT_FOUND.ToString(), message, Array.Empty<ApiErrorDetailDto>(), traceId);
         var envelope = new ApiErrorEnvelopeDto(errorBody);
 
-        var json = JsonSerializer.Serialize(envelope);
+        var json = JsonSerializer.Serialize(envelope, DependencyInjection.ApiJsonSerializerOptions);
         await context.Response.WriteAsync(json, context.RequestAborted);
     }
 }

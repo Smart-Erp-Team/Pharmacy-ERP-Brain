@@ -44,6 +44,7 @@ public sealed class IdentityEndpointsTests : IClassFixture<WebApplicationFactory
     {
         using var response = await _client.GetAsync(path);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        await AssertErrorEnvelopeAsync(response, "UNAUTHORIZED");
     }
 
     [Fact]
@@ -51,6 +52,7 @@ public sealed class IdentityEndpointsTests : IClassFixture<WebApplicationFactory
     {
         using var response = await _client.PostAsync("/api/v1/organizations", JsonContent.Create(new { }));
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        await AssertErrorEnvelopeAsync(response, "UNAUTHORIZED");
     }
 
     [Fact]
@@ -72,6 +74,7 @@ public sealed class IdentityEndpointsTests : IClassFixture<WebApplicationFactory
             services.RemoveAll<IBranchEnrollmentRepository>();
             services.RemoveAll<IUserRefreshTokenRepository>();
             services.RemoveAll<IGenericRepository<OutboxEventCursor>>();
+            services.RemoveAll<IIdempotencyRepository>();
             services.RemoveAll<IUnitOfWork>();
             services.RemoveAll<IBranchDefaultLocationSeeder>();
             services.RemoveAll<IAuditLogger>();
@@ -85,6 +88,7 @@ public sealed class IdentityEndpointsTests : IClassFixture<WebApplicationFactory
             services.AddScoped<IBranchEnrollmentRepository>(sp => sp.GetRequiredService<IdentityApiTestStore>().BranchEnrollmentsRepo);
             services.AddScoped<IUserRefreshTokenRepository>(sp => sp.GetRequiredService<IdentityApiTestStore>().RefreshTokensRepo);
             services.AddScoped<IGenericRepository<OutboxEventCursor>>(sp => sp.GetRequiredService<IdentityApiTestStore>().OutboxCursorsRepo);
+            services.AddScoped<IIdempotencyRepository>(sp => sp.GetRequiredService<IdentityApiTestStore>().IdempotencyRepo);
             services.AddScoped<IUnitOfWork, IdentityApiTestUnitOfWork>();
             services.AddScoped<IBranchDefaultLocationSeeder, IdentityApiTestBranchSeeder>();
             services.AddScoped<IAuditLogger, IdentityApiTestAuditLogger>();
@@ -96,7 +100,7 @@ public sealed class IdentityEndpointsTests : IClassFixture<WebApplicationFactory
         using var client = testFactory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", CreatePlatformProvisionerToken(keyProvider));
-        using var organizationResponse = await client.PostAsJsonAsync("/api/v1/organizations", new
+        using var organizationResponse = await SendWithIdempotencyAsync(client, HttpMethod.Post, "/api/v1/organizations", "org-e2e-1", new
         {
             organizationCode = "E2E-PHARMACY",
             name = "End To End Pharmacy",
@@ -115,9 +119,10 @@ public sealed class IdentityEndpointsTests : IClassFixture<WebApplicationFactory
             },
             initialAdmin = new { username = "owner", password = "OwnerPassword123!" }
         });
-        Assert.Equal(HttpStatusCode.OK, organizationResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, organizationResponse.StatusCode);
         using var organizationBody = JsonDocument.Parse(await organizationResponse.Content.ReadAsStringAsync());
         var organizationId = organizationBody.RootElement.GetProperty("organizationId").GetGuid();
+        Assert.Equal($"/api/v1/organizations/{organizationId}", organizationResponse.Headers.Location?.ToString());
         var firstBranchId = organizationBody.RootElement.GetProperty("initialBranchId").GetGuid();
         var initialEmployeeId = organizationBody.RootElement.GetProperty("initialEmployeeId").GetGuid();
         var adminUserId = organizationBody.RootElement.GetProperty("initialAdminUserId").GetGuid();
@@ -145,21 +150,24 @@ public sealed class IdentityEndpointsTests : IClassFixture<WebApplicationFactory
         using var meBody = JsonDocument.Parse(await meResponse.Content.ReadAsStringAsync());
         Assert.Equal(organizationId, meBody.RootElement.GetProperty("organizationId").GetGuid());
         Assert.Equal(adminUserId, meBody.RootElement.GetProperty("userId").GetGuid());
+        Assert.Equal("owner", meBody.RootElement.GetProperty("username").GetString());
         Assert.Equal("ALL", meBody.RootElement.GetProperty("branchScope").GetString());
 
-        using var createBranchResponse = await client.PostAsJsonAsync("/api/v1/branches", new
+        using var createBranchResponse = await SendWithIdempotencyAsync(client, HttpMethod.Post, "/api/v1/branches", "branch-e2e-1", new
         {
             branchCode = "SECOND",
             name = "Second Branch",
             address = Address("Second Street")
         });
-        Assert.Equal(HttpStatusCode.OK, createBranchResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, createBranchResponse.StatusCode);
         using var branchBody = JsonDocument.Parse(await createBranchResponse.Content.ReadAsStringAsync());
         var secondBranchId = branchBody.RootElement.GetProperty("branchId").GetGuid();
+        Assert.Equal($"/api/v1/branches/{secondBranchId}", createBranchResponse.Headers.Location?.ToString());
         Assert.Contains(secondBranchId, store.SeededBranches);
 
-        using var enrollmentIssueResponse = await client.PostAsync($"/api/v1/branches/{secondBranchId}/enrollment-tokens", null);
-        Assert.Equal(HttpStatusCode.OK, enrollmentIssueResponse.StatusCode);
+        using var enrollmentIssueResponse = await SendWithIdempotencyAsync(client, HttpMethod.Post, $"/api/v1/branches/{secondBranchId}/enrollment-tokens", "enroll-issue-1");
+        Assert.Equal(HttpStatusCode.Created, enrollmentIssueResponse.StatusCode);
+        Assert.Equal($"/api/v1/branches/{secondBranchId}/enrollment-tokens", enrollmentIssueResponse.Headers.Location?.ToString());
         using var enrollmentIssueBody = JsonDocument.Parse(await enrollmentIssueResponse.Content.ReadAsStringAsync());
         var enrollmentToken = enrollmentIssueBody.RootElement.GetProperty("token").GetString()!;
 
@@ -173,7 +181,7 @@ public sealed class IdentityEndpointsTests : IClassFixture<WebApplicationFactory
         Assert.Equal(HttpStatusCode.Unauthorized, enrollmentReplayResponse.StatusCode);
 
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminAccessToken);
-        using var employeeResponse = await client.PostAsJsonAsync("/api/v1/employees", new
+        using var employeeResponse = await SendWithIdempotencyAsync(client, HttpMethod.Post, "/api/v1/employees", "emp-e2e-1", new
         {
             branchId = secondBranchId,
             employeeNo = "PHARM-001",
@@ -183,12 +191,13 @@ public sealed class IdentityEndpointsTests : IClassFixture<WebApplicationFactory
             address = Address("Pharmacist Street"),
             hiredOn = "2025-02-01"
         });
-        Assert.Equal(HttpStatusCode.OK, employeeResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, employeeResponse.StatusCode);
         using var employeeBody = JsonDocument.Parse(await employeeResponse.Content.ReadAsStringAsync());
         var pharmacistEmployeeId = employeeBody.RootElement.GetProperty("employeeId").GetGuid();
+        Assert.Equal($"/api/v1/employees/{pharmacistEmployeeId}", employeeResponse.Headers.Location?.ToString());
         Assert.NotEqual(initialEmployeeId, pharmacistEmployeeId);
 
-        using var userResponse = await client.PostAsJsonAsync("/api/v1/users", new
+        using var userResponse = await SendWithIdempotencyAsync(client, HttpMethod.Post, "/api/v1/users", "user-e2e-1", new
         {
             employeeId = pharmacistEmployeeId,
             username = "pharmacist",
@@ -197,7 +206,10 @@ public sealed class IdentityEndpointsTests : IClassFixture<WebApplicationFactory
             branchScope = 2,
             branchIds = new[] { secondBranchId }
         });
-        Assert.Equal(HttpStatusCode.OK, userResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, userResponse.StatusCode);
+        using var userBody = JsonDocument.Parse(await userResponse.Content.ReadAsStringAsync());
+        var pharmacistUserId = userBody.RootElement.GetProperty("userId").GetGuid();
+        Assert.Equal($"/api/v1/users/{pharmacistUserId}", userResponse.Headers.Location?.ToString());
 
         client.DefaultRequestHeaders.Authorization = null;
         using var pharmacistLoginResponse = await client.PostAsJsonAsync("/api/v1/auth/login", new
@@ -212,6 +224,7 @@ public sealed class IdentityEndpointsTests : IClassFixture<WebApplicationFactory
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", pharmacistAccessToken);
         using var forbiddenUsersResponse = await client.GetAsync("/api/v1/users");
         Assert.Equal(HttpStatusCode.Forbidden, forbiddenUsersResponse.StatusCode);
+        await AssertErrorEnvelopeAsync(forbiddenUsersResponse, "FORBIDDEN");
 
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminAccessToken);
         using var rotateResponse = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = originalRefreshToken });
@@ -230,6 +243,36 @@ public sealed class IdentityEndpointsTests : IClassFixture<WebApplicationFactory
         Assert.Equal(2, store.Users.Count);
         Assert.Single(store.OutboxCursors);
         Assert.All(store.RefreshTokens.Where(x => x.UserId == adminUserId), token => Assert.NotNull(token.RevokedAt));
+    }
+
+    private static Task<HttpResponseMessage> SendWithIdempotencyAsync(
+        HttpClient client,
+        HttpMethod method,
+        string url,
+        string idempotencyKey,
+        object? payload = null)
+    {
+        var request = new HttpRequestMessage(method, url);
+        request.Headers.Add("Idempotency-Key", idempotencyKey);
+        if (payload is not null)
+        {
+            request.Content = JsonContent.Create(payload);
+        }
+
+        return client.SendAsync(request);
+    }
+
+    private static async Task AssertErrorEnvelopeAsync(HttpResponseMessage response, string expectedCode)
+    {
+        Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
+        var raw = await response.Content.ReadAsStringAsync();
+        Assert.False(string.IsNullOrWhiteSpace(raw));
+        using var doc = JsonDocument.Parse(raw);
+        var error = doc.RootElement.GetProperty("error");
+        Assert.Equal(expectedCode, error.GetProperty("code").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(error.GetProperty("message").GetString()));
+        Assert.Equal(JsonValueKind.Array, error.GetProperty("details").ValueKind);
+        Assert.False(string.IsNullOrWhiteSpace(error.GetProperty("trace_id").GetString()));
     }
 
     private static object Address(string line1) => new

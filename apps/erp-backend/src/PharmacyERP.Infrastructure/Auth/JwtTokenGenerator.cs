@@ -58,11 +58,13 @@ public sealed class JwtTokenGenerator : IJwtTokenGenerator
             ["aud"] = _audience,
             ["sub"] = user.UserId.ToString(),
             ["employee_id"] = user.EmployeeId.ToString(),
-            ["role"] = user.Role.ToString(),
+            ["username"] = user.Username,
+            // Blueprint §8.5: emit roles and scopes strictly as JSON string arrays.
+            ["roles"] = new[] { user.Role.ToString() },
             ["organization_id"] = user.OrganizationId.ToString(),
             ["branch_scope"] = branchScope,
             ["branch_ids"] = effectiveBranches.Select(x => x.ToString()).ToArray(),
-            ["scope"] = string.Join(' ', scopes),
+            ["scopes"] = scopes,
             ["security_stamp"] = user.SecurityStamp.ToString(),
             ["iat"] = now.ToUnixTimeSeconds(),
             ["exp"] = expires.ToUnixTimeSeconds()

@@ -219,7 +219,7 @@ public sealed class AuthService : IAuthService
         if (!_currentUser.IsAuthenticated || _currentUser.UserId is not Guid userId || _currentUser.EmployeeId is not Guid employeeId || _currentUser.OrganizationId is not Guid organizationId)
             return IdentityResults.Failure<CurrentUserDto>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
         var role = Enum.TryParse<UserRole>(_currentUser.Role, out var parsedRole) ? parsedRole : UserRole.Cashier;
-        return Result<CurrentUserDto>.Success(new CurrentUserDto(userId, employeeId, organizationId, string.Empty,
+        return Result<CurrentUserDto>.Success(new CurrentUserDto(userId, employeeId, organizationId, _currentUser.Username ?? string.Empty,
             _currentUser.Role ?? string.Empty, _currentUser.BranchScope ?? BranchScope.ASSIGNED.ToString(),
             _currentUser.AuthorizedBranchIds.ToArray(), _currentUser.Scopes.ToArray()));
     }

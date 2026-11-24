@@ -10,27 +10,101 @@ public sealed class UsersController : ControllerBase
     public UsersController(IUserService service, ICurrentUser currentUser) { _service = service; _currentUser = currentUser; }
 
     [HttpGet]
-    public async Task<IActionResult> GetPaged([FromQuery] Guid? branchId, [FromQuery] UserRole? role, [FromQuery] bool includeInactive = false,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default)
+    public async Task<IActionResult> GetPaged(
+        [FromQuery(Name = "branch_id")] Guid? branchId,
+        [FromQuery(Name = "role")] UserRole? role,
+        [FromQuery(Name = "include_inactive")] bool includeInactive = false,
+        [FromQuery(Name = "page")] int page = 1,
+        [FromQuery(Name = "page_size")] int pageSize = 25,
+        CancellationToken ct = default)
         => ApiResultMapper.ToActionResult(this, await _service.GetPagedAsync(branchId, role, includeInactive, page, pageSize, ct), _currentUser.TraceId);
 
+    [AllowHeaderIdempotencyKey]
     [HttpPost]
-    public async Task<IActionResult> Create([FromBody] CreateUserRequest request, CancellationToken ct)
-        => ApiResultMapper.ToActionResult(this, await _service.CreateAsync(request, ct), _currentUser.TraceId);
+    public async Task<IActionResult> Create(
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        [FromBody] CreateUserRequest request,
+        CancellationToken ct)
+    {
+        if (request == null)
+        {
+            return ApiResultMapper.ToErrorResult(this, ErrorCode.MALFORMED_REQUEST, ErrorMessages.MalformedRequest, _currentUser.TraceId);
+        }
+
+        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey.Trim() : request.IdempotencyKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(effectiveKey))
+        {
+            return ApiResultMapper.ToMissingIdempotencyKeyResult(this, _currentUser.TraceId);
+        }
+
+        var result = await _service.CreateAsync(request with { IdempotencyKey = effectiveKey }, ct);
+        var locationUri = result.IsSuccess ? $"/api/v1/users/{result.Value!.UserId}" : null;
+        return ApiResultMapper.ToCreatedResult(this, result, _currentUser.TraceId, locationUri);
+    }
 
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetById(Guid id, CancellationToken ct)
         => ApiResultMapper.ToActionResult(this, await _service.GetByIdAsync(id, ct), _currentUser.TraceId);
 
+    [AllowHeaderIdempotencyKey]
     [HttpPatch("{id:guid}")]
-    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateUserRequest request, CancellationToken ct)
-        => ApiResultMapper.ToActionResult(this, await _service.UpdateAsync(id, request, ct), _currentUser.TraceId);
+    public async Task<IActionResult> Update(
+        Guid id,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        [FromBody] UpdateUserRequest request,
+        CancellationToken ct)
+    {
+        if (request == null)
+        {
+            return ApiResultMapper.ToErrorResult(this, ErrorCode.MALFORMED_REQUEST, ErrorMessages.MalformedRequest, _currentUser.TraceId);
+        }
 
+        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey.Trim() : request.IdempotencyKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(effectiveKey))
+        {
+            return ApiResultMapper.ToMissingIdempotencyKeyResult(this, _currentUser.TraceId);
+        }
+
+        var result = await _service.UpdateAsync(id, request with { IdempotencyKey = effectiveKey }, ct);
+        return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
+    }
+
+    [AllowHeaderIdempotencyKey]
     [HttpPost("{id:guid}/password-reset")]
-    public async Task<IActionResult> ResetPassword(Guid id, [FromBody] ResetPasswordRequest request, CancellationToken ct)
-        => ApiResultMapper.ToActionResult(this, await _service.ResetPasswordAsync(id, request, ct), _currentUser.TraceId);
+    public async Task<IActionResult> ResetPassword(
+        Guid id,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        [FromBody] ResetPasswordRequest request,
+        CancellationToken ct)
+    {
+        if (request == null)
+        {
+            return ApiResultMapper.ToErrorResult(this, ErrorCode.MALFORMED_REQUEST, ErrorMessages.MalformedRequest, _currentUser.TraceId);
+        }
+
+        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey.Trim() : request.IdempotencyKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(effectiveKey))
+        {
+            return ApiResultMapper.ToMissingIdempotencyKeyResult(this, _currentUser.TraceId);
+        }
+
+        var result = await _service.ResetPasswordAsync(id, request with { IdempotencyKey = effectiveKey }, ct);
+        return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
+    }
 
     [HttpPost("{id:guid}/revoke-sessions")]
-    public async Task<IActionResult> RevokeSessions(Guid id, CancellationToken ct)
-        => ApiResultMapper.ToActionResult(this, await _service.RevokeSessionsAsync(id, ct), _currentUser.TraceId);
+    public async Task<IActionResult> RevokeSessions(
+        Guid id,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken ct)
+    {
+        var effectiveKey = idempotencyKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(effectiveKey))
+        {
+            return ApiResultMapper.ToMissingIdempotencyKeyResult(this, _currentUser.TraceId);
+        }
+
+        var result = await _service.RevokeSessionsAsync(id, effectiveKey, ct);
+        return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
+    }
 }

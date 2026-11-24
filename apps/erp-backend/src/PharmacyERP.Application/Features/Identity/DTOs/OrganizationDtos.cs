@@ -10,6 +10,7 @@ public sealed record CreateOrganizationRequest
     [Required] public CreateBranchRequest InitialBranch { get; init; } = new();
     [Required] public CreateEmployeeRequest InitialEmployee { get; init; } = new();
     [Required] public CreateUserRequest InitialAdmin { get; init; } = new();
+    public string? IdempotencyKey { get; init; }
 }
 
 public sealed record OrganizationDto(Guid OrganizationId, string OrganizationCode, string Name, string BaseCurrency, string TimeZoneId,

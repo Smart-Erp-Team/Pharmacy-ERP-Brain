@@ -6,6 +6,6 @@ public interface IBranchService
     Task<Result<BranchDto>> GetByIdAsync(Guid branchId, CancellationToken ct = default);
     Task<Result<BranchDto>> CreateAsync(CreateBranchRequest request, CancellationToken ct = default);
     Task<Result<BranchDto>> UpdateAsync(Guid branchId, UpdateBranchRequest request, CancellationToken ct = default);
-    Task<Result<EnrollmentTokenResponse>> IssueEnrollmentTokenAsync(Guid branchId, CancellationToken ct = default);
+    Task<Result<EnrollmentTokenResponse>> IssueEnrollmentTokenAsync(Guid branchId, string idempotencyKey, CancellationToken ct = default);
     Task<Result<RedeemBranchEnrollmentResponse>> RedeemEnrollmentAsync(RedeemBranchEnrollmentRequest request, CancellationToken ct = default);
 }
