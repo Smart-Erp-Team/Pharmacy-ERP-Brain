@@ -9,6 +9,7 @@
 
 const ACCESS_TOKEN_KEY = 'erp_access_token';
 const REFRESH_TOKEN_KEY = 'erp_refresh_token';
+const ORGANIZATION_CODE_KEY = 'erp_organization_code';
 
 // In-memory fallback for environments without sessionStorage (e.g. Node test runners)
 const inMemoryStore = new Map<string, string>();
@@ -48,6 +49,16 @@ export const tokenStorage = {
     }
   },
 
+  getOrganizationCode(): string | null {
+    try {
+      const value = getStorage().getItem(ORGANIZATION_CODE_KEY);
+      return value && value.trim().length > 0 ? value.trim() : null;
+    } catch {
+      const fallback = inMemoryStore.get(ORGANIZATION_CODE_KEY) ?? null;
+      return fallback && fallback.trim().length > 0 ? fallback.trim() : null;
+    }
+  },
+
   setTokens(accessToken: string, refreshToken?: string | null): void {
     try {
       const storage = getStorage();
@@ -64,11 +75,31 @@ export const tokenStorage = {
     }
   },
 
+  setOrganizationCode(code: string | null): void {
+    const normalized = code?.trim() ?? '';
+    try {
+      const storage = getStorage();
+      if (normalized.length > 0) {
+        storage.setItem(ORGANIZATION_CODE_KEY, normalized);
+      } else {
+        storage.removeItem(ORGANIZATION_CODE_KEY);
+      }
+    } catch (error) {
+      console.warn('Unable to persist organization code to storage', error);
+      if (normalized.length > 0) {
+        inMemoryStore.set(ORGANIZATION_CODE_KEY, normalized);
+      } else {
+        inMemoryStore.delete(ORGANIZATION_CODE_KEY);
+      }
+    }
+  },
+
   clearTokens(): void {
     try {
       const storage = getStorage();
       storage.removeItem(ACCESS_TOKEN_KEY);
       storage.removeItem(REFRESH_TOKEN_KEY);
+      storage.removeItem(ORGANIZATION_CODE_KEY);
     } catch (error) {
       console.warn('Unable to clear auth tokens from storage', error);
     } finally {

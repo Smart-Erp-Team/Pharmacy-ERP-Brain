@@ -1,63 +1,55 @@
 /**
- * Pharmacy ERP — Inventory contract (Stage 1).
+ * Pharmacy ERP — Inventory Locations, Batches, Balances & Ledger Contract (Stage 1).
  *
- * Source of truth: /contracts/openapi.erp.yaml (components.schemas).
+ * Source of truth: /contracts/openapi.erp.yaml (components.schemas) and
+ * /contracts/schemas/inventory.json.
  *
  * KEY RULES:
- *  - The ledger (transactions + lines) is APPEND-ONLY and authoritative;
- *    STOCK_BALANCE is a projection. No user edits balances directly.
- *  - POSTED transactions and their lines are immutable (DB-enforced).
- *    Corrections go through REVERSAL or ADJUSTMENT transactions.
- *  - Ledger lines are always in the product BASE UOM
- *    (entered_qty = |quantity_delta_base|, conversion_snapshot = 1).
- *  - Opening balance is a BRANCH-LOCAL command; the cloud never sends stock.
- *  - Batches are read-only via API (created by ledger workflows).
+ *  - LocationType includes DAMAGED: SELLABLE | QUARANTINE | DAMAGED | SCRAP.
+ *  - GET /api/v1/inventory/balances returns StockBalanceDtoPagedResult (with row_version).
+ *  - POST /api/v1/inventory/adjustments is BranchLocal-only and accepts
+ *    OPENING_BALANCE | ADJUSTMENT_IN | ADJUSTMENT_OUT | REVERSAL.
  */
 import type { components } from './api-paths';
 
 type Schemas = components['schemas'];
 
-// Enums / value sets (closed sets, case-sensitive)
+// Closed enum value sets (string-only)
 export type LocationType = Schemas['LocationType'];
 export type BatchQualityStatus = Schemas['BatchQualityStatus'];
-export type InventoryTxnType = Schemas['InventoryTxnType'];
-export type InventoryTxnStatus = Schemas['InventoryTxnStatus'];
+export type InventoryTransactionType = Schemas['InventoryTransactionType'];
+export type InventoryTransactionStatus = Schemas['InventoryTransactionStatus'];
 
-/** Types permissible on POST /api/v1/inventory/adjustments */
-export type AdjustmentsTxnType =
-  'OPENING_BALANCE' | 'ADJUSTMENT_IN' | 'ADJUSTMENT_OUT' | 'REVERSAL';
+/** Transaction types permissible on POST /api/v1/inventory/adjustments */
+export type AdjustmentsTxnType = Extract<
+  InventoryTransactionType,
+  'OPENING_BALANCE' | 'ADJUSTMENT_IN' | 'ADJUSTMENT_OUT' | 'REVERSAL'
+>;
 
-// Locations & batches
+// Locations
 export type InventoryLocationDto = Schemas['InventoryLocationDto'];
-export type InventoryLocationRequest = Schemas['InventoryLocationRequest'];
-export type InventoryLocationPatchRequest =
-  Schemas['InventoryLocationPatchRequest'];
+export type InventoryLocationDtoPagedResult =
+  Schemas['InventoryLocationDtoPagedResult'];
+export type CreateInventoryLocationRequest =
+  Schemas['CreateInventoryLocationRequest'];
+export type UpdateInventoryLocationRequest =
+  Schemas['UpdateInventoryLocationRequest'];
+
+// Batches (org-scoped, read-only)
 export type InventoryBatchDto = Schemas['InventoryBatchDto'];
+export type InventoryBatchDtoPagedResult =
+  Schemas['InventoryBatchDtoPagedResult'];
 
-// Balances (projection; no reserved quantity in MVP)
-export type InventoryBalanceDto = Schemas['InventoryBalanceDto'];
+// Stock balances & product summary (branch-scoped)
+export type StockBalanceDto = Schemas['StockBalanceDto'];
+export type StockBalanceDtoPagedResult = Schemas['StockBalanceDtoPagedResult'];
+export type InventorySummaryDto = Schemas['InventorySummaryDto'];
 
-// Ledger (authoritative)
+// Immutable ledger transactions & BranchLocal adjustments
 export type InventoryTxnLineDto = Schemas['InventoryTxnLineDto'];
 export type InventoryTxnDto = Schemas['InventoryTxnDto'];
-
-// Adjustment command (opening balance / corrections)
-export type InventoryTxnLineRequest = Schemas['InventoryTxnLineRequest'];
-export type InventoryTxnRequest = Schemas['InventoryTxnRequest'];
-export type InventoryTxnPatchRequest = Schemas['InventoryTxnPatchRequest'];
-
-// FE list filters
-export interface BalanceQuery {
-  branchId: Schemas['Uuid']; // required
-  productId?: Schemas['Uuid'];
-  locationId?: Schemas['Uuid'];
-  batchId?: Schemas['Uuid'];
-}
-
-export interface TxnHistoryQuery {
-  branchId: Schemas['Uuid']; // required
-  transactionType?: InventoryTxnType;
-  productId?: Schemas['Uuid'];
-  from?: Schemas['Timestamp'];
-  to?: Schemas['Timestamp'];
-}
+export type InventoryTxnDtoPagedResult = Schemas['InventoryTxnDtoPagedResult'];
+export type CreateInventoryAdjustmentLineRequest =
+  Schemas['CreateInventoryAdjustmentLineRequest'];
+export type CreateInventoryAdjustmentRequest =
+  Schemas['CreateInventoryAdjustmentRequest'];

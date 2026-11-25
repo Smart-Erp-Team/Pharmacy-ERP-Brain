@@ -1,20 +1,29 @@
 /**
- * Pharmacy ERP — Authoritative API Type Aliases & Re-exports
+ * Pharmacy ERP — Authoritative Stage 1 API Type Aliases & Re-exports
  *
- * Strict architectural rule:
- * All domain types derive exclusively from `src/types/generated/`.
- * NO handwritten API shapes, NO duplicates, NO `any`.
+ * Strict architectural rules:
+ *  - All domain types derive exclusively from `src/types/generated/`.
+ *  - `types` imports NOTHING outside `src/types/` (STRUCTURE.md §5).
+ *  - NO handwritten API shapes, NO duplicates, NO `any`.
  */
 
-// 1. Full re-export of all generated domain contracts
+// 1. Full re-export of all generated Stage 1 domain contracts
 export * from './generated';
 
-// 2. Ergonomic domain entity aliases for UI and feature modules
 import type {
-  // Auth & Identity
-  CurrentUserContext,
-  TokenPairResponse,
+  // Common & Auth
+  AddressDto,
+  ApiErrorBodyDto,
+  ApiErrorDetailDto,
+  ApiErrorEnvelopeDto,
+  CurrentUserDto,
+  ErpRuntimeMode,
+  ErrorCode,
   LoginRequest,
+  LoginResponse,
+  PermissionScope,
+  UserRole,
+  // Identity
   OrganizationDto,
   BranchDto,
   EmployeeDto,
@@ -23,49 +32,60 @@ import type {
   ProductDto,
   ProductUomDto,
   ProductCategoryDto,
+  ReorderRuleDto,
   InventoryLocationDto,
   InventoryBatchDto,
-  InventoryBalanceDto,
+  StockBalanceDto,
+  InventorySummaryDto,
   InventoryTxnDto,
   InventoryTxnLineDto,
-  // Sales & POS (Stage 2)
-  SalesOrderDto,
-  SalesOrderLineDto,
-  SalesInvoiceDto,
-  SalesInvoiceLineDto,
-  SalesPaymentDto,
-  SalesReturnDto,
-  SalesReturnLineDto,
-  SalesRefundDto,
-  CompleteSalesOrderResult,
-  // Purchasing & Suppliers (Stage 3)
-  SupplierDto,
-  PurchaseOrderDto,
-  PurchaseOrderLineDto,
-  SupplierPaymentDto,
-  VendorReturnDto,
-  VendorReturnLineDto,
-  PurchaseReceiptResult,
   // OpenAPI Endpoint & Operation Types
   paths,
   operations,
   components,
-  // Roles & Permissions (strictly Admin | Pharmacist | Cashier)
-  Role,
-  PermissionScope,
 } from './generated';
 
-// OpenAPI Contract Top-Level Type Aliases
+// 2. OpenAPI Contract Top-Level Type Aliases
 export type ApiPaths = paths;
 export type ApiOperations = operations;
 export type ApiComponents = components;
 
-// Shorter, ergonomic aliases for frontend screens
-export type UserRole = Role;
+// 3. Normalized strict DTO types derived directly from OpenAPI generated types
+//    (used by src/lib/api/normalizers.ts to enforce required runtime fields
+//    for OpenAPI schemas that omit `required`).
+export type NormalizedApiErrorDetail = Required<ApiErrorDetailDto>;
+
+export type NormalizedApiErrorBody = Required<
+  Omit<ApiErrorBodyDto, 'code' | 'details'>
+> & {
+  code: ErrorCode;
+  details: NormalizedApiErrorDetail[];
+};
+
+export type NormalizedApiErrorEnvelope = Required<
+  Omit<ApiErrorEnvelopeDto, 'error'>
+> & {
+  error: NormalizedApiErrorBody;
+};
+
+export type NormalizedCurrentUser = Required<Omit<CurrentUserDto, 'scopes'>> & {
+  scopes: PermissionScope[];
+};
+
+export type NormalizedLoginResponse = Required<Omit<LoginResponse, 'user'>> & {
+  user: NormalizedCurrentUser;
+};
+
+export type NormalizedAddress = AddressDto;
+
+// 4. Clean Stage 1 ergonomic aliases for UI, stores, and feature modules
+export type Role = UserRole;
+export type RuntimeMode = ErpRuntimeMode;
 export type UserPermission = PermissionScope;
-export type CurrentUser = CurrentUserContext;
-export type TokenPair = TokenPairResponse;
+export type CurrentUser = NormalizedCurrentUser;
+export type TokenPair = NormalizedLoginResponse;
 export type AuthCredentials = LoginRequest;
+export type ApiError = NormalizedApiErrorEnvelope;
 
 export type Organization = OrganizationDto;
 export type Branch = BranchDto;
@@ -75,53 +95,11 @@ export type User = UserDto;
 export type Product = ProductDto;
 export type ProductUom = ProductUomDto;
 export type ProductCategory = ProductCategoryDto;
+export type ReorderRule = ReorderRuleDto;
+
 export type InventoryLocation = InventoryLocationDto;
 export type InventoryBatch = InventoryBatchDto;
-export type InventoryBalance = InventoryBalanceDto;
+export type StockBalance = StockBalanceDto;
+export type InventorySummary = InventorySummaryDto;
 export type InventoryTxn = InventoryTxnDto;
 export type InventoryTxnLine = InventoryTxnLineDto;
-
-export type SaleOrder = SalesOrderDto;
-export type SaleOrderLine = SalesOrderLineDto;
-export type SaleInvoice = SalesInvoiceDto;
-export type SaleInvoiceLine = SalesInvoiceLineDto;
-export type SalePayment = SalesPaymentDto;
-export type SaleReturn = SalesReturnDto;
-export type SaleReturnLine = SalesReturnLineDto;
-export type SaleRefund = SalesRefundDto;
-export type CheckoutResult = CompleteSalesOrderResult;
-
-export type Supplier = SupplierDto;
-export type PurchaseOrder = PurchaseOrderDto;
-export type PurchaseOrderLine = PurchaseOrderLineDto;
-export type SupplierPayment = SupplierPaymentDto;
-export type VendorReturn = VendorReturnDto;
-export type VendorReturnLine = VendorReturnLineDto;
-export type GoodsReceiptResult = PurchaseReceiptResult;
-
-// Derived projection types for lists & tables (using Pick/Omit/Extract)
-export type SaleInvoiceSummary = Pick<
-  SalesInvoiceDto,
-  | 'invoice_id'
-  | 'invoice_no'
-  | 'grand_total'
-  | 'paid_amount'
-  | 'payment_status'
-  | 'issued_at'
->;
-
-export type PurchaseOrderSummary = Pick<
-  PurchaseOrderDto,
-  | 'purchase_order_id'
-  | 'po_no'
-  | 'supplier_id'
-  | 'status'
-  | 'total_amount'
-  | 'payment_status'
-  | 'created_at'
->;
-
-export type SupplierSummary = Pick<
-  SupplierDto,
-  'supplier_id' | 'supplier_code' | 'legal_name' | 'phone' | 'is_active'
->;

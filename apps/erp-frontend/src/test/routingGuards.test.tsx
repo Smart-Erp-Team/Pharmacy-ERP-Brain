@@ -5,14 +5,31 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ProtectedRoute } from '../routes/ProtectedRoute';
 import { RoleGate } from '../routes/RoleGate';
 import { useAuthStore } from '../stores/authStore';
+import { normalizeCurrentUser } from '../lib/api/normalizers';
 import currentUserContextFixture from '@contracts/fixtures/current-user-context.json';
-import type { CurrentUserContext } from '../types/api';
+import type { CurrentUser } from '../types/api';
 
-const mockUserContext = currentUserContextFixture as CurrentUserContext;
+const normalizedAdminFixture = normalizeCurrentUser(
+  currentUserContextFixture,
+  '@contracts/fixtures/current-user-context.json'
+);
+
+const mockPharmacistUser: CurrentUser = {
+  ...normalizedAdminFixture,
+  user_id: '11111111-4444-4111-8111-000000000005',
+  employee_id: '11111111-3333-4111-8111-000000000005',
+  username: 'sarah.pharm@medcare.test',
+  role: 'Pharmacist',
+  branch_scope: 'ASSIGNED',
+  branch_ids: ['11111111-2222-4111-8111-000000000001'],
+  scopes: ['inventory:read', 'inventory:write', 'sales:read'],
+};
 
 beforeEach(() => {
   useAuthStore.setState({
     currentUser: null,
+    organizationCode: null,
+    activeBranchId: null,
     isAuthenticated: false,
     isInitializing: false,
   });
@@ -70,7 +87,8 @@ describe('ProtectedRoute', () => {
 
   it('renders protected content when authenticated', () => {
     useAuthStore.setState({
-      currentUser: mockUserContext,
+      currentUser: normalizedAdminFixture,
+      organizationCode: 'MEDCARE',
       isAuthenticated: true,
       isInitializing: false,
     });
@@ -97,7 +115,8 @@ describe('ProtectedRoute', () => {
 describe('RoleGate', () => {
   it('renders children when user role is in allowedRoles', () => {
     useAuthStore.setState({
-      currentUser: mockUserContext,
+      currentUser: mockPharmacistUser,
+      organizationCode: 'MEDCARE',
       isAuthenticated: true,
       isInitializing: false,
     });
@@ -114,7 +133,8 @@ describe('RoleGate', () => {
 
   it('renders 403 Forbidden fallback when user role is not in allowedRoles', () => {
     useAuthStore.setState({
-      currentUser: mockUserContext,
+      currentUser: mockPharmacistUser,
+      organizationCode: 'MEDCARE',
       isAuthenticated: true,
       isInitializing: false,
     });
@@ -132,7 +152,8 @@ describe('RoleGate', () => {
 
   it('renders custom fallback when provided and user lacks permission', () => {
     useAuthStore.setState({
-      currentUser: mockUserContext,
+      currentUser: mockPharmacistUser,
+      organizationCode: 'MEDCARE',
       isAuthenticated: true,
       isInitializing: false,
     });

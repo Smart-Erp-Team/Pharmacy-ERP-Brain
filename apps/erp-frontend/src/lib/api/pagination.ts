@@ -1,16 +1,46 @@
-import { ApiClientError } from './client';
+/**
+ * Pharmacy ERP — Stage 1 Pagination Helpers
+ *
+ * Validates standard Stage 1 `PagedResult<T>` envelopes
+ * (`{ items, page, page_size, total_count, next_cursor }`), unpaginated array
+ * responses, pagination query parameter serialization, and bounded multi-page
+ * collection (`fetchAllPages`).
+ */
+
+import { ApiClientError, toInvalidResponseError } from './client';
+import { ContractValidationError, isPlainRecord } from './normalizers';
 import type { PagedResult } from '../../types/api';
 
-export const MAX_CURSOR_PAGE_SIZE = 200;
-export const DEFAULT_MAX_CURSOR_PAGES = 50;
+export const DEFAULT_PAGE = 1;
+export const DEFAULT_PAGE_SIZE = 25;
+export const MAX_PAGE_SIZE = 200;
+export const DEFAULT_MAX_PAGES = 50;
 
-interface RawPagedEnvelope<TItem> {
-  readonly items: TItem[];
-  readonly nextCursor: string | null;
+export interface PaginationQueryParams {
+  page?: number;
+  page_size?: number;
 }
 
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+export interface FetchAllPagesOptions {
+  readonly pageSize?: number;
+  readonly maxPages?: number;
+}
+
+function isValidPage(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1;
+}
+
+function isValidPageSize(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= MAX_PAGE_SIZE
+  );
+}
+
+function isValidTotalCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
 function isValidNextCursor(value: unknown): value is string | null {
@@ -19,60 +49,107 @@ function isValidNextCursor(value: unknown): value is string | null {
   );
 }
 
-function isPagedEnvelope<TItem>(
-  value: unknown
-): value is RawPagedEnvelope<TItem> {
-  if (
-    !isPlainRecord(value) ||
-    !Array.isArray(value.items) ||
-    !('nextCursor' in value)
-  ) {
-    return false;
+/**
+ * Builds Stage 1 pagination query parameters (`page`, `page_size`), including
+ * only valid positive integer values within contract bounds.
+ */
+export function buildPaginationQueryParams(
+  params?: PaginationQueryParams
+): PaginationQueryParams {
+  const query: PaginationQueryParams = {};
+
+  if (params?.page !== undefined && isValidPage(params.page)) {
+    query.page = params.page;
   }
 
-  return isValidNextCursor(value.nextCursor);
+  if (params?.page_size !== undefined && isValidPageSize(params.page_size)) {
+    query.page_size = params.page_size;
+  }
+
+  return query;
 }
 
 /**
- * Preserves non-blank opaque cursor tokens verbatim (without trimming),
- * while omitting empty or whitespace-only caller input from query params.
- */
-export function normalizeCursorParam(
-  cursor: string | undefined
-): string | undefined {
-  return cursor !== undefined && cursor.trim().length > 0 ? cursor : undefined;
-}
-
-/**
- * Validates that a list endpoint returned the contracted `PagedResult<T>`
- * envelope (`{ items: T[], nextCursor: string | null }`). Rejects bare JSON
- * arrays, envelopes missing `nextCursor`, or blank/whitespace-only `nextCursor`
- * strings so UI tables surface an integration error instead of silently
- * rendering an empty or truncated state.
+ * Validates that a list endpoint returned the contracted Stage 1
+ * `PagedResult<T>` envelope
+ * (`{ items: T[], page: int >= 1, page_size: 1..200, total_count: int >= 0, next_cursor: string | null }`).
+ * Rejects bare arrays, missing fields, out-of-range integers, blank
+ * `next_cursor` strings, and item normalization failures with
+ * `ApiClientError('INVALID_RESPONSE')`.
  */
 export function parsePagedResult<TItem>(
   data: unknown,
-  endpoint: string
+  endpoint: string,
+  normalizeItem?: (item: unknown, index: number) => TItem
 ): PagedResult<TItem> {
-  if (!isPagedEnvelope<TItem>(data)) {
+  if (!isPlainRecord(data)) {
     throw new ApiClientError({
       code: 'INVALID_RESPONSE',
-      message: `Expected a paginated { items, nextCursor } response from ${endpoint}.`,
+      message: `Expected a paginated { items, page, page_size, total_count, next_cursor } response from ${endpoint}.`,
     });
   }
 
+  const rawItems = data.items;
+  const page = data.page;
+  const pageSize = data.page_size;
+  const totalCount = data.total_count;
+  const hasNextCursor = 'next_cursor' in data;
+  const nextCursor = data.next_cursor;
+
+  if (
+    !Array.isArray(rawItems) ||
+    !isValidPage(page) ||
+    !isValidPageSize(pageSize) ||
+    !isValidTotalCount(totalCount) ||
+    !hasNextCursor ||
+    !isValidNextCursor(nextCursor)
+  ) {
+    throw new ApiClientError({
+      code: 'INVALID_RESPONSE',
+      message: `Expected a valid paginated { items, page, page_size, total_count, next_cursor } response from ${endpoint}.`,
+    });
+  }
+
+  let items: TItem[];
+  if (normalizeItem) {
+    try {
+      items = rawItems.map((item: unknown, index: number) =>
+        normalizeItem(item, index)
+      );
+    } catch (error: unknown) {
+      if (error instanceof ContractValidationError) {
+        throw toInvalidResponseError(error);
+      }
+      if (error instanceof ApiClientError) {
+        throw error;
+      }
+      throw new ApiClientError({
+        code: 'INVALID_RESPONSE',
+        message: `Failed to normalize paginated items from ${endpoint}.`,
+      });
+    }
+  } else {
+    items = rawItems;
+  }
+
   return {
-    items: data.items,
-    nextCursor: data.nextCursor,
+    items,
+    page,
+    page_size: pageSize,
+    total_count: totalCount,
+    next_cursor: nextCursor,
   };
 }
 
 /**
- * Validates that a non-paginated collection endpoint returned a JSON array.
+ * Validates that an unpaginated collection endpoint returned a JSON array,
+ * optionally normalizing each element and wrapping contract failures into
+ * `ApiClientError('INVALID_RESPONSE')`.
  */
 export function parseArrayResult<TItem>(
   data: unknown,
-  endpoint: string
+  endpoint: string,
+  normalizeItem?: (item: unknown, index: number) => TItem
 ): TItem[] {
   if (!Array.isArray(data)) {
     throw new ApiClientError({
@@ -81,65 +158,86 @@ export function parseArrayResult<TItem>(
     });
   }
 
-  return data;
-}
+  if (!normalizeItem) {
+    return data;
+  }
 
-export interface FetchAllPagesOptions {
-  readonly pageSize?: number;
-  readonly maxPages?: number;
+  try {
+    return data.map((item: unknown, index: number) =>
+      normalizeItem(item, index)
+    );
+  } catch (error: unknown) {
+    if (error instanceof ContractValidationError) {
+      throw toInvalidResponseError(error);
+    }
+    if (error instanceof ApiClientError) {
+      throw error;
+    }
+    throw new ApiClientError({
+      code: 'INVALID_RESPONSE',
+      message: `Failed to normalize array items from ${endpoint}.`,
+    });
+  }
 }
 
 /**
- * Follows opaque `nextCursor` tokens verbatim across pages until
- * `nextCursor === null`, ensuring local aggregations and reference selectors
- * do not truncate at 200 rows or silently stop on malformed cursor strings.
+ * Fetches sequential 1-indexed pages (`page = 1, 2, ...`) until
+ * `items.length >= response.total_count` (or `total_count === 0`), protecting
+ * callers from silent truncation when an empty page arrives prematurely or
+ * `maxPages` is exhausted before reaching `total_count`.
  */
 export async function fetchAllPages<TItem>(
-  fetchPage: (
-    cursor: string | undefined,
-    limit: number
-  ) => Promise<PagedResult<TItem>>,
+  fetchPage: (page: number, pageSize: number) => Promise<PagedResult<TItem>>,
   options: FetchAllPagesOptions = {}
 ): Promise<TItem[]> {
-  const pageSize = options.pageSize ?? MAX_CURSOR_PAGE_SIZE;
-  const maxPages = options.maxPages ?? DEFAULT_MAX_CURSOR_PAGES;
-  if (maxPages < 1) {
+  const pageSize = options.pageSize ?? MAX_PAGE_SIZE;
+  const maxPages = options.maxPages ?? DEFAULT_MAX_PAGES;
+
+  if (!isValidPageSize(pageSize)) {
     throw new ApiClientError({
       code: 'INVALID_RESPONSE',
-      message: 'Pagination maxPages must be at least 1.',
+      message: `Pagination pageSize must be an integer between 1 and ${MAX_PAGE_SIZE}.`,
+    });
+  }
+
+  if (!isValidPage(maxPages)) {
+    throw new ApiClientError({
+      code: 'INVALID_RESPONSE',
+      message: 'Pagination maxPages must be an integer of at least 1.',
     });
   }
 
   const items: TItem[] = [];
-  const seenCursors = new Set<string>();
-  let cursor: string | undefined = undefined;
 
-  for (let page = 0; page < maxPages; page += 1) {
-    const response = await fetchPage(cursor, pageSize);
-    items.push(...response.items);
+  for (let page = DEFAULT_PAGE; page <= maxPages; page += 1) {
+    const response = await fetchPage(page, pageSize);
 
-    const nextCursor = response.nextCursor;
-    if (nextCursor === null) {
+    if (
+      !Array.isArray(response.items) ||
+      !isValidTotalCount(response.total_count)
+    ) {
+      throw new ApiClientError({
+        code: 'INVALID_RESPONSE',
+        message: 'Pagination response contained invalid items or total_count.',
+      });
+    }
+
+    if (response.total_count === 0) {
       return items;
     }
 
-    if (typeof nextCursor !== 'string' || nextCursor.trim().length === 0) {
+    if (response.items.length === 0 && items.length < response.total_count) {
       throw new ApiClientError({
         code: 'INVALID_RESPONSE',
-        message:
-          'Pagination nextCursor must be null or a non-blank opaque string.',
+        message: `Pagination returned an empty page ${page} before reaching total_count (${response.total_count}).`,
       });
     }
 
-    if (seenCursors.has(nextCursor)) {
-      throw new ApiClientError({
-        code: 'INVALID_RESPONSE',
-        message: 'Pagination cursor repeated without advancing.',
-      });
-    }
+    items.push(...response.items);
 
-    seenCursors.add(nextCursor);
-    cursor = nextCursor;
+    if (items.length >= response.total_count) {
+      return items;
+    }
   }
 
   throw new ApiClientError({

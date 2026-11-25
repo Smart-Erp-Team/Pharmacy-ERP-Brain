@@ -11,11 +11,9 @@ import { isAllowedBranch } from '../lib/auth/permissions';
 import { tokenStorage } from '../lib/auth/tokenStorage';
 import { notifySessionEnd } from '../lib/auth/sessionEvents';
 import { queryClient } from '../lib/queryClient';
-import type { CurrentUserContext, LoginRequest } from '../types/api';
+import type { CurrentUser, LoginRequest } from '../types/api';
 
-function resolveInitialBranchId(
-  userContext: CurrentUserContext
-): string | null {
+function resolveInitialBranchId(userContext: CurrentUser): string | null {
   if (userContext.branch_scope === 'ASSIGNED') {
     return userContext.branch_ids[0] ?? null;
   }
@@ -23,7 +21,8 @@ function resolveInitialBranchId(
 }
 
 export interface AuthState {
-  currentUser: CurrentUserContext | null;
+  currentUser: CurrentUser | null;
+  organizationCode: string | null;
   activeBranchId: string | null;
   isAuthenticated: boolean;
   isInitializing: boolean;
@@ -34,28 +33,30 @@ export interface AuthState {
   resetSession: () => void;
 }
 
-export const useAuthStore = create<AuthState>((set, get) => ({
+export const useAuthStore = create<AuthState>()((set, get) => ({
   currentUser: null,
+  organizationCode: null,
   activeBranchId: null,
   isAuthenticated: false,
   isInitializing: true,
 
   login: async (credentials: LoginRequest) => {
-    // 1. Authenticate with credentials and store tokens
+    // 1. Authenticate with credentials and store tokens + organization code
     await authService.login(credentials);
 
-    // 2. Fetch full user context for the session; roll back stored tokens if
+    // 2. Fetch authoritative flat CurrentUserDto; roll back stored session if
     //    context hydration fails so storage and UI session state stay aligned.
     try {
       const userContext = await authService.getCurrentUser();
 
       set({
         currentUser: userContext,
+        organizationCode: tokenStorage.getOrganizationCode(),
         activeBranchId: resolveInitialBranchId(userContext),
         isAuthenticated: true,
         isInitializing: false,
       });
-    } catch (error) {
+    } catch (error: unknown) {
       get().resetSession();
       throw error;
     }
@@ -64,7 +65,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   logout: async () => {
     try {
       await authService.logout();
-    } catch (error) {
+    } catch (error: unknown) {
       console.warn(
         'Logout API call failed, proceeding to clear local session',
         error
@@ -83,6 +84,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (!token) {
       set({
         currentUser: null,
+        organizationCode: null,
         activeBranchId: null,
         isAuthenticated: false,
         isInitializing: false,
@@ -94,15 +96,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const userContext = await authService.getCurrentUser();
       set({
         currentUser: userContext,
+        organizationCode: tokenStorage.getOrganizationCode(),
         activeBranchId: resolveInitialBranchId(userContext),
         isAuthenticated: true,
         isInitializing: false,
       });
-    } catch (error) {
+    } catch (error: unknown) {
       console.warn('Failed to restore auth session from storage', error);
       tokenStorage.clearTokens();
       set({
         currentUser: null,
+        organizationCode: null,
         activeBranchId: null,
         isAuthenticated: false,
         isInitializing: false,
@@ -135,6 +139,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     queryClient.clear();
     set({
       currentUser: null,
+      organizationCode: null,
       activeBranchId: null,
       isAuthenticated: false,
       isInitializing: false,

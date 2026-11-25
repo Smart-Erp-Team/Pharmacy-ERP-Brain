@@ -1,46 +1,42 @@
 /**
- * Pharmacy ERP — Catalog contract (Stage 1).
+ * Pharmacy ERP — Catalog & Reorder Rules Contract (Stage 1).
  *
- * Source of truth: /contracts/openapi.erp.yaml (components.schemas).
+ * Source of truth: /contracts/openapi.erp.yaml (components.schemas) and
+ * /contracts/schemas/catalog.json.
  *
  * KEY RULES:
- *  - UOM mutation is ADDITIVE / item-level only. No full-list PUT, no hard
- *    delete — deactivate via PATCH is_active=false.
- *  - conversion_to_base and is_base become IMMUTABLE once referenced by a
- *    posted document or stock (server rejects the change, 409).
- *  - For a sellable UOM, sale_unit_price is required/non-null/>=0. That price
- *    (+ PRODUCT.tax_rate) is the AUTHORITATIVE POS pricing source. There is
- *    NO branch price list, promotion, or rule-based pricing in the MVP.
- *  - tax_rate is fractional: "0.1400" == 14%.
- *  - Reorder rules are read/config only — never auto-create POs.
+ *  - Native JSON numbers for tax_rate, conversion_to_base, sale_unit_price,
+ *    reorder_point_base, reorder_quantity_base, and max_quantity_base.
+ *  - UOM mutation is additive / item-level only; deactivate via PATCH is_active=false.
+ *  - GET /api/v1/branches/{branchId}/products/{productId}/reorder-rule returns
+ *    ReorderRuleDto directly (no wrapper object).
  */
 import type { components } from './api-paths';
 
 type Schemas = components['schemas'];
 
-// ProductCategory
+// Product categories
 export type ProductCategoryDto = Schemas['ProductCategoryDto'];
-export type ProductCategoryRequest = Schemas['ProductCategoryRequest'];
-export type ProductCategoryPatchRequest =
-  Schemas['ProductCategoryPatchRequest'];
+export type ProductCategoryDtoPagedResult =
+  Schemas['ProductCategoryDtoPagedResult'];
+export type CreateProductCategoryRequest =
+  Schemas['CreateProductCategoryRequest'];
+export type UpdateProductCategoryRequest =
+  Schemas['UpdateProductCategoryRequest'];
 
-// Product / UOM
+// Product UOMs
 export type ProductUomDto = Schemas['ProductUomDto'];
-export type ProductUomRequest = Schemas['ProductUomRequest'];
-export type ProductUomPatchRequest = Schemas['ProductUomPatchRequest'];
+export type CreateProductUomItemRequest =
+  Schemas['CreateProductUomItemRequest'];
+export type CreateProductUomRequest = Schemas['CreateProductUomRequest'];
+export type UpdateProductUomRequest = Schemas['UpdateProductUomRequest'];
 
-/** Representative of { product_id, uom_code, factor, price, is_base, active } */
-export type ProductUomListItem = ProductUomDto;
-
+// Products
 export type ProductDto = Schemas['ProductDto'];
+export type ProductDtoPagedResult = Schemas['ProductDtoPagedResult'];
 export type CreateProductRequest = Schemas['CreateProductRequest'];
-export type ProductPatchRequest = Schemas['ProductPatchRequest'];
+export type UpdateProductRequest = Schemas['UpdateProductRequest'];
 
-// Reorder rule (config only)
+// Branch product reorder rules (config only)
 export type ReorderRuleDto = Schemas['ReorderRuleDto'];
-export type ReorderRuleRequest = Schemas['ReorderRuleRequest'];
-
-/** GET /branches/{branchId}/products/{productId}/reorder-rule */
-export interface ReorderRuleWrapper {
-  rule: ReorderRuleDto | null; // null when none configured
-}
+export type UpsertReorderRuleRequest = Schemas['UpsertReorderRuleRequest'];

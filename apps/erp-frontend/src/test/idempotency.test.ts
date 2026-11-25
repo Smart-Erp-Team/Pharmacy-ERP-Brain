@@ -2,31 +2,36 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import authTokenPair from '@contracts/fixtures/auth-token-pair.json';
-import { handlers } from '../mocks/handlers';
+import { handlers, resetMockAuth } from '../mocks/handlers';
 import { authService } from '../features/auth/api/authService';
 import { apiClient } from '../lib/api/client';
 import {
+  IDEMPOTENCY_KEY_HEADER,
   IDEMPOTENCY_KEY_MAX_LENGTH,
-  IDEMPOTENCY_KEY_MIN_LENGTH,
   type AttemptKeyRecord,
   buildMutationConfig,
   createIdempotencyKey,
   getStableAttemptKey,
   isMutationMethod,
 } from '../lib/api/idempotency';
+import { tokenStorage } from '../lib/auth/tokenStorage';
 
 const server = setupServer(...handlers);
 
 beforeAll(() => server.listen());
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  server.resetHandlers();
+  resetMockAuth();
+  tokenStorage.clearTokens();
+});
 afterAll(() => server.close());
 
 describe('createIdempotencyKey', () => {
-  it('creates a key inside the 16-100 character range required by the contract', () => {
+  it('creates a non-empty key within the 100 character Stage 1 limit', () => {
     for (let attempt = 0; attempt < 25; attempt += 1) {
       const key = createIdempotencyKey();
 
-      expect(key.length).toBeGreaterThanOrEqual(IDEMPOTENCY_KEY_MIN_LENGTH);
+      expect(key.trim().length).toBeGreaterThan(0);
       expect(key.length).toBeLessThanOrEqual(IDEMPOTENCY_KEY_MAX_LENGTH);
     }
   });
@@ -60,61 +65,85 @@ describe('isMutationMethod', () => {
 });
 
 describe('Idempotency-Key on the wire', () => {
-  it('sends the header on POST /auth/logout', async () => {
-    const receivedKeys: Array<string | null> = [];
-
-    server.use(
-      http.post('*/api/v1/auth/logout', ({ request }) => {
-        receivedKeys.push(request.headers.get('Idempotency-Key'));
-        return new HttpResponse(null, { status: 204 });
-      })
-    );
-
-    await authService.logout();
-
-    const receivedKey = receivedKeys[0];
-    expect(receivedKey).toBeDefined();
-    expect(receivedKey?.length ?? 0).toBeGreaterThanOrEqual(
-      IDEMPOTENCY_KEY_MIN_LENGTH
-    );
-    expect(receivedKey?.length ?? 0).toBeLessThanOrEqual(
-      IDEMPOTENCY_KEY_MAX_LENGTH
-    );
-  });
-
-  it('sends the header on a regular mutation', async () => {
-    let receivedKey: string | null = null;
-
-    server.use(
-      http.post('*/api/v1/products', ({ request }) => {
-        receivedKey = request.headers.get('Idempotency-Key');
-        return HttpResponse.json({ product_id: 'p-1' }, { status: 201 });
-      })
-    );
-
-    await apiClient.post('/products', { name: 'Amoxicillin' });
-
-    expect(receivedKey).not.toBeNull();
-  });
-
-  it('does not send the header on the token endpoints', async () => {
-    const receivedKeys: Array<string | null> = [];
+  it('omits Idempotency-Key on all 4 Stage 1 exempt endpoints', async () => {
+    const loginKeys: Array<string | null> = [];
+    const refreshKeys: Array<string | null> = [];
+    const logoutKeys: Array<string | null> = [];
+    const enrollmentKeys: Array<string | null> = [];
 
     server.use(
       http.post('*/api/v1/auth/login', ({ request }) => {
-        receivedKeys.push(request.headers.get('Idempotency-Key'));
+        loginKeys.push(request.headers.get(IDEMPOTENCY_KEY_HEADER));
         return HttpResponse.json(authTokenPair, { status: 200 });
+      }),
+      http.post('*/api/v1/auth/refresh', ({ request }) => {
+        refreshKeys.push(request.headers.get(IDEMPOTENCY_KEY_HEADER));
+        return HttpResponse.json(authTokenPair, { status: 200 });
+      }),
+      http.post('*/api/v1/auth/logout', ({ request }) => {
+        logoutKeys.push(request.headers.get(IDEMPOTENCY_KEY_HEADER));
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.post('*/api/v1/branch-enrollment', ({ request }) => {
+        enrollmentKeys.push(request.headers.get(IDEMPOTENCY_KEY_HEADER));
+        return HttpResponse.json(
+          {
+            organization_id: authTokenPair.user.organization_id,
+            branch_id: '11111111-2222-4111-8111-000000000001',
+            runtime_credential: 'cred-1',
+            initial_sync_cursor: 0,
+            credential_expiry: '2026-12-31T00:00:00+00:00',
+          },
+          { status: 200 }
+        );
       })
     );
 
     await authService.login({
-      organization_code: 'PHARMAPLUS',
-      username: 'fa.pharmacist',
+      organization_code: 'MEDCARE',
+      username: 'sarah.pharm@medcare.test',
       password: 'password123',
     });
+    await apiClient.post('/auth/refresh', {
+      refresh_token: authTokenPair.refresh_token,
+    });
+    await authService.logout();
+    await apiClient.post('/branch-enrollment?source=pos', {
+      token: 'enroll-token-1',
+    });
 
-    expect(receivedKeys).toHaveLength(1);
-    expect(receivedKeys[0]).toBeNull();
+    expect(loginKeys).toEqual([null]);
+    expect(refreshKeys).toEqual([null]);
+    expect(logoutKeys).toEqual([null]);
+    expect(enrollmentKeys).toEqual([null]);
+  });
+
+  it('sends a valid Idempotency-Key header on regular mutations', async () => {
+    const receivedKeys: Array<string | null> = [];
+
+    server.use(
+      http.post('*/api/v1/branches', ({ request }) => {
+        receivedKeys.push(request.headers.get(IDEMPOTENCY_KEY_HEADER));
+        return HttpResponse.json({ branch_id: 'b-1' }, { status: 201 });
+      }),
+      http.post('*/api/v1/users/user-1/revoke-sessions', ({ request }) => {
+        receivedKeys.push(request.headers.get(IDEMPOTENCY_KEY_HEADER));
+        return new HttpResponse(null, { status: 204 });
+      })
+    );
+
+    await apiClient.post('/branches', {
+      branch_code: 'MED-NEW',
+      name: 'MedCare - Maadi',
+    });
+    await apiClient.post('/users/user-1/revoke-sessions');
+
+    expect(receivedKeys).toHaveLength(2);
+    for (const key of receivedKeys) {
+      expect(key).not.toBeNull();
+      expect(key?.length ?? 0).toBeGreaterThan(0);
+      expect(key?.length ?? 0).toBeLessThanOrEqual(IDEMPOTENCY_KEY_MAX_LENGTH);
+    }
   });
 });
 
@@ -138,7 +167,7 @@ describe('getStableAttemptKey and buildMutationConfig', () => {
     expect(
       buildMutationConfig({ idempotencyKey: 'abc-123-456-789-0' })
     ).toEqual({
-      headers: { 'Idempotency-Key': 'abc-123-456-789-0' },
+      headers: { [IDEMPOTENCY_KEY_HEADER]: 'abc-123-456-789-0' },
     });
   });
 });

@@ -3,13 +3,23 @@ import { Badge } from '../components/ui/Badge';
 import { Select } from '../components/ui/Select';
 import { useAllBranchesQuery } from '../features/branches';
 import { useAuth } from '../hooks/useAuth';
+import type { BranchDto } from '../types/api';
+
+function formatBranchLabel(branch: BranchDto): string {
+  const code = branch.branch_code?.trim();
+  const name = branch.name?.trim();
+  if (code && name) {
+    return `${code} — ${name}`;
+  }
+  return name || code || 'Branch';
+}
 
 /**
  * Topbar active-branch selector (Stage 1 Slice 1).
- * - ALL scope (typically Admin): fetches active branches when Admin and lets
+ * - ALL scope (typically Admin): fetches authorized active branches and lets
  *   the user switch between All branches and any active branch.
  * - ASSIGNED scope with multiple branch IDs: switches strictly within `branch_ids`
- *   (enriching labels when Admin branch data is loaded).
+ *   (enriching labels when branch directory data is loaded).
  * - ASSIGNED scope with a single branch ID: renders a locked branch badge.
  */
 export function BranchContextControl() {
@@ -20,19 +30,16 @@ export function BranchContextControl() {
     branchIds,
     activeBranchId,
     setActiveBranch,
-    hasRole,
   } = useAuth();
 
-  const isAdmin = hasRole('Admin');
   const branchesQuery = useAllBranchesQuery(
     { includeInactive: false },
-    { enabled: isAuthenticated && isAdmin }
+    { enabled: isAuthenticated }
   );
 
   const loadedBranches = branchesQuery.data ?? [];
   const activeBranchMissing =
     isAuthenticated &&
-    isAdmin &&
     branchScope === 'ALL' &&
     branchesQuery.isSuccess &&
     activeBranchId !== null &&
@@ -53,30 +60,37 @@ export function BranchContextControl() {
       (branch) => branch.branch_id === branchId
     );
     return matched
-      ? `${matched.code} — ${matched.name}`
+      ? formatBranchLabel(matched)
       : `Branch ${branchId.slice(0, 8)}`;
   };
 
   if (branchScope === 'ALL') {
-    if (isAdmin && branchesQuery.isLoading) {
+    if (branchesQuery.isLoading) {
       return <Badge variant="neutral">Loading branches...</Badge>;
     }
 
-    if (isAdmin && branchesQuery.isError) {
+    if (branchesQuery.isError) {
       return <Badge variant="warning">Branches unavailable</Badge>;
     }
 
-    if (loadedBranches.length === 0) {
+    const branchOptions = loadedBranches.flatMap((branch) => {
+      const branchId = branch.branch_id?.trim();
+      if (!branchId) {
+        return [];
+      }
+      return [
+        {
+          value: branchId,
+          label: formatBranchLabel(branch),
+        },
+      ];
+    });
+
+    if (branchOptions.length === 0) {
       return <Badge variant="neutral">All branches</Badge>;
     }
 
-    const options = [
-      { value: '', label: 'All branches' },
-      ...loadedBranches.map((branch) => ({
-        value: branch.branch_id,
-        label: `${branch.code} — ${branch.name}`,
-      })),
-    ];
+    const options = [{ value: '', label: 'All branches' }, ...branchOptions];
 
     return (
       <div className="w-56">

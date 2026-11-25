@@ -10,9 +10,16 @@ import { describeBranchScope } from '../../../lib/auth/permissions';
  * the workspace summary. The summary stays empty until the data is connected.
  */
 export function DashboardPage() {
-  const { currentUser, runtime, branchScope, branchIds, roles } = useAuth();
+  const {
+    currentUser,
+    organizationCode,
+    runtime,
+    branchScope,
+    branchIds,
+    roles,
+  } = useAuth();
 
-  const username = currentUser?.user.username ?? 'Unavailable';
+  const username = currentUser?.username ?? 'Unavailable';
   const roleLabel = roles.length > 0 ? roles.join(', ') : 'Unavailable';
   const branchLabel =
     branchScope === 'ASSIGNED'
@@ -43,7 +50,7 @@ export function DashboardPage() {
               {roleLabel}
             </span>
             <span className="text-body-sm text-text-muted">
-              {currentUser?.organization_code ?? 'Organization unavailable'}
+              {organizationCode ?? 'Organization unavailable'}
             </span>
           </div>
         </Card>

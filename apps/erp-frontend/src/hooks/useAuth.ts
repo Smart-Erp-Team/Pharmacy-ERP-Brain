@@ -17,14 +17,15 @@ import {
 } from '../lib/auth/permissions';
 import type {
   BranchScope,
-  CurrentUserContext,
+  CurrentUser,
   PermissionScope,
   Role,
   RuntimeMode,
 } from '../types/api';
 
 export interface UseAuthResult {
-  currentUser: CurrentUserContext | null;
+  currentUser: CurrentUser | null;
+  organizationCode: string | null;
   activeBranchId: string | null;
   isAuthenticated: boolean;
   isInitializing: boolean;
@@ -44,6 +45,7 @@ export interface UseAuthResult {
 
 export function useAuth(): UseAuthResult {
   const currentUser = useAuthStore((state) => state.currentUser);
+  const organizationCode = useAuthStore((state) => state.organizationCode);
   const activeBranchId = useAuthStore((state) => state.activeBranchId);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const isInitializing = useAuthStore((state) => state.isInitializing);
@@ -51,14 +53,15 @@ export function useAuth(): UseAuthResult {
   const setActiveBranch = useAuthStore((state) => state.setActiveBranch);
 
   return useMemo<UseAuthResult>(() => {
-    const roles = currentUser?.roles ?? [];
-    const scopes = currentUser?.scopes ?? [];
-    const runtime = currentUser?.runtime ?? null;
-    const branchScope = currentUser?.branch_scope ?? null;
-    const branchIds = currentUser?.branch_ids ?? [];
+    const roles: readonly Role[] = currentUser ? [currentUser.role] : [];
+    const scopes: readonly PermissionScope[] = currentUser?.scopes ?? [];
+    const runtime: RuntimeMode | null = currentUser?.runtime_mode ?? null;
+    const branchScope: BranchScope | null = currentUser?.branch_scope ?? null;
+    const branchIds: readonly string[] = currentUser?.branch_ids ?? [];
 
     return {
       currentUser,
+      organizationCode,
       activeBranchId,
       isAuthenticated,
       isInitializing,
@@ -80,6 +83,7 @@ export function useAuth(): UseAuthResult {
     };
   }, [
     currentUser,
+    organizationCode,
     activeBranchId,
     isAuthenticated,
     isInitializing,

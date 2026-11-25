@@ -1,25 +1,29 @@
 /**
- * Pharmacy ERP — Idempotency-Key helper
+ * Pharmacy ERP — Idempotency-Key helper (Stage 1)
  *
- * The contract requires an `Idempotency-Key` header (16-100 characters) on every
- * mutation, with two documented exceptions: `POST /auth/login` and
- * `POST /auth/refresh` (token operations the backend owns).
+ * Per `contracts/FRONTEND.md §5.3`, mutating endpoints accept an
+ * `Idempotency-Key` HTTP header (maxLength 100), with four documented
+ * exemptions: `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`,
+ * and `POST /branch-enrollment`.
  *
  * Key stability rule:
- * - Retrying the SAME payload must reuse the SAME key, so the backend replays the
- *   stored response instead of executing the write twice.
- * - A DIFFERENT payload is a different logical operation and therefore needs a NEW
- *   key (reusing the old one would produce `409 IDEMPOTENCY_MISMATCH`).
+ * - Retrying the SAME payload must reuse the SAME key, so the backend replays
+ *   the stored response instead of executing the write twice.
+ * - A DIFFERENT payload is a different logical operation and therefore needs a
+ *   NEW key (reusing the old one produces `409 IDEMPOTENCY_MISMATCH`).
+ * - Omitting the key on a required endpoint produces `400 MALFORMED_REQUEST`;
+ *   exceeding `IDEMPOTENCY_KEY_MAX_LENGTH` produces `422 VALIDATION_ERROR`.
  *
- * The key is stored on the Axios request config, so a retry of the same request
- * keeps the same key without this module tracking anything.
+ * Generated keys default to RFC 4122 UUID v4 (36 characters), which is always
+ * non-empty and safely within the 100-character Stage 1 ceiling. The key is
+ * attached on the Axios request config, so retrying the same request preserves
+ * the same key automatically.
  */
 
-/** Header name required by the contract. */
+/** Header name required by the Stage 1 contract. */
 export const IDEMPOTENCY_KEY_HEADER = 'Idempotency-Key';
 
-/** Contract bounds for the key value. */
-export const IDEMPOTENCY_KEY_MIN_LENGTH = 16;
+/** Stage 1 contract maximum length for the `Idempotency-Key` value. */
 export const IDEMPOTENCY_KEY_MAX_LENGTH = 100;
 
 const MUTATION_METHODS = ['post', 'put', 'patch', 'delete'] as const;
@@ -27,7 +31,7 @@ const MUTATION_METHODS = ['post', 'put', 'patch', 'delete'] as const;
 const FALLBACK_KEY_LENGTH = 36;
 
 /**
- * Cryptographically random hex string, used only when the Web Crypto API is
+ * Cryptographically random hex string, used only when `crypto.randomUUID` is
  * unavailable. The key is an opaque idempotency token, not a secret.
  */
 const randomHex = (length: number): string => {
@@ -50,7 +54,8 @@ const randomHex = (length: number): string => {
 };
 
 /**
- * Creates a valid idempotency key: an opaque string of 16-100 characters.
+ * Creates a valid idempotency key: a 36-character opaque UUID v4 (or 36-char
+ * random hex fallback), safely within `IDEMPOTENCY_KEY_MAX_LENGTH` (100).
  */
 export const createIdempotencyKey = (): string => {
   const cryptoApi = globalThis.crypto;
@@ -63,8 +68,8 @@ export const createIdempotencyKey = (): string => {
 };
 
 /**
- * True for the HTTP methods that change server state and therefore require the
- * `Idempotency-Key` header.
+ * True for HTTP methods that change server state and therefore carry an
+ * `Idempotency-Key` header on non-exempt endpoints.
  */
 export const isMutationMethod = (method: string | undefined): boolean => {
   if (!method) {
@@ -85,8 +90,8 @@ export interface MutationRequestOptions {
 }
 
 /**
- * Reuses the active attempt's Idempotency-Key when retrying an identical payload,
- * and rotates to a fresh key whenever the payload signature changes.
+ * Reuses the active attempt's `Idempotency-Key` when retrying an identical
+ * payload, and rotates to a fresh key whenever the payload signature changes.
  */
 export function getStableAttemptKey(
   attemptRef: { current: AttemptKeyRecord | null },
@@ -104,7 +109,9 @@ export function getStableAttemptKey(
   return key;
 }
 
-export function buildMutationConfig(options?: MutationRequestOptions) {
+export function buildMutationConfig(
+  options?: MutationRequestOptions
+): { headers: Record<string, string> } | undefined {
   return options?.idempotencyKey
     ? { headers: { [IDEMPOTENCY_KEY_HEADER]: options.idempotencyKey } }
     : undefined;

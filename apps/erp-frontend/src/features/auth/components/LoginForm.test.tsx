@@ -35,6 +35,8 @@ afterAll(() => server.close());
 beforeEach(() => {
   useAuthStore.setState({
     currentUser: null,
+    organizationCode: null,
+    activeBranchId: null,
     isAuthenticated: false,
     isInitializing: false,
   });
@@ -106,9 +108,10 @@ describe('LoginForm', () => {
         HttpResponse.json(
           {
             error: {
-              code: 'VALIDATION_FAILED',
+              code: 'VALIDATION_ERROR',
               message: 'Validation failed',
               details: [{ field: 'username', issue: 'Unknown username' }],
+              trace_id: 'trace-login-validation-001',
             },
           },
           { status: 422 }

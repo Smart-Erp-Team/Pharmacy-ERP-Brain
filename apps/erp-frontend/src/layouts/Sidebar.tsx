@@ -21,7 +21,7 @@ export function Sidebar() {
   } = useAuth();
 
   const groups = getVisibleNavGroups(NAV_GROUPS, { roles, scopes, runtime });
-  const username = currentUser?.user.username ?? 'Unavailable';
+  const username = currentUser?.username ?? 'Unavailable';
   const roleLabel = roles.length > 0 ? roles.join(', ') : 'Unavailable';
   const branchLabel =
     branchScope === 'ASSIGNED' && branchIds.length === 1

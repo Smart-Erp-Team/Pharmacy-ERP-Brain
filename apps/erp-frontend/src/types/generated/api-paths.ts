@@ -4,7 +4,7 @@
  */
 
 export interface paths {
-  '/auth/login': {
+  '/api/v1/auth/login': {
     parameters: {
       query?: never;
       header?: never;
@@ -13,22 +13,85 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /**
-     * Authenticate and issue access/refresh tokens
-     * @description Resolves Organization by unique `organization_code`, then the user by
-     *     (organization_id, normalized_username). The issued access token embeds
-     *     the full trusted scope (roles, organization_id, branch_scope,
-     *     branch_ids). Branch-local tokens are constrained to the enrolled
-     *     branch and have max validity 24h.
-     */
-    post: operations['authLogin'];
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['LoginRequest'];
+          'text/json': components['schemas']['LoginRequest'];
+          'application/*+json': components['schemas']['LoginRequest'];
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['LoginResponse'];
+            'application/json': components['schemas']['LoginResponse'];
+            'text/json': components['schemas']['LoginResponse'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
     delete?: never;
     options?: never;
     head?: never;
     patch?: never;
     trace?: never;
   };
-  '/auth/refresh': {
+  '/api/v1/auth/refresh': {
     parameters: {
       query?: never;
       header?: never;
@@ -37,18 +100,85 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /**
-     * Rotate refresh token (rotation on every use)
-     * @description Submit the current refresh token; receive a new family token pair. A reused (already-consumed) refresh token revokes its whole token family — the FE must then force re-login.
-     */
-    post: operations['authRefresh'];
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['RefreshTokenRequest'];
+          'text/json': components['schemas']['RefreshTokenRequest'];
+          'application/*+json': components['schemas']['RefreshTokenRequest'];
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['LoginResponse'];
+            'application/json': components['schemas']['LoginResponse'];
+            'text/json': components['schemas']['LoginResponse'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
     delete?: never;
     options?: never;
     head?: never;
     patch?: never;
     trace?: never;
   };
-  '/auth/logout': {
+  '/api/v1/auth/logout': {
     parameters: {
       query?: never;
       header?: never;
@@ -57,25 +187,3914 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Revoke current refresh-token family */
-    post: operations['authLogout'];
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['LogoutRequest'];
+          'text/json': components['schemas']['LogoutRequest'];
+          'application/*+json': components['schemas']['LogoutRequest'];
+        };
+      };
+      responses: {
+        /** @description No Content */
+        204: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content?: never;
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
     delete?: never;
     options?: never;
     head?: never;
     patch?: never;
     trace?: never;
   };
-  '/auth/me': {
+  '/api/v1/auth/me': {
     parameters: {
       query?: never;
       header?: never;
       path?: never;
       cookie?: never;
     };
-    /** Current authenticated context (trusted scope) */
-    get: operations['authMe'];
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['CurrentUserDto'];
+            'application/json': components['schemas']['CurrentUserDto'];
+            'text/json': components['schemas']['CurrentUserDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/branches': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: {
+          include_inactive?: boolean;
+          search?: string;
+          page?: number;
+          page_size?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['BranchDtoPagedResult'];
+            'application/json': components['schemas']['BranchDtoPagedResult'];
+            'text/json': components['schemas']['BranchDtoPagedResult'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header?: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field. */
+          'Idempotency-Key'?: string;
+        };
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['CreateBranchRequest'];
+          'text/json': components['schemas']['CreateBranchRequest'];
+          'application/*+json': components['schemas']['CreateBranchRequest'];
+        };
+      };
+      responses: {
+        /** @description Created */
+        201: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['BranchDto'];
+            'application/json': components['schemas']['BranchDto'];
+            'text/json': components['schemas']['BranchDto'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/branches/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['BranchDto'];
+            'application/json': components['schemas']['BranchDto'];
+            'text/json': components['schemas']['BranchDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: {
+      parameters: {
+        query?: never;
+        header?: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field. */
+          'Idempotency-Key'?: string;
+        };
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['UpdateBranchRequest'];
+          'text/json': components['schemas']['UpdateBranchRequest'];
+          'application/*+json': components['schemas']['UpdateBranchRequest'];
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['BranchDto'];
+            'application/json': components['schemas']['BranchDto'];
+            'text/json': components['schemas']['BranchDto'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    trace?: never;
+  };
+  '/api/v1/branches/{branchId}/enrollment-tokens': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via the Idempotency-Key HTTP header. */
+          'Idempotency-Key': string;
+        };
+        path: {
+          branchId: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description Created */
+        201: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['EnrollmentTokenResponse'];
+            'application/json': components['schemas']['EnrollmentTokenResponse'];
+            'text/json': components['schemas']['EnrollmentTokenResponse'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/branch-enrollment': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['RedeemBranchEnrollmentRequest'];
+          'text/json': components['schemas']['RedeemBranchEnrollmentRequest'];
+          'application/*+json': components['schemas']['RedeemBranchEnrollmentRequest'];
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['RedeemBranchEnrollmentResponse'];
+            'application/json': components['schemas']['RedeemBranchEnrollmentResponse'];
+            'text/json': components['schemas']['RedeemBranchEnrollmentResponse'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/canonical/capabilities': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['CanonicalCapabilitiesDto'];
+            'application/json': components['schemas']['CanonicalCapabilitiesDto'];
+            'text/json': components['schemas']['CanonicalCapabilitiesDto'];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/canonical/products': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: {
+          updated_since?: string;
+          cursor?: string;
+          limit?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['CanonicalProductFeedPageDto'];
+            'application/json': components['schemas']['CanonicalProductFeedPageDto'];
+            'text/json': components['schemas']['CanonicalProductFeedPageDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/canonical/configuration/products': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header?: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field. */
+          'Idempotency-Key'?: string;
+        };
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['CanonicalProductConfigurationRequest'];
+          'text/json': components['schemas']['CanonicalProductConfigurationRequest'];
+          'application/*+json': components['schemas']['CanonicalProductConfigurationRequest'];
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['CanonicalWriteResultDto'];
+            'application/json': components['schemas']['CanonicalWriteResultDto'];
+            'text/json': components['schemas']['CanonicalWriteResultDto'];
+          };
+        };
+        /** @description Created */
+        201: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['CanonicalWriteResultDto'];
+            'application/json': components['schemas']['CanonicalWriteResultDto'];
+            'text/json': components['schemas']['CanonicalWriteResultDto'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/canonical/configuration/reorder-rules': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: {
+      parameters: {
+        query?: never;
+        header?: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field. */
+          'Idempotency-Key'?: string;
+        };
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['CanonicalReorderRuleConfigurationRequest'];
+          'text/json': components['schemas']['CanonicalReorderRuleConfigurationRequest'];
+          'application/*+json': components['schemas']['CanonicalReorderRuleConfigurationRequest'];
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['CanonicalWriteResultDto'];
+            'application/json': components['schemas']['CanonicalWriteResultDto'];
+            'text/json': components['schemas']['CanonicalWriteResultDto'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/canonical/inventory': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: {
+          organization_id?: string;
+          branch_id?: string;
+          product_id?: string;
+          updated_since?: string;
+          cursor?: number;
+          limit?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['CanonicalInventoryItemDtoPagedResult'];
+            'application/json': components['schemas']['CanonicalInventoryItemDtoPagedResult'];
+            'text/json': components['schemas']['CanonicalInventoryItemDtoPagedResult'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/employees': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: {
+          branch_id?: string;
+          include_inactive?: boolean;
+          search?: string;
+          page?: number;
+          page_size?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['EmployeeDtoPagedResult'];
+            'application/json': components['schemas']['EmployeeDtoPagedResult'];
+            'text/json': components['schemas']['EmployeeDtoPagedResult'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header?: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field. */
+          'Idempotency-Key'?: string;
+        };
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['CreateEmployeeRequest'];
+          'text/json': components['schemas']['CreateEmployeeRequest'];
+          'application/*+json': components['schemas']['CreateEmployeeRequest'];
+        };
+      };
+      responses: {
+        /** @description Created */
+        201: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['EmployeeDto'];
+            'application/json': components['schemas']['EmployeeDto'];
+            'text/json': components['schemas']['EmployeeDto'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/employees/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['EmployeeDto'];
+            'application/json': components['schemas']['EmployeeDto'];
+            'text/json': components['schemas']['EmployeeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: {
+      parameters: {
+        query?: never;
+        header?: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field. */
+          'Idempotency-Key'?: string;
+        };
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['UpdateEmployeeRequest'];
+          'text/json': components['schemas']['UpdateEmployeeRequest'];
+          'application/*+json': components['schemas']['UpdateEmployeeRequest'];
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['EmployeeDto'];
+            'application/json': components['schemas']['EmployeeDto'];
+            'text/json': components['schemas']['EmployeeDto'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    trace?: never;
+  };
+  '/api/v1/inventory/batches': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: {
+          product_id?: string;
+          status?: components['schemas']['BatchQualityStatus'];
+          expiring_before?: string;
+          page?: number;
+          page_size?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['InventoryBatchDtoPagedResult'];
+            'application/json': components['schemas']['InventoryBatchDtoPagedResult'];
+            'text/json': components['schemas']['InventoryBatchDtoPagedResult'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/inventory/balances': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: {
+          branch_id?: string;
+          product_id?: string;
+          location_id?: string;
+          batch_id?: string;
+          page?: number;
+          page_size?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['StockBalanceDtoPagedResult'];
+            'application/json': components['schemas']['StockBalanceDtoPagedResult'];
+            'text/json': components['schemas']['StockBalanceDtoPagedResult'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/inventory/summary': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: {
+          branch_id?: string;
+          product_id?: string;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['InventorySummaryDto'];
+            'application/json': components['schemas']['InventorySummaryDto'];
+            'text/json': components['schemas']['InventorySummaryDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/inventory/transactions': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: {
+          branch_id?: string;
+          type?: components['schemas']['InventoryTransactionType'];
+          product_id?: string;
+          from_date?: string;
+          to_date?: string;
+          page?: number;
+          page_size?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['InventoryTxnDtoPagedResult'];
+            'application/json': components['schemas']['InventoryTxnDtoPagedResult'];
+            'text/json': components['schemas']['InventoryTxnDtoPagedResult'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/inventory/adjustments': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header?: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field. */
+          'Idempotency-Key'?: string;
+        };
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['CreateInventoryAdjustmentRequest'];
+          'text/json': components['schemas']['CreateInventoryAdjustmentRequest'];
+          'application/*+json': components['schemas']['CreateInventoryAdjustmentRequest'];
+        };
+      };
+      responses: {
+        /** @description Created */
+        201: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['InventoryTxnDto'];
+            'application/json': components['schemas']['InventoryTxnDto'];
+            'text/json': components['schemas']['InventoryTxnDto'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/inventory/locations': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: {
+          branch_id?: string;
+          is_sellable?: boolean;
+          include_inactive?: boolean;
+          page?: number;
+          page_size?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['InventoryLocationDtoPagedResult'];
+            'application/json': components['schemas']['InventoryLocationDtoPagedResult'];
+            'text/json': components['schemas']['InventoryLocationDtoPagedResult'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header?: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field. */
+          'Idempotency-Key'?: string;
+        };
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['CreateInventoryLocationRequest'];
+          'text/json': components['schemas']['CreateInventoryLocationRequest'];
+          'application/*+json': components['schemas']['CreateInventoryLocationRequest'];
+        };
+      };
+      responses: {
+        /** @description Created */
+        201: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['InventoryLocationDto'];
+            'application/json': components['schemas']['InventoryLocationDto'];
+            'text/json': components['schemas']['InventoryLocationDto'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/inventory/locations/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: {
+      parameters: {
+        query?: never;
+        header?: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field. */
+          'Idempotency-Key'?: string;
+        };
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['UpdateInventoryLocationRequest'];
+          'text/json': components['schemas']['UpdateInventoryLocationRequest'];
+          'application/*+json': components['schemas']['UpdateInventoryLocationRequest'];
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['InventoryLocationDto'];
+            'application/json': components['schemas']['InventoryLocationDto'];
+            'text/json': components['schemas']['InventoryLocationDto'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    trace?: never;
+  };
+  '/api/v1/organizations': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header?: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field. */
+          'Idempotency-Key'?: string;
+        };
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['CreateOrganizationRequest'];
+          'text/json': components['schemas']['CreateOrganizationRequest'];
+          'application/*+json': components['schemas']['CreateOrganizationRequest'];
+        };
+      };
+      responses: {
+        /** @description Created */
+        201: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['OrganizationDto'];
+            'application/json': components['schemas']['OrganizationDto'];
+            'text/json': components['schemas']['OrganizationDto'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/product-categories': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: {
+          parent_category_id?: string;
+          include_inactive?: boolean;
+          search?: string;
+          page?: number;
+          page_size?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ProductCategoryDtoPagedResult'];
+            'application/json': components['schemas']['ProductCategoryDtoPagedResult'];
+            'text/json': components['schemas']['ProductCategoryDtoPagedResult'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header?: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field. */
+          'Idempotency-Key'?: string;
+        };
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['CreateProductCategoryRequest'];
+          'text/json': components['schemas']['CreateProductCategoryRequest'];
+          'application/*+json': components['schemas']['CreateProductCategoryRequest'];
+        };
+      };
+      responses: {
+        /** @description Created */
+        201: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ProductCategoryDto'];
+            'application/json': components['schemas']['ProductCategoryDto'];
+            'text/json': components['schemas']['ProductCategoryDto'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/product-categories/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ProductCategoryDto'];
+            'application/json': components['schemas']['ProductCategoryDto'];
+            'text/json': components['schemas']['ProductCategoryDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: {
+      parameters: {
+        query?: never;
+        header?: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field. */
+          'Idempotency-Key'?: string;
+        };
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['UpdateProductCategoryRequest'];
+          'text/json': components['schemas']['UpdateProductCategoryRequest'];
+          'application/*+json': components['schemas']['UpdateProductCategoryRequest'];
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ProductCategoryDto'];
+            'application/json': components['schemas']['ProductCategoryDto'];
+            'text/json': components['schemas']['ProductCategoryDto'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    trace?: never;
+  };
+  '/api/v1/products': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: {
+          category_id?: string;
+          include_inactive?: boolean;
+          search?: string;
+          page?: number;
+          page_size?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ProductDtoPagedResult'];
+            'application/json': components['schemas']['ProductDtoPagedResult'];
+            'text/json': components['schemas']['ProductDtoPagedResult'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header?: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field. */
+          'Idempotency-Key'?: string;
+        };
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['CreateProductRequest'];
+          'text/json': components['schemas']['CreateProductRequest'];
+          'application/*+json': components['schemas']['CreateProductRequest'];
+        };
+      };
+      responses: {
+        /** @description Created */
+        201: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ProductDto'];
+            'application/json': components['schemas']['ProductDto'];
+            'text/json': components['schemas']['ProductDto'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/products/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ProductDto'];
+            'application/json': components['schemas']['ProductDto'];
+            'text/json': components['schemas']['ProductDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: {
+      parameters: {
+        query?: never;
+        header?: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field. */
+          'Idempotency-Key'?: string;
+        };
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['UpdateProductRequest'];
+          'text/json': components['schemas']['UpdateProductRequest'];
+          'application/*+json': components['schemas']['UpdateProductRequest'];
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ProductDto'];
+            'application/json': components['schemas']['ProductDto'];
+            'text/json': components['schemas']['ProductDto'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    trace?: never;
+  };
+  '/api/v1/products/{id}/uoms': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: {
+          include_inactive?: boolean;
+        };
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ProductUomDto'][];
+            'application/json': components['schemas']['ProductUomDto'][];
+            'text/json': components['schemas']['ProductUomDto'][];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header?: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field. */
+          'Idempotency-Key'?: string;
+        };
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['CreateProductUomRequest'];
+          'text/json': components['schemas']['CreateProductUomRequest'];
+          'application/*+json': components['schemas']['CreateProductUomRequest'];
+        };
+      };
+      responses: {
+        /** @description Created */
+        201: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ProductUomDto'];
+            'application/json': components['schemas']['ProductUomDto'];
+            'text/json': components['schemas']['ProductUomDto'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/products/{id}/uoms/{uomId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: {
+      parameters: {
+        query?: never;
+        header?: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field. */
+          'Idempotency-Key'?: string;
+        };
+        path: {
+          id: string;
+          uomId: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['UpdateProductUomRequest'];
+          'text/json': components['schemas']['UpdateProductUomRequest'];
+          'application/*+json': components['schemas']['UpdateProductUomRequest'];
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ProductUomDto'];
+            'application/json': components['schemas']['ProductUomDto'];
+            'text/json': components['schemas']['ProductUomDto'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    trace?: never;
+  };
+  '/api/v1/branches/{branchId}/products/{productId}/reorder-rule': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          branchId: string;
+          productId: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ReorderRuleDto'];
+            'application/json': components['schemas']['ReorderRuleDto'];
+            'text/json': components['schemas']['ReorderRuleDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    put: {
+      parameters: {
+        query?: never;
+        header?: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field. */
+          'Idempotency-Key'?: string;
+        };
+        path: {
+          branchId: string;
+          productId: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['UpsertReorderRuleRequest'];
+          'text/json': components['schemas']['UpsertReorderRuleRequest'];
+          'application/*+json': components['schemas']['UpsertReorderRuleRequest'];
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ReorderRuleDto'];
+            'application/json': components['schemas']['ReorderRuleDto'];
+            'text/json': components['schemas']['ReorderRuleDto'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/users': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: {
+          branch_id?: string;
+          role?: components['schemas']['UserRole'];
+          include_inactive?: boolean;
+          page?: number;
+          page_size?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['UserDtoPagedResult'];
+            'application/json': components['schemas']['UserDtoPagedResult'];
+            'text/json': components['schemas']['UserDtoPagedResult'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header?: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field. */
+          'Idempotency-Key'?: string;
+        };
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['CreateUserRequest'];
+          'text/json': components['schemas']['CreateUserRequest'];
+          'application/*+json': components['schemas']['CreateUserRequest'];
+        };
+      };
+      responses: {
+        /** @description Created */
+        201: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['UserDto'];
+            'application/json': components['schemas']['UserDto'];
+            'text/json': components['schemas']['UserDto'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/users/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['UserDto'];
+            'application/json': components['schemas']['UserDto'];
+            'text/json': components['schemas']['UserDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: {
+      parameters: {
+        query?: never;
+        header?: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field. */
+          'Idempotency-Key'?: string;
+        };
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['UpdateUserRequest'];
+          'text/json': components['schemas']['UpdateUserRequest'];
+          'application/*+json': components['schemas']['UpdateUserRequest'];
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['UserDto'];
+            'application/json': components['schemas']['UserDto'];
+            'text/json': components['schemas']['UserDto'];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    trace?: never;
+  };
+  '/api/v1/users/{id}/password-reset': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header?: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field. */
+          'Idempotency-Key'?: string;
+        };
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          'application/json': components['schemas']['ResetPasswordRequest'];
+          'text/json': components['schemas']['ResetPasswordRequest'];
+          'application/*+json': components['schemas']['ResetPasswordRequest'];
+        };
+      };
+      responses: {
+        /** @description No Content */
+        204: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content?: never;
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/users/{id}/revoke-sessions': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header: {
+          /** @description Unique idempotency key (max 100 characters) for safe retries. Required via the Idempotency-Key HTTP header. */
+          'Idempotency-Key': string;
+        };
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description No Content */
+        204: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content?: never;
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unauthorized */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Forbidden */
+        403: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+        /** @description Unprocessable Content */
+        422: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'text/plain': components['schemas']['ApiErrorEnvelopeDto'];
+            'application/json': components['schemas']['ApiErrorEnvelopeDto'];
+            'text/json': components['schemas']['ApiErrorEnvelopeDto'];
+          };
+        };
+      };
+    };
     delete?: never;
     options?: never;
     head?: never;
@@ -90,1022 +4109,31 @@ export interface paths {
       cookie?: never;
     };
     /**
-     * Public JWKS (RS256) for access-token signature validation
-     * @description JSON Web Key Set of RS256 public signing keys (kid-keyed). Served at
-     *     the API host root, outside the /api/v1 base path. The FE validates
-     *     access tokens against these keys locally.
+     * Get public RSA signing keys (JWKS)
+     * @description Returns the active public RSA signing key set in RFC 7517 JWKS format (application/jwk-set+json) for verifying RS256 access tokens.
      */
-    get: operations['getJwks'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/organizations': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * PlatformProvisioner-only atomic tenant creation
-     * @description Requires the deployment-only PlatformProvisioner credential (not a
-     *     normal tenant user session). Atomically creates Organization, first
-     *     Branch, first Employee, and first Admin account. Seeds one SELLABLE,
-     *     one QUARANTINE, one SCRAP location for the branch.
-     */
-    post: operations['createOrganization'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/branches': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** List branches (organization-scoped) */
-    get: operations['listBranches'];
-    put?: never;
-    /** Create branch (Admin only) */
-    post: operations['createBranch'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/branches/{branchId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        branchId: components['parameters']['branchId'];
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
       };
-      cookie?: never;
-    };
-    /** Branch detail (organization-scoped) */
-    get: operations['getBranch'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    /** Update branch name/timezone (Admin only) */
-    patch: operations['patchBranch'];
-    trace?: never;
-  };
-  '/branches/{branchId}/enrollment-tokens': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** Admin issues single-use short-lived branch enrollment token */
-    post: operations['createBranchEnrollmentToken'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/branch-enrollment': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * Branch runtime redeems enrollment token
-     * @description Redeems a single-use token; returns organization_id, branch_id,
-     *     runtime credential, initial sync cursor, and credential expiry.
-     *     Served by Cloud because enrollment tokens are stored hashed in the
-     *     cloud identity store; the branch runtime calls this cloud endpoint
-     *     over the authenticated bootstrap channel.
-     */
-    post: operations['redeemBranchEnrollment'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/users': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** List users (Admin only) */
-    get: operations['listUsers'];
-    put?: never;
-    /** Create user (Admin only) */
-    post: operations['createUser'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/users/{userId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        userId: components['parameters']['userId'];
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/jwk-set+json': components['schemas']['JwksDocument'];
+          };
+        };
       };
-      cookie?: never;
     };
-    /** Get user (Admin only) */
-    get: operations['getUser'];
     put?: never;
     post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    /** Update role/access/active (Admin only) */
-    patch: operations['patchUser'];
-    trace?: never;
-  };
-  '/users/{userId}/password-reset': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** Admin password reset (Admin only) */
-    post: operations['resetUserPassword'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/users/{userId}/revoke-sessions': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** Revoke all refresh-token families (Admin only) */
-    post: operations['revokeUserSessions'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/employees': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** List employees (branch-scoped) */
-    get: operations['listEmployees'];
-    put?: never;
-    /** Create employee (Admin only) */
-    post: operations['createEmployee'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/employees/{employeeId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        employeeId: components['parameters']['employeeId'];
-      };
-      cookie?: never;
-    };
-    /** Get employee detail */
-    get: operations['getEmployee'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    /** Update employee (Admin only) */
-    patch: operations['patchEmployee'];
-    trace?: never;
-  };
-  '/product-categories': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** List product categories (tree via parent_category_id) */
-    get: operations['listProductCategories'];
-    put?: never;
-    /** Create product category */
-    post: operations['createProductCategory'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/product-categories/{categoryId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        categoryId: components['parameters']['categoryId'];
-      };
-      cookie?: never;
-    };
-    /** Get product category detail */
-    get: operations['getProductCategory'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    /** Update product category */
-    patch: operations['patchProductCategory'];
-    trace?: never;
-  };
-  '/products': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** Search/list products (SKU / barcode / name) */
-    get: operations['listProducts'];
-    put?: never;
-    /** Create product with initial base UOM */
-    post: operations['createProduct'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/products/{productId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        productId: components['parameters']['productId'];
-      };
-      cookie?: never;
-    };
-    /** Get product detail incl. UOMs */
-    get: operations['getProduct'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    /** Update product */
-    patch: operations['patchProduct'];
-    trace?: never;
-  };
-  '/products/{productId}/uoms': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        productId: components['parameters']['productId'];
-      };
-      cookie?: never;
-    };
-    /** List product UOMs (incl. inactive) */
-    get: operations['listProductUoms'];
-    put?: never;
-    /** Item-level add UOM (never full-list replace) */
-    post: operations['createProductUom'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/products/{productId}/uoms/{uomId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        productId: components['parameters']['productId'];
-        uomId: components['parameters']['uomId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    /**
-     * Item-level UOM update. Permitted non-historical attributes only;
-     *     is_active=false to deactivate. Never hard delete. Conversion factor
-     *     and is_base become immutable once referenced by a posted document
-     *     or stock.
-     */
-    patch: operations['patchProductUom'];
-    trace?: never;
-  };
-  '/branches/{branchId}/products/{productId}/reorder-rule': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        branchId: components['parameters']['branchId'];
-        productId: components['parameters']['productId'];
-      };
-      cookie?: never;
-    };
-    /** Get branch reorder rule (or null if none) */
-    get: operations['getReorderRule'];
-    /** Create or update branch reorder rule */
-    put: operations['putReorderRule'];
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/inventory/locations': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** List inventory locations (branch-scoped) */
-    get: operations['listInventoryLocations'];
-    put?: never;
-    /** Create inventory location */
-    post: operations['createInventoryLocation'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/inventory/locations/{locationId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        locationId: components['parameters']['locationId'];
-      };
-      cookie?: never;
-    };
-    /** Get inventory location detail */
-    get: operations['getInventoryLocation'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    /** Update inventory location */
-    patch: operations['patchInventoryLocation'];
-    trace?: never;
-  };
-  '/inventory/batches': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** Read batches (READ-ONLY resource — batches are only created by ledger workflows) */
-    get: operations['listInventoryBatches'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/inventory/balances': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** Balance projection (branch/product/location/lot filters) */
-    get: operations['listInventoryBalances'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/inventory/transactions': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** Paginated append-only ledger history */
-    get: operations['listInventoryTransactions'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/inventory/transactions/{txnId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** Get ledger transaction detail */
-    get: operations['getInventoryTransaction'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/inventory/adjustments': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * Posting-only command: OPENING_BALANCE, authorized stock correction
-     *     (ADJUSTMENT_IN / ADJUSTMENT_OUT), or REVERSAL of a POSTED transaction.
-     *     Branch-local; requires counted quantity, batch (or NON-LOT), location,
-     *     and authorized unit-cost (as applicable). DRAFT editing is allowed via
-     *     PATCH; POSTED rows are immutable, so corrections/reversals are new
-     *     transactions posted through this same endpoint.
-     */
-    post: operations['postInventoryAdjustment'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/inventory/adjustments/{txnId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        txnId: components['parameters']['txnId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * Post a DRAFT adjustment; use POST /inventory/adjustments for reversals
-     * @description Commits this DRAFT adjustment. Posted transactions and lines are
-     *     immutable; corrections and reversals are new transactions created via
-     *     POST /inventory/adjustments with transaction_type=REVERSAL and
-     *     reverses_inventory_txn_id.
-     */
-    post: operations['postInventoryAdjustmentById'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    /** Edit DRAFT adjustment only; POSTED immutable (409 otherwise) */
-    patch: operations['patchInventoryAdjustment'];
-    trace?: never;
-  };
-  '/inventory/adjustments/{txnId}/cancel': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** Cancel an unposted DRAFT only; POSTED transactions are immutable (409) */
-    post: operations['cancelInventoryAdjustment'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/sales-orders': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** List sales orders (branch-scoped) */
-    get: operations['listSalesOrders'];
-    put?: never;
-    /** Create cashier DRAFT order (does NOT reserve stock) */
-    post: operations['createSalesOrder'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/sales-orders/{salesOrderId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** Get sales order detail */
-    get: operations['getSalesOrder'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/sales-orders/{salesOrderId}/lines': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    /** Replace draft line set (DRAFT only) */
-    put: operations['putSalesOrderLines'];
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/sales-orders/{salesOrderId}/complete': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * Atomic: invoice + cash payment + FEFO stock issue + audit + sync outbox.
-     *     Full cash payment only in MVP. Server computes totals from line
-     *     snapshots. FE re-sends only cash_tendered + method.
-     */
-    post: operations['completeSalesOrder'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/sales-orders/{salesOrderId}/cancel': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** Cancel DRAFT; no stock reversal needed */
-    post: operations['cancelSalesOrder'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/sales-invoices': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** List sales invoices (branch-scoped) */
-    get: operations['listSalesInvoices'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/sales-invoices/{invoiceId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** Invoice lines with immutable snapshots + settlement projection */
-    get: operations['getSalesInvoice'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/sales-returns': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** List sales returns (branch-scoped) */
-    get: operations['listSalesReturns'];
-    put?: never;
-    /**
-     * Validate + post return, stock receipt, and (if requested) cash refund,
-     *     all atomically. Must be at the invoice branch; within the Organization
-     *     14-day window; quantity capped by remaining sold allocation. FE does
-     *     NOT choose batch/location — the server derives them from the posted
-     *     SALE_ISSUE ledger lines. Disposition RESTOCK / QUARANTINE / SCRAP.
-     */
-    post: operations['createSalesReturn'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/sales-returns/{returnId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** Get sales return detail */
-    get: operations['getSalesReturn'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/suppliers': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** List suppliers */
-    get: operations['listSuppliers'];
-    put?: never;
-    /** Create supplier */
-    post: operations['createSupplier'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/suppliers/{supplierId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        supplierId: components['parameters']['supplierId'];
-      };
-      cookie?: never;
-    };
-    /** Get supplier detail */
-    get: operations['getSupplier'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    /** Update supplier */
-    patch: operations['patchSupplier'];
-    trace?: never;
-  };
-  '/suppliers/{supplierId}/status': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    /** Soft deactivate / reactivate supplier */
-    patch: operations['patchSupplierStatus'];
-    trace?: never;
-  };
-  '/purchase-orders': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** List purchase orders (branch-scoped) */
-    get: operations['listPurchaseOrders'];
-    put?: never;
-    /**
-     * Create DRAFT PO. Server computes subtotal / tax_total / additional_cost
-     *     allocation to lines pro-rata ordered line net; normalizes to base UOM;
-     *     snapshots prices. Currency must equal Organization base_currency.
-     */
-    post: operations['createPurchaseOrder'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/purchase-orders/{purchaseOrderId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        purchaseOrderId: components['parameters']['purchaseOrderId'];
-      };
-      cookie?: never;
-    };
-    /** Get purchase order detail */
-    get: operations['getPurchaseOrder'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    /** DRAFT-only edit (409 after approval/order) */
-    patch: operations['patchPurchaseOrder'];
-    trace?: never;
-  };
-  '/purchase-orders/{purchaseOrderId}/cancel': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        purchaseOrderId: components['parameters']['purchaseOrderId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * DRAFT/APPROVED pre-order cancel with reason, only when paid_amount=0.
-     *     After ORDERED, remaining-quantity cancellation must use /cancel-remaining.
-     */
-    post: operations['cancelPurchaseOrder'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/purchase-orders/{purchaseOrderId}/approve': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** DRAFT → APPROVED */
-    post: operations['approvePurchaseOrder'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/purchase-orders/{purchaseOrderId}/order': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** APPROVED → ORDERED (ordered quantities and terms become immutable) */
-    post: operations['orderPurchaseOrder'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/purchase-orders/{purchaseOrderId}/receive': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * One-step partial receiving. Validates the full request, creates
-     *     InventoryBatch (UUIDv5 deterministic), ledger txn + lines, updates
-     *     received/rejected cumulative fields, balance, and moving average —
-     *     all atomically. Idempotent; same key cannot post twice.
-     *     Expired lots rejected for sellable; shelf-life policy enforced,
-     *     exception role-guarded with reason.
-     */
-    post: operations['receivePurchaseOrder'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/purchase-orders/{purchaseOrderId}/cancel-remaining': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * BranchLocal-only close of remaining obligation (reason + key); PO
-     *     transitions to CLOSED when no uncancelled quantity remains; emits
-     *     CANCEL_REMAINING_PURCHASE_ORDER fact to cloud.
-     */
-    post: operations['cancelPurchaseOrderRemaining'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/supplier-payments': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * Order-level cash settlement against PO commitment. Not AP ledger, no
-     *     supplier-invoice match. Only for APPROVED/ORDERED/PARTIALLY_RECEIVED/
-     *     RECEIVED/CLOSED POs with positive outstanding; amount ≤ outstanding;
-     *     currency must match PO (which equals base_currency).
-     */
-    post: operations['createSupplierPayment'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/supplier-payments/{supplierPaymentId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** Get supplier payment detail */
-    get: operations['getSupplierPayment'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/vendor-returns': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** List vendor returns (branch-scoped) */
-    get: operations['listVendorReturns'];
-    put?: never;
-    /** Create DRAFT return (lines reference PO line + batch + location) */
-    post: operations['createVendorReturn'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/vendor-returns/{vendorReturnId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        vendorReturnId: components['parameters']['vendorReturnId'];
-      };
-      cookie?: never;
-    };
-    /** Get vendor return detail */
-    get: operations['getVendorReturn'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/vendor-returns/{vendorReturnId}/cancel': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        vendorReturnId: components['parameters']['vendorReturnId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** DRAFT-only cancel */
-    post: operations['cancelVendorReturn'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/vendor-returns/{vendorReturnId}/post': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        vendorReturnId: components['parameters']['vendorReturnId'];
-      };
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * Posts vendor return, producing a negative VENDOR_RETURN_OUT ledger
-     *     transaction, updating balances/cost. Batch quantity cannot exceed
-     *     accepted received stock still available.
-     */
-    post: operations['postVendorReturn'];
     delete?: never;
     options?: never;
     head?: never;
@@ -1116,176 +4144,6 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
-    /**
-     * @description Non-negative monetary amount serialized as a plain decimal string to
-     *     preserve numeric(18,2) precision exactly. Never use IEEE-754 floats for
-     *     money on FE; treat this as a fixed-2-decimal string. Amounts that must
-     *     be strictly positive add a >0 rule at the owning field.
-     * @example 1250.00
-     */
-    Money: string;
-    /** @description Signed numeric(18,4) serialized as fixed-4 decimal string; use only for signed ledger deltas. */
-    Numeric4: string;
-    /** @description Non-negative numeric(18,4) quantity or unit cost. */
-    NonNegativeNumeric4: string;
-    /** @description Strictly positive numeric(18,4) quantity. */
-    PositiveNumeric4: string;
-    /** @description Signed numeric(18,6) serialized as fixed-6 decimal string. */
-    Numeric6: string;
-    /** @description Strictly positive numeric(18,6) conversion factor; conversion must be >0. */
-    PositiveNumeric6: string;
-    /** @description Strictly positive monetary amount (numeric(18,2)) for amounts that cannot be zero. */
-    PositiveMoney: string;
-    /** @description Fractional tax rate numeric(9,4); 0.1400 = 14%. */
-    TaxRate: string;
-    /**
-     * Format: date-time
-     * @description UTC timestamptz ISO 8601 (suffix Z).
-     */
-    Timestamp: string;
-    /** Format: uuid */
-    Uuid: string;
-    /**
-     * @description Case-sensitive closed set.
-     * @enum {string}
-     */
-    Role: 'Admin' | 'Pharmacist' | 'Cashier';
-    /**
-     * @description ALL only permitted for Admin (DB CHECK enforces).
-     * @enum {string}
-     */
-    BranchScope: 'ALL' | 'ASSIGNED';
-    /**
-     * @description Authorization vocabulary; endpoint policy + resource state remain authoritative.
-     * @enum {string}
-     */
-    PermissionScope:
-      | 'inventory:read'
-      | 'inventory:write'
-      | 'sales:read'
-      | 'sales:write'
-      | 'return:read'
-      | 'return:write'
-      | 'purchase-order:read'
-      | 'purchase-order:draft'
-      | 'purchase-order:approve'
-      | 'purchase-order:receive'
-      | 'supplier-payment:write'
-      | 'sync:retry'
-      | 'user:admin';
-    /**
-     * @description Which runtime deployment the FE is currently talking to.
-     * @enum {string}
-     */
-    RuntimeMode: 'Cloud' | 'BranchLocal';
-    ApiError: {
-      error: {
-        /**
-         * @description Exactly ONE canonical HTTP status per code. Closed set:
-         *     MALFORMED_REQUEST(400), UNAUTHORIZED(401),
-         *     FORBIDDEN(403), FORBIDDEN_BRANCH(403),
-         *     NOT_FOUND(404), CONFLICT(409),
-         *     INVALID_STATE_TRANSITION(409),
-         *     OUT_OF_STOCK(409), IDEMPOTENCY_MISMATCH(409),
-         *     GONE(410),
-         *     VALIDATION_ERROR(422), EXPIRY_POLICY_VIOLATION(422),
-         *     INTERNAL_ERROR(500).
-         * @enum {string}
-         */
-        code:
-          | 'MALFORMED_REQUEST'
-          | 'UNAUTHORIZED'
-          | 'FORBIDDEN'
-          | 'FORBIDDEN_BRANCH'
-          | 'NOT_FOUND'
-          | 'CONFLICT'
-          | 'INVALID_STATE_TRANSITION'
-          | 'OUT_OF_STOCK'
-          | 'IDEMPOTENCY_MISMATCH'
-          | 'GONE'
-          | 'VALIDATION_ERROR'
-          | 'EXPIRY_POLICY_VIOLATION'
-          | 'INTERNAL_ERROR';
-        /** @description Human-readable; safe to display to user. */
-        message: string;
-        /** @description Field-level issues (presence optional). */
-        details?: {
-          /** @description JSON path e.g. "lines[0].quantity" */
-          field?: string;
-          issue: string;
-        }[];
-        /** @description Matches the W3C traceparent propagated in the call. */
-        trace_id?: string;
-      };
-    };
-    PagedResult: {
-      /** @description Page items; conforms to item-specific subclass contract. */
-      items: unknown[];
-      /** @description Opaque; null means end of results. Use nextCursor in next call's `cursor` query param. */
-      nextCursor: string | null;
-    };
-    JwksResponse: {
-      keys: {
-        /** @enum {string} */
-        kty: 'RSA';
-        kid: string;
-        /** @enum {string} */
-        use: 'sig';
-        /** @enum {string} */
-        alg: 'RS256';
-        /** @description Base64url-encoded RSA modulus */
-        n: string;
-        /** @description Base64url-encoded RSA public exponent */
-        e: string;
-      }[];
-    };
-    LoginRequest: {
-      /** @description Unique per Organization — used to scope username uniqueness. */
-      organization_code: string;
-      username: string;
-      /** Format: password */
-      password: string;
-    };
-    TokenPairResponse: {
-      access_token: string;
-      refresh_token: string;
-      /** @description Access-token lifetime in seconds; token_type usually Bearer. */
-      expires_in: number;
-      /** @default Bearer */
-      token_type: string;
-      user: components['schemas']['UserDto'];
-      organization_id: components['schemas']['Uuid'];
-      branch_scope: components['schemas']['BranchScope'];
-      /**
-       * @description Explicit authorized branches for the user. Empty array with
-       *     branch_scope=ALL implies ALL organization branches.
-       */
-      branch_ids: components['schemas']['Uuid'][];
-      /** @description iss value for JWT validation */
-      issuer: string;
-      /** @description aud value for JWT validation */
-      audience: string;
-      /** @description kid of the signing key used */
-      key_id: string;
-    };
-    LoginResponse: components['schemas']['TokenPairResponse'];
-    RefreshTokenRequest: {
-      refresh_token: string;
-    };
-    LogoutRequest: {
-      refresh_token?: string | null;
-    };
-    CurrentUserContextDto: {
-      user: components['schemas']['UserDto'];
-      organization_id: components['schemas']['Uuid'];
-      organization_code: string;
-      branch_scope: components['schemas']['BranchScope'];
-      branch_ids: components['schemas']['Uuid'][];
-      roles: components['schemas']['Role'][];
-      scopes: components['schemas']['PermissionScope'][];
-      runtime: components['schemas']['RuntimeMode'];
-    };
-    /** @description Flattened owned value object (EF address_ prefixed columns) */
     AddressDto: {
       line1: string;
       line2?: string | null;
@@ -1294,369 +4152,476 @@ export interface components {
       postal_code?: string | null;
       country_code: string;
     };
-    OrganizationDto: {
-      organization_id: components['schemas']['Uuid'];
-      organization_code: string;
-      name: string;
-      /** @default EGP */
-      base_currency: string;
-      /** @description IANA TZ identifier e.g. "Africa/Cairo". */
-      time_zone_id: string;
-      address?: components['schemas']['AddressDto'];
-      is_active: boolean;
-    };
-    CreateOrganizationRequest: {
-      organization_code: string;
-      name: string;
-      /** @default EGP */
-      base_currency: string;
-      /** @description Validated against IANA registry */
-      time_zone_id: string;
-      address: components['schemas']['AddressDto'];
-      branch: {
-        code: string;
-        name: string;
-        address: components['schemas']['AddressDto'];
-      };
-      admin: {
-        employee_no: string;
-        full_name: string;
-        username: string;
-        /** Format: password */
-        password: string;
-      };
-    };
-    OrganizationSetupResultDto: {
-      organization: components['schemas']['OrganizationDto'];
-      branch: components['schemas']['BranchDto'];
-      employee: components['schemas']['EmployeeDto'];
-      user: components['schemas']['UserDto'];
-      /** @enum {string} */
-      enrollment_setup_state: 'PENDING' | 'ENROLLED' | 'FAILED';
-    };
-    BranchDto: {
-      branch_id: components['schemas']['Uuid'];
-      organization_id: components['schemas']['Uuid'];
-      /** @description branch_code */
-      code: string;
-      name: string;
-      address?: components['schemas']['AddressDto'];
-      is_active: boolean;
-      created_at?: components['schemas']['Timestamp'];
-      updated_at?: components['schemas']['Timestamp'];
-    };
-    BranchRequest: {
-      code: string;
-      name: string;
-      address: components['schemas']['AddressDto'];
-      /** @default true */
-      is_active: boolean;
-    };
-    /** @description Partial; server validates organization scope. */
-    BranchPatchRequest: {
-      name?: string;
-      address?: components['schemas']['AddressDto'];
-      is_active?: boolean;
-    };
-    EnrollmentTokenDto: {
-      enrollment_id: components['schemas']['Uuid'];
-      /** @description Single-use opaque token; only this plain value leaves now (we store hash). */
-      token: string;
-      expires_at: components['schemas']['Timestamp'];
-    };
-    BranchEnrollmentRequest: {
-      token: string;
-    };
-    BranchEnrollmentResultDto: {
-      organization_id: components['schemas']['Uuid'];
-      branch_id: components['schemas']['Uuid'];
-      /** Format: password */
-      runtime_credential: string;
-      /** @description Opaque bootstrap cursor to store in branch-local DB. */
-      initial_cursor: string;
-      credential_expires_at: components['schemas']['Timestamp'];
-    };
-    EmployeeDto: {
-      employee_id: components['schemas']['Uuid'];
-      organization_id: components['schemas']['Uuid'];
-      branch_id: components['schemas']['Uuid'];
-      employee_no: string;
-      full_name: string;
-      /** Format: email */
-      email?: string | null;
-      phone?: string | null;
-      job_title?: string | null;
-      address: components['schemas']['AddressDto'];
-      /** Format: date */
-      hired_on: string;
-      is_active: boolean;
-      created_at?: components['schemas']['Timestamp'];
-      updated_at?: components['schemas']['Timestamp'];
-    };
-    EmployeeRequest: {
-      branch_id: components['schemas']['Uuid'];
-      employee_no: string;
-      full_name: string;
-      /** Format: email */
-      email?: string | null;
-      phone?: string | null;
-      job_title?: string | null;
-      address: components['schemas']['AddressDto'];
-      /** Format: date */
-      hired_on: string;
-      is_active: boolean;
-    };
-    EmployeePatchRequest: {
-      branch_id?: components['schemas']['Uuid'];
-      employee_no?: string;
-      full_name?: string;
-      /** Format: email */
-      email?: string | null;
-      phone?: string | null;
-      job_title?: string | null;
-      address?: components['schemas']['AddressDto'];
-      /** Format: date */
-      hired_on?: string | null;
-      is_active?: boolean;
-    };
-    UserDto: {
-      user_id: components['schemas']['Uuid'];
-      employee_id: components['schemas']['Uuid'];
-      username: string;
-      role: components['schemas']['Role'];
-      branch_scope: components['schemas']['BranchScope'];
-      is_active: boolean;
-      readonly access_failed_count?: number;
-      readonly lockout_end?: components['schemas']['Timestamp'] | null;
-      readonly last_login_at?: components['schemas']['Timestamp'] | null;
-    };
-    BranchAccessGrantDto: {
-      branch_id: components['schemas']['Uuid'];
-      readonly branch_code?: string;
-    };
-    CreateUserRequest: {
-      employee_id: components['schemas']['Uuid'];
-      username: string;
-      /** Format: password */
-      password: string;
-      role: components['schemas']['Role'];
-      branch_scope: components['schemas']['BranchScope'];
-      /** @description Required only when branch_scope=ASSIGNED. */
-      branch_access?: components['schemas']['BranchAccessGrantDto'][];
-    };
-    /** @description Admin may change role, branch scope/access, and is_active. username unchanged (immutable). */
-    UserPatchRequest: {
-      role?: components['schemas']['Role'];
-      branch_scope?: components['schemas']['BranchScope'];
-      branch_access?: components['schemas']['BranchAccessGrantDto'][];
-      is_active?: boolean;
-    };
-    PasswordResetRequest: {
-      /** Format: password */
-      new_password: string;
-    };
-    ProductCategoryDto: {
-      category_id: components['schemas']['Uuid'];
-      parent_category_id?: components['schemas']['Uuid'] | null;
-      code: string;
-      name: string;
-      description?: string | null;
-      is_active: boolean;
-      created_at?: components['schemas']['Timestamp'];
-      updated_at?: components['schemas']['Timestamp'];
-    };
-    ProductCategoryRequest: {
-      parent_category_id?: components['schemas']['Uuid'] | null;
-      code: string;
-      name: string;
-      description?: string | null;
-      /** @default true */
-      is_active: boolean;
-    };
-    ProductCategoryPatchRequest: {
-      parent_category_id?: components['schemas']['Uuid'] | null;
+    ApiErrorBodyDto: {
       code?: string;
-      name?: string;
-      description?: string | null;
-      is_active?: boolean;
+      message?: string;
+      details?: components['schemas']['ApiErrorDetailDto'][];
+      trace_id?: string;
     };
-    ProductUomDto: {
-      product_uom_id: components['schemas']['Uuid'];
-      uom_code: string;
-      display_name: string;
-      conversion_to_base: components['schemas']['PositiveNumeric6'];
-      /** @description Required (non-null, >= 0) when is_sellable=true; the authoritative POS sale price. Optional and null when is_sellable=false. */
-      sale_unit_price?: components['schemas']['NonNegativeNumeric4'] | null;
-      is_base: boolean;
-      is_sellable: boolean;
-      is_purchasable: boolean;
-      is_active: boolean;
+    ApiErrorDetailDto: {
+      field?: string;
+      issue?: string;
     };
-    ProductUomRequest: {
-      uom_code: string;
-      display_name: string;
-      conversion_to_base: components['schemas']['PositiveNumeric6'];
-      sale_unit_price?: components['schemas']['NonNegativeNumeric4'] | null;
-      /** @default false */
-      is_base: boolean;
-      /** @default false */
-      is_sellable: boolean;
-      /** @default false */
-      is_purchasable: boolean;
+    ApiErrorEnvelopeDto: {
+      error?: components['schemas']['ApiErrorBodyDto'];
     };
-    /**
-     * @description Permitted non-historical attributes only (conversion_to_base and
-     *     is_base become immutable once referenced by a posted document or
-     *     stock). is_active=false to deactivate; never hard delete.
-     */
-    ProductUomPatchRequest: {
-      display_name?: string;
-      sale_unit_price?: components['schemas']['NonNegativeNumeric4'] | null;
-      is_sellable?: boolean;
-      is_purchasable?: boolean;
-      is_active?: boolean;
-    };
-    ProductDto: {
-      product_id: components['schemas']['Uuid'];
-      category_id: components['schemas']['Uuid'];
-      sku: string;
-      barcode?: string | null;
-      name: string;
-      generic_name?: string | null;
-      brand_name?: string | null;
-      base_uom_code: string;
-      /** @description Fractional 0..1 */
-      tax_rate: components['schemas']['TaxRate'];
-      image_url?: string | null;
-      lot_tracking_required: boolean;
-      expiry_alert_days: number;
-      is_active: boolean;
-      uoms: components['schemas']['ProductUomDto'][];
-      created_at?: components['schemas']['Timestamp'];
-      updated_at?: components['schemas']['Timestamp'];
-    };
-    CreateProductRequest: {
-      category_id: components['schemas']['Uuid'];
-      sku: string;
-      barcode?: string | null;
-      name: string;
-      generic_name?: string | null;
-      brand_name?: string | null;
-      base_uom_code: string;
-      /** @default 0.0000 */
-      tax_rate: components['schemas']['TaxRate'];
-      image_url?: string | null;
-      /** @default false */
-      lot_tracking_required: boolean;
-      /** @default 0 */
-      expiry_alert_days: number;
-      /** @description Must include exactly one is_base=true entry with conversion_to_base=1. */
-      uoms: components['schemas']['ProductUomRequest'][];
-    };
-    ProductPatchRequest: {
-      category_id?: components['schemas']['Uuid'];
-      barcode?: string | null;
-      name?: string;
-      generic_name?: string | null;
-      brand_name?: string | null;
-      tax_rate?: components['schemas']['TaxRate'];
-      image_url?: string | null;
-      /** @description Cannot change while stock or posted ledger history exists. */
-      lot_tracking_required?: boolean;
-      expiry_alert_days?: number;
-      is_active?: boolean;
-    };
-    ReorderRuleDto: {
-      reorder_rule_id: components['schemas']['Uuid'];
-      product_id: components['schemas']['Uuid'];
-      branch_id: components['schemas']['Uuid'];
-      reorder_point_base: components['schemas']['NonNegativeNumeric4'];
-      reorder_quantity_base: components['schemas']['PositiveNumeric4'];
-      max_quantity_base?: components['schemas']['NonNegativeNumeric4'] | null;
-      is_active: boolean;
-    };
-    /**
-     * @description Product and branch are taken from the path; they are not accepted in
-     *     the body, so the path is the single source of truth.
-     */
-    ReorderRuleRequest: {
-      reorder_point_base: components['schemas']['NonNegativeNumeric4'];
-      reorder_quantity_base: components['schemas']['PositiveNumeric4'];
-      max_quantity_base?: components['schemas']['NonNegativeNumeric4'] | null;
-      /** @default true */
-      is_active: boolean;
-    };
-    /**
-     * @description Only SELLABLE location_type may have is_sellable=true. QUARANTINE and SCRAP are always is_sellable=false.
-     * @enum {string}
-     */
-    LocationType: 'SELLABLE' | 'QUARANTINE' | 'SCRAP';
-    /**
-     * @description Availability for sale further requires non-expired-by-date and an eligible SELLABLE location; the current date-eligibility check is independently evaluated even if stored quality value hasn't refreshed.
-     * @enum {string}
-     */
+    /** @enum {string} */
     BatchQualityStatus: 'AVAILABLE' | 'QUARANTINED' | 'EXPIRED' | 'RECALLED';
-    InventoryLocationDto: {
-      location_id: components['schemas']['Uuid'];
-      branch_id: components['schemas']['Uuid'];
-      location_code: string;
-      name: string;
-      location_type: components['schemas']['LocationType'];
-      is_sellable: boolean;
-      is_active: boolean;
-    };
-    InventoryLocationRequest: {
-      branch_id: components['schemas']['Uuid'];
-      location_code: string;
-      name: string;
-      location_type: components['schemas']['LocationType'];
-      /** @default true */
-      is_active: boolean;
-    };
-    InventoryLocationPatchRequest: {
+    BranchDto: {
+      /** Format: uuid */
+      branch_id?: string;
+      /** Format: uuid */
+      organization_id?: string;
+      branch_code?: string;
       name?: string;
-      location_type?: components['schemas']['LocationType'];
+      address?: components['schemas']['AddressDto'];
       is_active?: boolean;
+      /** Format: date-time */
+      created_at?: string;
+      /** Format: date-time */
+      updated_at?: string;
     };
-    InventoryBatchDto: {
-      /** @description Deterministic UUIDv5; identical across branches */
-      batch_id: components['schemas']['Uuid'];
-      product_id: components['schemas']['Uuid'];
-      /** @description Exact, case-sensitive */
-      batch_number: string;
+    BranchDtoPagedResult: {
+      items?: components['schemas']['BranchDto'][];
+      /** Format: int32 */
+      page?: number;
+      /** Format: int32 */
+      page_size?: number;
+      /** Format: int32 */
+      total_count?: number;
+      next_cursor?: string | null;
+    };
+    /** @enum {string} */
+    BranchScope: 'ALL' | 'ASSIGNED';
+    CanonicalCapabilitiesDto: {
+      /** Format: int32 */
+      stage?: number;
+      runtime_mode?: string;
+      supported_reads?: string[];
+      supported_writes?: string[];
+    };
+    CanonicalInventoryItemDto: {
+      /** Format: uuid */
+      organization_id?: string;
+      /** Format: uuid */
+      branch_id?: string;
+      /** Format: uuid */
+      product_id?: string;
+      /** Format: uuid */
+      location_id?: string;
+      base_uom_code?: string;
+      /** Format: double */
+      quantity_on_hand_base?: number;
+      /** Format: double */
+      available_quantity_base?: number;
+      /** Format: double */
+      average_unit_cost_base?: number;
+      /** Format: double */
+      reorder_point_base?: number | null;
+      lots?: components['schemas']['CanonicalInventoryLotDto'][];
+      /** Format: date-time */
+      updated_at?: string;
+      schema?: string;
+      version?: string;
+    };
+    CanonicalInventoryItemDtoPagedResult: {
+      items?: components['schemas']['CanonicalInventoryItemDto'][];
+      /** Format: int32 */
+      page?: number;
+      /** Format: int32 */
+      page_size?: number;
+      /** Format: int32 */
+      total_count?: number;
+      next_cursor?: string | null;
+    };
+    CanonicalInventoryLotDto: {
+      /** Format: uuid */
+      batch_id?: string;
+      batch_number?: string;
+      /** Format: double */
+      quantity_on_hand_base?: number;
+      /** Format: double */
+      available_quantity_base?: number;
       /** Format: date */
       manufactured_on?: string | null;
       /** Format: date */
       expires_on?: string | null;
-      quality_status: components['schemas']['BatchQualityStatus'];
-      /** @description True for reserved batch_number=NON-LOT with NULL dates. */
-      readonly is_non_lot?: boolean;
+      quality_status?: string;
     };
-    InventoryBalanceDto: {
-      product_id: components['schemas']['Uuid'];
-      branch_id: components['schemas']['Uuid'];
-      location_id: components['schemas']['Uuid'];
-      batch_id: components['schemas']['Uuid'];
-      /** @description Always >= 0 */
-      on_hand_qty_base: components['schemas']['NonNegativeNumeric4'];
-      average_unit_cost: components['schemas']['NonNegativeNumeric4'];
-      /**
-       * @description Server-derived eligible quantity: sum of on_hand from sellable
-       *     locations for batches that are AVAILABLE, not expired by business
-       *     date, and not recalled. With no reservations in MVP this normally
-       *     equals eligible on_hand, not raw on_hand across all locations.
-       *     Never negative.
-       */
-      available_qty_base: components['schemas']['NonNegativeNumeric4'];
-      /** Format: int64 */
-      readonly row_version?: number;
-      updated_at?: components['schemas']['Timestamp'];
+    CanonicalProductConfigurationRequest: {
+      /** Format: uuid */
+      request_id?: string;
+      source_prompt_id?: string;
+      /** @description Optional when the Idempotency-Key HTTP header is provided (max 100 characters). */
+      idempotency_key?: string | null;
+      action?: components['schemas']['CatalogConfigurationAction'];
+      /** Format: uuid */
+      product_id?: string | null;
+      /** Format: uuid */
+      product_uom_id?: string | null;
+      /** Format: uuid */
+      category_id?: string | null;
+      sku?: string | null;
+      barcode?: string | null;
+      name?: string | null;
+      generic_name?: string | null;
+      brand_name?: string | null;
+      base_uom_code?: string | null;
+      /** Format: double */
+      tax_rate?: number | null;
+      image_url?: string | null;
+      lot_tracking_required?: boolean | null;
+      /** Format: int32 */
+      expiry_alert_days?: number | null;
+      is_active?: boolean | null;
+      uoms?: components['schemas']['CanonicalUomItemDto'][] | null;
+      uom_code?: string | null;
+      display_name?: string | null;
+      /** Format: double */
+      conversion_to_base?: number | null;
+      /** Format: double */
+      sale_unit_price?: number | null;
+      is_base?: boolean | null;
+      is_sellable?: boolean | null;
+      is_purchasable?: boolean | null;
     };
-    /**
-     * @description Posted sign: positive for IN/receipt types (OPENING_BALANCE, ADJUSTMENT_IN, SALES_RETURN_IN, PURCHASE_RECEIPT) and negative for ISSUE/OUT types (SALE_ISSUE, VENDOR_RETURN_OUT, SCRAP_OUT, ADJUSTMENT_OUT). Reversal exactly negates its original.
-     * @enum {string}
-     */
-    InventoryTxnType:
+    CanonicalProductDto: {
+      /** Format: uuid */
+      organization_id?: string;
+      /** Format: uuid */
+      id?: string;
+      sku?: string;
+      barcode?: string | null;
+      name?: string;
+      /** Format: uuid */
+      category_id?: string;
+      category_name?: string;
+      base_uom_code?: string;
+      /** Format: double */
+      tax_rate?: number;
+      lot_tracking_required?: boolean;
+      is_active?: boolean;
+      supported_conversions?: components['schemas']['CanonicalUomConversionDto'][];
+      /** Format: date-time */
+      updated_at?: string;
+      schema?: string;
+      version?: string;
+    };
+    CanonicalProductFeedPageDto: {
+      items?: components['schemas']['CanonicalProductDto'][];
+      next_cursor?: string | null;
+    };
+    CanonicalReorderRuleConfigurationRequest: {
+      /** Format: uuid */
+      request_id?: string;
+      source_prompt_id?: string;
+      /** @description Optional when the Idempotency-Key HTTP header is provided (max 100 characters). */
+      idempotency_key?: string | null;
+      /** Format: uuid */
+      branch_id?: string;
+      /** Format: uuid */
+      product_id?: string;
+      /** Format: double */
+      reorder_point_base?: number;
+      /** Format: double */
+      reorder_quantity_base?: number;
+      /** Format: double */
+      max_quantity_base?: number | null;
+      is_active?: boolean;
+    };
+    CanonicalUomConversionDto: {
+      /** Format: uuid */
+      product_uom_id?: string;
+      uom_code?: string;
+      display_name?: string;
+      /** Format: double */
+      conversion_to_base?: number;
+      /** Format: double */
+      sale_unit_price?: number | null;
+      is_base?: boolean;
+      is_sellable?: boolean;
+      is_purchasable?: boolean;
+      is_active?: boolean;
+    };
+    CanonicalUomItemDto: {
+      uom_code?: string;
+      display_name?: string;
+      /** Format: double */
+      conversion_to_base?: number;
+      /** Format: double */
+      sale_unit_price?: number | null;
+      is_base?: boolean;
+      is_sellable?: boolean;
+      is_purchasable?: boolean;
+    };
+    CanonicalWriteResultDto: {
+      /** Format: uuid */
+      request_id?: string;
+      status?: string;
+      /** Format: uuid */
+      target_entity_id?: string;
+      entity_type?: string;
+      /** Format: date-time */
+      executed_at?: string;
+    };
+    /** @enum {string} */
+    CatalogConfigurationAction:
+      | 'CreateProduct'
+      | 'UpdateProduct'
+      | 'AddUom'
+      | 'UpdateUom'
+      | 'DeactivateUom';
+    CreateBranchRequest: {
+      branch_code: string;
+      name: string;
+      address: components['schemas']['AddressDto'];
+      idempotency_key?: string | null;
+    };
+    CreateEmployeeRequest: {
+      /** Format: uuid */
+      branch_id?: string;
+      employee_no: string;
+      full_name: string;
+      /** Format: email */
+      email?: string | null;
+      phone?: string | null;
+      job_title: string;
+      address: components['schemas']['AddressDto'];
+      /** Format: date */
+      hired_on?: string;
+      idempotency_key?: string | null;
+    };
+    CreateInventoryAdjustmentLineRequest: {
+      /** Format: uuid */
+      product_id?: string;
+      /** Format: uuid */
+      product_uom_id?: string;
+      /** Format: uuid */
+      location_id?: string;
+      batch_number?: string | null;
+      /** Format: date */
+      manufactured_on?: string | null;
+      /** Format: date */
+      expires_on?: string | null;
+      /** Format: double */
+      entered_qty?: number;
+      /** Format: double */
+      unit_cost_entered?: number | null;
+    };
+    CreateInventoryAdjustmentRequest: {
+      /** Format: uuid */
+      branch_id?: string;
+      transaction_type?: components['schemas']['InventoryTransactionType'];
+      reason_code?: string | null;
+      note?: string | null;
+      /** Format: uuid */
+      reverses_inventory_txn_id?: string | null;
+      lines?:
+        components['schemas']['CreateInventoryAdjustmentLineRequest'][] | null;
+      idempotency_key?: string | null;
+    };
+    CreateInventoryLocationRequest: {
+      /** Format: uuid */
+      branch_id?: string;
+      location_code?: string;
+      name?: string;
+      location_type?: components['schemas']['LocationType'];
+      is_sellable?: boolean;
+      idempotency_key?: string | null;
+    };
+    CreateOrganizationRequest: {
+      organization_code: string;
+      name: string;
+      base_currency?: string;
+      time_zone_id: string;
+      address: components['schemas']['AddressDto'];
+      initial_branch: components['schemas']['CreateBranchRequest'];
+      initial_employee: components['schemas']['CreateEmployeeRequest'];
+      initial_admin: components['schemas']['CreateUserRequest'];
+      idempotency_key?: string | null;
+    };
+    CreateProductCategoryRequest: {
+      /** Format: uuid */
+      parent_category_id?: string | null;
+      code?: string;
+      name?: string;
+      description?: string | null;
+      idempotency_key?: string | null;
+    };
+    CreateProductRequest: {
+      /** Format: uuid */
+      category_id?: string;
+      sku?: string;
+      barcode?: string | null;
+      name?: string;
+      generic_name?: string | null;
+      brand_name?: string | null;
+      base_uom_code?: string;
+      /** Format: double */
+      tax_rate?: number;
+      image_url?: string | null;
+      lot_tracking_required?: boolean;
+      /** Format: int32 */
+      expiry_alert_days?: number;
+      uoms?: components['schemas']['CreateProductUomItemRequest'][];
+      idempotency_key?: string | null;
+    };
+    CreateProductUomItemRequest: {
+      uom_code?: string;
+      display_name?: string;
+      /** Format: double */
+      conversion_to_base?: number;
+      /** Format: double */
+      sale_unit_price?: number | null;
+      is_base?: boolean;
+      is_sellable?: boolean;
+      is_purchasable?: boolean;
+    };
+    CreateProductUomRequest: {
+      uom_code?: string;
+      display_name?: string;
+      /** Format: double */
+      conversion_to_base?: number;
+      /** Format: double */
+      sale_unit_price?: number | null;
+      is_base?: boolean;
+      is_sellable?: boolean;
+      is_purchasable?: boolean;
+      idempotency_key?: string | null;
+    };
+    CreateUserRequest: {
+      /** Format: uuid */
+      employee_id?: string;
+      username: string;
+      password: string;
+      role?: components['schemas']['UserRole'];
+      branch_scope?: components['schemas']['BranchScope'];
+      branch_ids?: string[];
+      idempotency_key?: string | null;
+    };
+    CurrentUserDto: {
+      /** Format: uuid */
+      user_id?: string;
+      /** Format: uuid */
+      employee_id?: string;
+      /** Format: uuid */
+      organization_id?: string;
+      username?: string;
+      role?: components['schemas']['UserRole'];
+      branch_scope?: components['schemas']['BranchScope'];
+      branch_ids?: string[];
+      scopes?: string[];
+      runtime_mode?: components['schemas']['ErpRuntimeMode'];
+    };
+    EmployeeDto: {
+      /** Format: uuid */
+      employee_id?: string;
+      /** Format: uuid */
+      organization_id?: string;
+      /** Format: uuid */
+      branch_id?: string;
+      employee_no?: string;
+      full_name?: string;
+      email?: string | null;
+      phone?: string | null;
+      job_title?: string;
+      address?: components['schemas']['AddressDto'];
+      /** Format: date */
+      hired_on?: string;
+      is_active?: boolean;
+      /** Format: date-time */
+      created_at?: string;
+      /** Format: date-time */
+      updated_at?: string;
+    };
+    EmployeeDtoPagedResult: {
+      items?: components['schemas']['EmployeeDto'][];
+      /** Format: int32 */
+      page?: number;
+      /** Format: int32 */
+      page_size?: number;
+      /** Format: int32 */
+      total_count?: number;
+      next_cursor?: string | null;
+    };
+    EnrollmentTokenResponse: {
+      token?: string;
+      /** Format: date-time */
+      expires_at?: string;
+    };
+    /** @enum {string} */
+    ErpRuntimeMode: 'Cloud' | 'BranchLocal';
+    InventoryBatchDto: {
+      /** Format: uuid */
+      batch_id?: string;
+      /** Format: uuid */
+      organization_id?: string;
+      /** Format: uuid */
+      product_id?: string;
+      batch_number?: string;
+      /** Format: date */
+      manufactured_on?: string | null;
+      /** Format: date */
+      expires_on?: string | null;
+      quality_status?: components['schemas']['BatchQualityStatus'];
+      /** Format: date-time */
+      updated_at?: string;
+    };
+    InventoryBatchDtoPagedResult: {
+      items?: components['schemas']['InventoryBatchDto'][];
+      /** Format: int32 */
+      page?: number;
+      /** Format: int32 */
+      page_size?: number;
+      /** Format: int32 */
+      total_count?: number;
+      next_cursor?: string | null;
+    };
+    InventoryLocationDto: {
+      /** Format: uuid */
+      location_id?: string;
+      /** Format: uuid */
+      organization_id?: string;
+      /** Format: uuid */
+      branch_id?: string;
+      location_code?: string;
+      name?: string;
+      location_type?: components['schemas']['LocationType'];
+      is_sellable?: boolean;
+      is_active?: boolean;
+      /** Format: date-time */
+      updated_at?: string;
+    };
+    InventoryLocationDtoPagedResult: {
+      items?: components['schemas']['InventoryLocationDto'][];
+      /** Format: int32 */
+      page?: number;
+      /** Format: int32 */
+      page_size?: number;
+      /** Format: int32 */
+      total_count?: number;
+      next_cursor?: string | null;
+    };
+    InventorySummaryDto: {
+      /** Format: uuid */
+      organization_id?: string;
+      /** Format: uuid */
+      branch_id?: string;
+      /** Format: uuid */
+      product_id?: string;
+      base_uom_code?: string;
+      /** Format: double */
+      total_on_hand_qty_base?: number;
+      /** Format: double */
+      total_available_qty_base?: number;
+      /** Format: double */
+      weighted_average_unit_cost_base?: number;
+      locations_and_lots?: components['schemas']['StockBalanceDto'][];
+    };
+    /** @enum {string} */
+    InventoryTransactionStatus: 'DRAFT' | 'POSTED' | 'CANCELLED';
+    /** @enum {string} */
+    InventoryTransactionType:
       | 'OPENING_BALANCE'
       | 'ADJUSTMENT_IN'
       | 'ADJUSTMENT_OUT'
@@ -1666,3198 +4631,388 @@ export interface components {
       | 'VENDOR_RETURN_OUT'
       | 'SCRAP_OUT'
       | 'REVERSAL';
-    /**
-     * @description POSTED rows/lines immutable; CANCELLED only for unposted drafts.
-     * @enum {string}
-     */
-    InventoryTxnStatus: 'DRAFT' | 'POSTED' | 'CANCELLED';
-    InventoryTxnLineDto: {
-      inventory_txn_line_id: components['schemas']['Uuid'];
-      product_id: components['schemas']['Uuid'];
-      location_id: components['schemas']['Uuid'];
-      batch_id: components['schemas']['Uuid'];
-      /** @description Product's base UOM for ledger lines. */
-      product_uom_id: components['schemas']['Uuid'];
-      entered_qty: components['schemas']['PositiveNumeric4'];
-      conversion_snapshot: components['schemas']['PositiveNumeric6'];
-      /** @description Signed non-zero base-quantity delta; never 0. */
-      quantity_delta_base: components['schemas']['Numeric4'];
-      unit_cost_base?: components['schemas']['NonNegativeNumeric4'] | null;
-      sales_order_line_id?: components['schemas']['Uuid'] | null;
-      sales_return_line_id?: components['schemas']['Uuid'] | null;
-      purchase_order_line_id?: components['schemas']['Uuid'] | null;
-      vendor_return_line_id?: components['schemas']['Uuid'] | null;
-    };
     InventoryTxnDto: {
-      inventory_txn_id: components['schemas']['Uuid'];
-      branch_id: components['schemas']['Uuid'];
-      transaction_no: string;
-      transaction_type: components['schemas']['InventoryTxnType'];
-      status: components['schemas']['InventoryTxnStatus'];
+      /** Format: uuid */
+      inventory_txn_id?: string;
+      /** Format: uuid */
+      organization_id?: string;
+      /** Format: uuid */
+      branch_id?: string;
+      transaction_no?: string;
+      transaction_type?: components['schemas']['InventoryTransactionType'];
+      status?: components['schemas']['InventoryTransactionStatus'];
       reason_code?: string | null;
       note?: string | null;
-      posted_at?: components['schemas']['Timestamp'] | null;
-      created_by_employee_id?: components['schemas']['Uuid'];
-      reverses_inventory_txn_id?: components['schemas']['Uuid'] | null;
-      sales_order_id?: components['schemas']['Uuid'] | null;
-      sales_return_id?: components['schemas']['Uuid'] | null;
-      purchase_order_id?: components['schemas']['Uuid'] | null;
-      vendor_return_id?: components['schemas']['Uuid'] | null;
-      lines: components['schemas']['InventoryTxnLineDto'][];
+      idempotency_key?: string;
+      /** Format: uuid */
+      created_by_employee_id?: string;
+      /** Format: uuid */
+      reverses_inventory_txn_id?: string | null;
+      /** Format: date-time */
+      posted_at?: string | null;
+      lines?: components['schemas']['InventoryTxnLineDto'][];
     };
-    InventoryTxnRequest: {
-      /**
-       * @description Adjustment endpoint only. Ledger-generated types (SALE_ISSUE,
-       *     SALES_RETURN_IN, PURCHASE_RECEIPT, VENDOR_RETURN_OUT, SCRAP_OUT)
-       *     are server-created by their owning workflows and cannot be posted
-       *     here.
-       * @enum {string}
-       */
-      transaction_type:
-        'OPENING_BALANCE' | 'ADJUSTMENT_IN' | 'ADJUSTMENT_OUT' | 'REVERSAL';
-      branch_id: components['schemas']['Uuid'];
-      reason_code: string;
-      note?: string | null;
-      /** @description Required when transaction_type=REVERSAL; must reference a POSTED transaction in the same branch. */
-      reverses_inventory_txn_id?: components['schemas']['Uuid'] | null;
-      lines: components['schemas']['InventoryTxnLineRequest'][];
+    InventoryTxnDtoPagedResult: {
+      items?: components['schemas']['InventoryTxnDto'][];
+      /** Format: int32 */
+      page?: number;
+      /** Format: int32 */
+      page_size?: number;
+      /** Format: int32 */
+      total_count?: number;
+      next_cursor?: string | null;
     };
-    /**
-     * @description Partial edit for a DRAFT adjustment only. transaction_type, branch_id,
-     *     and reverses_inventory_txn_id are immutable after creation. Posted
-     *     transactions are immutable and must be corrected by a new REVERSAL.
-     */
-    InventoryTxnPatchRequest: {
-      reason_code?: string;
-      note?: string | null;
-      lines?: components['schemas']['InventoryTxnLineRequest'][];
+    InventoryTxnLineDto: {
+      /** Format: uuid */
+      inventory_txn_line_id?: string;
+      /** Format: uuid */
+      product_id?: string;
+      /** Format: uuid */
+      location_id?: string;
+      /** Format: uuid */
+      batch_id?: string;
+      batch_number?: string;
+      /** Format: uuid */
+      product_uom_id?: string;
+      /** Format: double */
+      entered_qty?: number;
+      /** Format: double */
+      conversion_snapshot?: number;
+      /** Format: double */
+      quantity_delta_base?: number;
+      /** Format: double */
+      unit_cost_base?: number;
     };
-    InventoryTxnLineRequest: {
-      product_id: components['schemas']['Uuid'];
-      location_id: components['schemas']['Uuid'];
-      /** @description For non-lot-tracked products use the system NON-LOT batch row. */
-      batch_id: components['schemas']['Uuid'];
-      /** @description Typically the product's base UOM; conversion must be >0. */
-      product_uom_id: components['schemas']['Uuid'];
-      entered_qty: components['schemas']['PositiveNumeric4'];
-      /** @description Required for ADJUSTMENT_IN / OPENING_BALANCE; server uses current balance cost for ADJUSTMENT_OUT and reversals; never negative. */
-      unit_cost_base?: components['schemas']['NonNegativeNumeric4'] | null;
+    JwkKey: {
+      /** @description Key type ("RSA"). */
+      kty: string;
+      /** @description Public key use ("sig"). */
+      use: string;
+      /** @description Signing algorithm ("RS256"). */
+      alg: string;
+      /** @description 32-character hexadecimal key identifier. */
+      kid: string;
+      /** @description Base64url-encoded RSA modulus. */
+      n: string;
+      /** @description Base64url-encoded RSA public exponent. */
+      e: string;
     };
-    /** @enum {string} */
-    SalesOrderStatus: 'DRAFT' | 'COMPLETED' | 'CANCELLED';
-    SalesOrderLineDto: {
-      order_line_id: components['schemas']['Uuid'];
-      product_id: components['schemas']['Uuid'];
-      product_uom_id: components['schemas']['Uuid'];
-      entered_qty: components['schemas']['PositiveNumeric4'];
-      conversion_snapshot: components['schemas']['PositiveNumeric6'];
-      quantity_base: components['schemas']['PositiveNumeric4'];
-      unit_price_snapshot: components['schemas']['NonNegativeNumeric4'];
-      /** @description Always 0 for MVP */
-      discount_amount: components['schemas']['Money'];
-      tax_rate_snapshot: components['schemas']['TaxRate'];
-      tax_amount_snapshot: components['schemas']['Money'];
-      line_total: components['schemas']['Money'];
-    };
-    SalesOrderDto: {
-      sales_order_id: components['schemas']['Uuid'];
-      branch_id: components['schemas']['Uuid'];
-      created_by_employee_id: components['schemas']['Uuid'];
-      order_no: string;
-      /** @default POS */
-      channel: string;
-      order_status: components['schemas']['SalesOrderStatus'];
-      /** @description equals Organization base_currency */
-      currency_code: string;
-      estimated_subtotal?: components['schemas']['Money'];
-      estimated_tax_total?: components['schemas']['Money'];
-      estimated_grand_total?: components['schemas']['Money'];
-      created_at: components['schemas']['Timestamp'];
-      completed_at?: components['schemas']['Timestamp'] | null;
-      lines: components['schemas']['SalesOrderLineDto'][];
-    };
-    /**
-     * @description FE provides only product identification and quantity. Price, tax,
-     *     discount, and totals are server-calculated from PRODUCT_UOM and
-     *     PRODUCT tax baselines — never authoritative from the FE.
-     */
-    CreateSalesOrderRequest: {
-      branch_id: components['schemas']['Uuid'];
-      lines: components['schemas']['SalesOrderLineRequest'][];
-    };
-    SalesOrderLineRequest: {
-      product_id: components['schemas']['Uuid'];
-      product_uom_id: components['schemas']['Uuid'];
-      entered_qty: components['schemas']['PositiveNumeric4'];
-    };
-    SalesOrderLinesRequest: {
-      lines: components['schemas']['SalesOrderLineRequest'][];
-    };
-    /**
-     * @description Server recomputes totals from line snapshots. Must satisfy
-     *     cash_tendered >= payable amount; change = tendered - due >= 0.
-     *     Cashier full payment only; partial/credit rejected.
-     */
-    CompleteSalesOrderRequest: {
-      cash_tendered_amount: components['schemas']['PositiveMoney'];
-      /** @enum {string} */
-      method: 'CASH';
-    };
-    CompleteSalesOrderResultDto: {
-      sales_order: components['schemas']['SalesOrderDto'];
-      invoice: components['schemas']['SalesInvoiceDto'];
-      payment: components['schemas']['SalesPaymentDto'];
-      inventory_txn: components['schemas']['InventoryTxnDto'];
+    JwksDocument: {
+      keys: components['schemas']['JwkKey'][];
     };
     /** @enum {string} */
-    SalesInvoiceStatus: 'ISSUED';
-    /** @enum {string} */
-    SalesInvoicePaymentStatus: 'PAID' | 'PARTIALLY_REFUNDED' | 'REFUNDED';
-    SalesInvoiceLineDto: {
-      invoice_line_id: components['schemas']['Uuid'];
-      source_order_line_id: components['schemas']['Uuid'];
-      product_id: components['schemas']['Uuid'];
-      product_uom_id: components['schemas']['Uuid'];
-      entered_qty: components['schemas']['PositiveNumeric4'];
-      conversion_snapshot: components['schemas']['PositiveNumeric6'];
-      quantity_base: components['schemas']['PositiveNumeric4'];
-      unit_price_snapshot: components['schemas']['NonNegativeNumeric4'];
-      discount_amount: components['schemas']['Money'];
-      tax_rate_snapshot: components['schemas']['TaxRate'];
-      tax_amount_snapshot: components['schemas']['Money'];
-      net_amount: components['schemas']['Money'];
-      /** @description tax-inclusive */
-      line_total: components['schemas']['Money'];
-      unit_cost_snapshot: components['schemas']['NonNegativeNumeric4'];
+    LocationType: 'SELLABLE' | 'QUARANTINE' | 'DAMAGED' | 'SCRAP';
+    LoginRequest: {
+      organization_code: string;
+      username: string;
+      password: string;
     };
-    SalesInvoiceDto: {
-      invoice_id: components['schemas']['Uuid'];
-      sales_order_id: components['schemas']['Uuid'];
-      branch_id: components['schemas']['Uuid'];
-      invoice_no: string;
-      status: components['schemas']['SalesInvoiceStatus'];
-      currency_code: string;
-      subtotal: components['schemas']['Money'];
-      discount_total: components['schemas']['Money'];
-      tax_total: components['schemas']['Money'];
-      grand_total: components['schemas']['Money'];
-      paid_amount: components['schemas']['Money'];
-      refunded_amount: components['schemas']['Money'];
-      payment_status: components['schemas']['SalesInvoicePaymentStatus'];
-      issued_at: components['schemas']['Timestamp'];
-      lines: components['schemas']['SalesInvoiceLineDto'][];
-      /** @description Linked cash payments */
-      payments?: components['schemas']['SalesPaymentDto'][];
-      returns_summary?: components['schemas']['SalesReturnDto'][];
+    LoginResponse: {
+      access_token?: string;
+      /** Format: date-time */
+      access_token_expires_at?: string;
+      refresh_token?: string;
+      user?: components['schemas']['CurrentUserDto'];
+      token_type?: string;
+      issuer?: string;
+      audience?: string;
+      key_id?: string;
     };
-    SalesPaymentDto: {
-      payment_id: components['schemas']['Uuid'];
-      invoice_id: components['schemas']['Uuid'];
-      amount_due: components['schemas']['Money'];
-      cash_tendered_amount: components['schemas']['Money'];
-      change_amount: components['schemas']['Money'];
-      /** @enum {string} */
-      method: 'CASH';
-      received_by_employee_id: components['schemas']['Uuid'];
-      paid_at: components['schemas']['Timestamp'];
+    LogoutRequest: {
+      refresh_token: string;
     };
-    /** @enum {string} */
-    ReturnDisposition: 'RESTOCK' | 'QUARANTINE' | 'SCRAP';
-    /** @enum {string} */
-    SalesReturnStatus: 'DRAFT' | 'POSTED' | 'CANCELLED';
-    /** @enum {string} */
-    SalesRefundStatus: 'NOT_REFUNDED' | 'PARTIALLY_REFUNDED' | 'REFUNDED';
-    SalesReturnLineDto: {
-      return_line_id: components['schemas']['Uuid'];
-      invoice_line_id: components['schemas']['Uuid'];
-      product_id: components['schemas']['Uuid'];
-      /** @description Server-derived from original sale */
-      batch_id: components['schemas']['Uuid'];
-      /** @description Server-selected; callers do not choose. */
-      destination_location_id: components['schemas']['Uuid'];
-      quantity_base: components['schemas']['PositiveNumeric4'];
-      refund_amount: components['schemas']['Money'];
-      disposition: components['schemas']['ReturnDisposition'];
+    OrganizationDto: {
+      /** Format: uuid */
+      organization_id?: string;
+      organization_code?: string;
+      name?: string;
+      base_currency?: string;
+      time_zone_id?: string;
+      /** Format: uuid */
+      initial_branch_id?: string;
+      /** Format: uuid */
+      initial_employee_id?: string;
+      /** Format: uuid */
+      initial_admin_user_id?: string;
+      enrollment_setup_state?: string;
     };
-    SalesReturnDto: {
-      return_id?: components['schemas']['Uuid'];
-      invoice_id?: components['schemas']['Uuid'];
-      branch_id?: components['schemas']['Uuid'];
-      return_no?: string;
-      status?: components['schemas']['SalesReturnStatus'];
-      reason_code: string;
-      refund_amount?: components['schemas']['Money'];
-      refund_status?: components['schemas']['SalesRefundStatus'];
-      received_by_employee_id?: components['schemas']['Uuid'];
-      approved_by_employee_id?: components['schemas']['Uuid'] | null;
-      received_at?: components['schemas']['Timestamp'];
-      lines?: components['schemas']['SalesReturnLineDto'][];
-      /**
-       * @description Zero transactions for a non-restocking return, one SALES_RETURN_IN
-       *     when stock is restocked/quarantined, and up to two when RESTOCK
-       *     plus an additional SCRAP_OUT is required. Server-created only.
-       */
-      inventory_txns?: components['schemas']['InventoryTxnDto'][];
-      refund?: components['schemas']['SalesRefundDto'];
+    ProductCategoryDto: {
+      /** Format: uuid */
+      category_id?: string;
+      /** Format: uuid */
+      organization_id?: string;
+      /** Format: uuid */
+      parent_category_id?: string | null;
+      code?: string;
+      name?: string;
+      description?: string | null;
+      is_active?: boolean;
+      /** Format: date-time */
+      created_at?: string;
+      /** Format: date-time */
+      updated_at?: string;
     };
-    SalesRefundDto: {
-      refund_id: components['schemas']['Uuid'];
-      sales_return_id: components['schemas']['Uuid'];
-      invoice_id: components['schemas']['Uuid'];
-      amount: components['schemas']['Money'];
-      /** @enum {string} */
-      method: 'CASH';
-      processed_by_employee_id: components['schemas']['Uuid'];
-      refunded_at: components['schemas']['Timestamp'];
+    ProductCategoryDtoPagedResult: {
+      items?: components['schemas']['ProductCategoryDto'][];
+      /** Format: int32 */
+      page?: number;
+      /** Format: int32 */
+      page_size?: number;
+      /** Format: int32 */
+      total_count?: number;
+      next_cursor?: string | null;
     };
-    SalesReturnRequest: {
-      invoice_id: components['schemas']['Uuid'];
-      reason_code: string;
-      /**
-       * @description Optional; if supplied, must be a different active Admin/Pharmacist
-       *     with authorization at the invoice branch, and not the cashier.
-       *     When omitted, server records pending/posted per backend policy.
-       */
-      approved_by_employee_id?: components['schemas']['Uuid'] | null;
-      lines: components['schemas']['SalesReturnLineRequest'][];
-      /** @default true */
-      refund_requested: boolean;
+    ProductDto: {
+      /** Format: uuid */
+      product_id?: string;
+      /** Format: uuid */
+      organization_id?: string;
+      /** Format: uuid */
+      category_id?: string;
+      sku?: string;
+      barcode?: string | null;
+      name?: string;
+      generic_name?: string | null;
+      brand_name?: string | null;
+      base_uom_code?: string;
+      /** Format: double */
+      tax_rate?: number;
+      image_url?: string | null;
+      lot_tracking_required?: boolean;
+      /** Format: int32 */
+      expiry_alert_days?: number;
+      is_active?: boolean;
+      uoms?: components['schemas']['ProductUomDto'][];
+      /** Format: date-time */
+      created_at?: string;
+      /** Format: date-time */
+      updated_at?: string;
     };
-    SalesReturnLineRequest: {
-      invoice_line_id: components['schemas']['Uuid'];
-      quantity_base: components['schemas']['PositiveNumeric4'];
-      disposition: components['schemas']['ReturnDisposition'];
+    ProductDtoPagedResult: {
+      items?: components['schemas']['ProductDto'][];
+      /** Format: int32 */
+      page?: number;
+      /** Format: int32 */
+      page_size?: number;
+      /** Format: int32 */
+      total_count?: number;
+      next_cursor?: string | null;
     };
-    SupplierDto: {
-      supplier_id: components['schemas']['Uuid'];
-      supplier_code: string;
-      legal_name: string;
-      tax_registration_number?: string | null;
-      /** Format: email */
-      contact_email?: string | null;
-      phone?: string | null;
-      address?: components['schemas']['AddressDto'];
-      default_lead_time_days: number;
-      is_active: boolean;
-      created_at?: components['schemas']['Timestamp'];
-      updated_at?: components['schemas']['Timestamp'];
+    ProductUomDto: {
+      /** Format: uuid */
+      product_uom_id?: string;
+      /** Format: uuid */
+      product_id?: string;
+      uom_code?: string;
+      display_name?: string;
+      /** Format: double */
+      conversion_to_base?: number;
+      /** Format: double */
+      sale_unit_price?: number | null;
+      is_base?: boolean;
+      is_sellable?: boolean;
+      is_purchasable?: boolean;
+      is_active?: boolean;
+      /** Format: date-time */
+      updated_at?: string;
     };
-    CreateSupplierRequest: {
-      supplier_code: string;
-      legal_name: string;
-      tax_registration_number?: string | null;
-      /** Format: email */
-      contact_email?: string | null;
-      phone?: string | null;
-      address: components['schemas']['AddressDto'];
-      /** @default 0 */
-      default_lead_time_days: number;
-      /** @default true */
-      is_active: boolean;
+    RedeemBranchEnrollmentRequest: {
+      token: string;
     };
-    SupplierPatchRequest: {
-      legal_name?: string;
-      tax_registration_number?: string | null;
-      /** Format: email */
-      contact_email?: string | null;
-      phone?: string | null;
-      address?: components['schemas']['AddressDto'];
-      default_lead_time_days?: number;
+    RedeemBranchEnrollmentResponse: {
+      /** Format: uuid */
+      organization_id?: string;
+      /** Format: uuid */
+      branch_id?: string;
+      runtime_credential?: string;
+      /** Format: int64 */
+      initial_sync_cursor?: number;
+      /** Format: date-time */
+      credential_expiry?: string;
     };
-    SupplierStatusPatchRequest: {
-      is_active: boolean;
+    RefreshTokenRequest: {
+      refresh_token: string;
     };
-    /** @enum {string} */
-    PurchaseOrderStatus:
-      | 'DRAFT'
-      | 'APPROVED'
-      | 'ORDERED'
-      | 'PARTIALLY_RECEIVED'
-      | 'RECEIVED'
-      | 'CLOSED'
-      | 'CANCELLED';
-    /** @enum {string} */
-    PurchaseOrderPaymentStatus: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID';
-    PurchaseOrderLineDto: {
-      po_line_id: components['schemas']['Uuid'];
-      product_id: components['schemas']['Uuid'];
-      product_uom_id: components['schemas']['Uuid'];
-      entered_ordered_qty: components['schemas']['PositiveNumeric4'];
-      conversion_snapshot: components['schemas']['PositiveNumeric6'];
-      ordered_qty_base: components['schemas']['PositiveNumeric4'];
-      /** @description cumulative accepted quantity only (rejected excluded) */
-      received_qty_base: components['schemas']['NonNegativeNumeric4'];
-      rejected_qty_base: components['schemas']['NonNegativeNumeric4'];
-      cancelled_qty_base: components['schemas']['NonNegativeNumeric4'];
-      /** @description ordered - accepted - cancelled */
-      readonly remaining_qty_base?: components['schemas']['NonNegativeNumeric4'];
-      unit_cost_entered: components['schemas']['NonNegativeNumeric4'];
-      unit_cost_base: components['schemas']['NonNegativeNumeric4'];
-      discount_amount: components['schemas']['Money'];
-      tax_rate_snapshot: components['schemas']['TaxRate'];
-      tax_amount: components['schemas']['Money'];
-      /** @description line net, tax-exclusive */
-      line_total: components['schemas']['Money'];
-      allocated_additional_cost: components['schemas']['Money'];
-      /** @default 90 */
-      min_remaining_shelf_days: number;
+    ReorderRuleDto: {
+      /** Format: uuid */
+      reorder_rule_id?: string;
+      /** Format: uuid */
+      organization_id?: string;
+      /** Format: uuid */
+      branch_id?: string;
+      /** Format: uuid */
+      product_id?: string;
+      /** Format: double */
+      reorder_point_base?: number;
+      /** Format: double */
+      reorder_quantity_base?: number;
+      /** Format: double */
+      max_quantity_base?: number | null;
+      is_active?: boolean;
+      /** Format: date-time */
+      updated_at?: string;
     };
-    PurchaseOrderDto: {
-      purchase_order_id: components['schemas']['Uuid'];
-      po_no: string;
-      supplier_id: components['schemas']['Uuid'];
-      branch_id: components['schemas']['Uuid'];
-      created_by_employee_id: components['schemas']['Uuid'];
-      status: components['schemas']['PurchaseOrderStatus'];
-      /** Format: date */
-      expected_on?: string | null;
-      currency_code: string;
-      subtotal: components['schemas']['Money'];
-      tax_total: components['schemas']['Money'];
-      additional_costs: components['schemas']['Money'];
-      total_amount: components['schemas']['Money'];
-      paid_amount: components['schemas']['Money'];
-      /** @description total - paid */
-      readonly outstanding_amount?: components['schemas']['Money'];
-      payment_status: components['schemas']['PurchaseOrderPaymentStatus'];
-      ordered_at?: components['schemas']['Timestamp'] | null;
-      lines: components['schemas']['PurchaseOrderLineDto'][];
-      created_at?: components['schemas']['Timestamp'];
-      updated_at?: components['schemas']['Timestamp'];
+    ResetPasswordRequest: {
+      new_password: string;
+      idempotency_key?: string | null;
     };
-    PurchaseOrderLineRequest: {
-      product_id: components['schemas']['Uuid'];
-      product_uom_id: components['schemas']['Uuid'];
-      entered_ordered_qty: components['schemas']['PositiveNumeric4'];
-      unit_cost_entered: components['schemas']['NonNegativeNumeric4'];
-      /** @default 0.00 */
-      discount_amount: components['schemas']['Money'];
-      /** @description Defaults to PRODUCT.tax_rate at server */
-      tax_rate_snapshot?: components['schemas']['TaxRate'] | null;
-      /** @default 90 */
-      min_remaining_shelf_days: number;
-    };
-    CreatePurchaseOrderRequest: {
-      supplier_id: components['schemas']['Uuid'];
-      branch_id: components['schemas']['Uuid'];
-      /** Format: date */
-      expected_on?: string | null;
-      /** @description must equal organization base_currency */
-      currency_code: string;
-      /** @description Optional header additional cost, pro-rata allocated to lines at creation. */
-      additional_costs?: components['schemas']['Money'];
-      lines: components['schemas']['PurchaseOrderLineRequest'][];
-    };
-    /** @description DRAFT-only edit */
-    PurchaseOrderPatchRequest: {
-      /** Format: date */
-      expected_on?: string | null;
-      lines?: components['schemas']['PurchaseOrderLineRequest'][];
-    };
-    CancelPurchaseOrderRequest: {
-      reason_code: string;
-      note?: string | null;
-    };
-    /**
-     * @description BranchLocal-only cancellation of the PO's remaining uncancelled
-     *     quantity. On success when no uncancelled quantity remains, the PO
-     *     transitions to CLOSED and a CANCEL_REMAINING_PURCHASE_ORDER fact
-     *     synchronizes to cloud.
-     */
-    CancelPurchaseOrderRemainingRequest: {
-      reason_code: string;
-      note?: string | null;
-    };
-    /** @description Empty request; marks ordered/sent. */
-    OrderPurchaseOrderRequest: Record<string, never>;
-    ReceivePurchaseOrderRequest: {
-      location_id: components['schemas']['Uuid'];
-      /** Format: date */
-      received_on: string;
-      lines: components['schemas']['ReceiveLineRequest'][];
-    };
-    /**
-     * @description Quantities are entered in `product_uom_id`; the server normalizes them
-     *     to base UOM. `entered_accepted_qty` defaults to `entered_qty` and
-     *     `entered_rejected_qty` defaults to 0. If normalized `*_qty_base`
-     *     fields are supplied, the server validates that they match the entered
-     *     quantities and the equation received = accepted + rejected.
-     *     Accepted quantity accumulates to PO received_qty_base; rejected
-     *     quantity stays replaceable/cancellable; batch supplied per line.
-     */
-    ReceiveLineRequest: {
-      po_line_id: components['schemas']['Uuid'];
-      product_id: components['schemas']['Uuid'];
-      /** @description Entered UOM for the entered_* quantity fields. */
-      product_uom_id: components['schemas']['Uuid'];
-      entered_qty: components['schemas']['PositiveNumeric4'];
-      entered_accepted_qty?: components['schemas']['NonNegativeNumeric4'];
-      entered_rejected_qty?: components['schemas']['NonNegativeNumeric4'];
-      /** @description Optional client echo of normalized accepted + rejected; server-computed when omitted. */
-      received_qty_base?: components['schemas']['NonNegativeNumeric4'];
-      /** @description Optional client echo of normalized accepted quantity; server-computed when omitted. */
-      accepted_qty_base?: components['schemas']['NonNegativeNumeric4'];
-      /** @description Optional client echo of normalized rejected quantity; server-computed when omitted. */
-      rejected_qty_base?: components['schemas']['NonNegativeNumeric4'];
-      batch_number: string;
+    StockBalanceDto: {
+      /** Format: uuid */
+      organization_id?: string;
+      /** Format: uuid */
+      branch_id?: string;
+      /** Format: uuid */
+      product_id?: string;
+      product_sku?: string;
+      product_name?: string;
+      base_uom_code?: string;
+      /** Format: uuid */
+      location_id?: string;
+      location_code?: string;
+      location_type?: components['schemas']['LocationType'];
+      is_location_sellable?: boolean;
+      /** Format: uuid */
+      batch_id?: string;
+      batch_number?: string;
       /** Format: date */
       manufactured_on?: string | null;
       /** Format: date */
       expires_on?: string | null;
-      /** @description Required for authorized shelf-life exception. */
-      override_reason?: string | null;
+      quality_status?: components['schemas']['BatchQualityStatus'];
+      /** Format: double */
+      on_hand_qty_base?: number;
+      /** Format: double */
+      available_qty_base?: number;
+      /** Format: double */
+      average_unit_cost?: number;
+      /** Format: date-time */
+      updated_at?: string;
+      /** Format: int64 */
+      row_version?: number;
     };
-    ReceiveLineDto: {
-      po_line_id: components['schemas']['Uuid'];
-      product_id: components['schemas']['Uuid'];
-      product_uom_id: components['schemas']['Uuid'];
-      entered_qty: components['schemas']['PositiveNumeric4'];
-      entered_accepted_qty: components['schemas']['NonNegativeNumeric4'];
-      entered_rejected_qty: components['schemas']['NonNegativeNumeric4'];
-      received_qty_base: components['schemas']['NonNegativeNumeric4'];
-      accepted_qty_base: components['schemas']['NonNegativeNumeric4'];
-      rejected_qty_base: components['schemas']['NonNegativeNumeric4'];
-      remaining_qty_base: components['schemas']['NonNegativeNumeric4'];
-      batch_id: components['schemas']['Uuid'];
+    StockBalanceDtoPagedResult: {
+      items?: components['schemas']['StockBalanceDto'][];
+      /** Format: int32 */
+      page?: number;
+      /** Format: int32 */
+      page_size?: number;
+      /** Format: int32 */
+      total_count?: number;
+      next_cursor?: string | null;
     };
-    PurchaseReceiptResultDto: {
-      inventory_txn_id: components['schemas']['Uuid'];
-      purchase_order_status: components['schemas']['PurchaseOrderStatus'];
-      lines: components['schemas']['ReceiveLineDto'][];
-      trace_id?: string;
+    UpdateBranchRequest: {
+      name?: string | null;
+      address?: components['schemas']['AddressDto'] | null;
+      is_active?: boolean | null;
+      idempotency_key?: string | null;
     };
-    /**
-     * @description Posts a SupplierPayment and updates PO paid_amount / payment_status
-     *     atomically in the same transaction. Currency must match PO.
-     */
-    RecordSupplierPaymentRequest: {
-      supplier_id: components['schemas']['Uuid'];
-      purchase_order_id: components['schemas']['Uuid'];
-      /** @description Must be >0 and <= outstanding PO balance */
-      amount: components['schemas']['PositiveMoney'];
-      currency_code: string;
-      /** @enum {string} */
-      method: 'CASH';
-      payment_reference?: string | null;
-      note?: string | null;
+    UpdateEmployeeRequest: {
+      full_name?: string | null;
+      /** Format: email */
+      email?: string | null;
+      phone?: string | null;
+      job_title?: string | null;
+      address?: components['schemas']['AddressDto'] | null;
+      is_active?: boolean | null;
+      idempotency_key?: string | null;
     };
-    SupplierPaymentDto: {
-      supplier_payment_id: components['schemas']['Uuid'];
-      supplier_id: components['schemas']['Uuid'];
-      purchase_order_id: components['schemas']['Uuid'];
-      amount: components['schemas']['Money'];
-      currency_code: string;
-      /** @enum {string} */
-      method: 'CASH';
-      payment_reference?: string | null;
-      note?: string | null;
-      paid_at: components['schemas']['Timestamp'];
-      recorded_by_employee_id: components['schemas']['Uuid'];
-      po_paid_amount?: components['schemas']['Money'];
-      po_outstanding_amount?: components['schemas']['Money'];
-      po_payment_status?: components['schemas']['PurchaseOrderPaymentStatus'];
+    UpdateInventoryLocationRequest: {
+      name?: string | null;
+      is_sellable?: boolean | null;
+      is_active?: boolean | null;
+      idempotency_key?: string | null;
+    };
+    UpdateProductCategoryRequest: {
+      /** Format: uuid */
+      parent_category_id?: string | null;
+      name?: string | null;
+      description?: string | null;
+      is_active?: boolean | null;
+      idempotency_key?: string | null;
+    };
+    UpdateProductRequest: {
+      /** Format: uuid */
+      category_id?: string | null;
+      sku?: string | null;
+      barcode?: string | null;
+      name?: string | null;
+      generic_name?: string | null;
+      brand_name?: string | null;
+      base_uom_code?: string | null;
+      /** Format: double */
+      tax_rate?: number | null;
+      image_url?: string | null;
+      lot_tracking_required?: boolean | null;
+      /** Format: int32 */
+      expiry_alert_days?: number | null;
+      is_active?: boolean | null;
+      idempotency_key?: string | null;
+    };
+    UpdateProductUomRequest: {
+      display_name?: string | null;
+      /** Format: double */
+      conversion_to_base?: number | null;
+      /** Format: double */
+      sale_unit_price?: number | null;
+      is_sellable?: boolean | null;
+      is_purchasable?: boolean | null;
+      is_active?: boolean | null;
+      idempotency_key?: string | null;
+    };
+    UpdateUserRequest: {
+      role?: components['schemas']['UserRole'] | null;
+      branch_scope?: components['schemas']['BranchScope'] | null;
+      branch_ids?: string[] | null;
+      is_active?: boolean | null;
+      idempotency_key?: string | null;
+    };
+    UpsertReorderRuleRequest: {
+      /** Format: double */
+      reorder_point_base?: number;
+      /** Format: double */
+      reorder_quantity_base?: number;
+      /** Format: double */
+      max_quantity_base?: number | null;
+      is_active?: boolean;
+      idempotency_key?: string | null;
+    };
+    UserDto: {
+      /** Format: uuid */
+      user_id?: string;
+      /** Format: uuid */
+      employee_id?: string;
+      /** Format: uuid */
+      organization_id?: string;
+      username?: string;
+      role?: components['schemas']['UserRole'];
+      branch_scope?: components['schemas']['BranchScope'];
+      is_active?: boolean;
+      branch_ids?: string[];
+      /** Format: date-time */
+      last_login_at?: string | null;
+      /** Format: date-time */
+      lockout_end?: string | null;
+      /** Format: int32 */
+      access_failed_count?: number;
+    };
+    UserDtoPagedResult: {
+      items?: components['schemas']['UserDto'][];
+      /** Format: int32 */
+      page?: number;
+      /** Format: int32 */
+      page_size?: number;
+      /** Format: int32 */
+      total_count?: number;
+      next_cursor?: string | null;
     };
     /** @enum {string} */
-    VendorReturnStatus: 'DRAFT' | 'POSTED' | 'CANCELLED';
-    VendorReturnLineDto: {
-      vendor_return_line_id: components['schemas']['Uuid'];
-      purchase_order_line_id: components['schemas']['Uuid'];
-      product_id: components['schemas']['Uuid'];
-      batch_id: components['schemas']['Uuid'];
-      location_id: components['schemas']['Uuid'];
-      quantity_base: components['schemas']['PositiveNumeric4'];
-      unit_cost_snapshot: components['schemas']['NonNegativeNumeric4'];
-      reason_code?: string;
-    };
-    VendorReturnDto: {
-      vendor_return_id: components['schemas']['Uuid'];
-      return_no: string;
-      supplier_id: components['schemas']['Uuid'];
-      branch_id: components['schemas']['Uuid'];
-      created_by_employee_id: components['schemas']['Uuid'];
-      status: components['schemas']['VendorReturnStatus'];
-      reason_code?: string;
-      note?: string | null;
-      created_at: components['schemas']['Timestamp'];
-      posted_at?: components['schemas']['Timestamp'] | null;
-      lines: components['schemas']['VendorReturnLineDto'][];
-      inventory_txn?: components['schemas']['InventoryTxnDto'] | null;
-    };
-    CreateVendorReturnRequest: {
-      supplier_id: components['schemas']['Uuid'];
-      branch_id: components['schemas']['Uuid'];
-      reason_code: string;
-      note?: string | null;
-      lines: components['schemas']['VendorReturnLineRequest'][];
-    };
-    VendorReturnLineRequest: {
-      purchase_order_line_id: components['schemas']['Uuid'];
-      batch_id: components['schemas']['Uuid'];
-      location_id: components['schemas']['Uuid'];
-      quantity_base: components['schemas']['PositiveNumeric4'];
-      reason_code: string;
-    };
-    PagedBranchDto: components['schemas']['PagedResult'] & {
-      items?: components['schemas']['BranchDto'][];
-    };
-    PagedUserDto: components['schemas']['PagedResult'] & {
-      items?: components['schemas']['UserDto'][];
-    };
-    PagedEmployeeDto: components['schemas']['PagedResult'] & {
-      items?: components['schemas']['EmployeeDto'][];
-    };
-    PagedProductCategoryDto: components['schemas']['PagedResult'] & {
-      items?: components['schemas']['ProductCategoryDto'][];
-    };
-    PagedProductDto: components['schemas']['PagedResult'] & {
-      items?: components['schemas']['ProductDto'][];
-    };
-    PagedInventoryLocationDto: components['schemas']['PagedResult'] & {
-      items?: components['schemas']['InventoryLocationDto'][];
-    };
-    PagedInventoryBatchDto: components['schemas']['PagedResult'] & {
-      items?: components['schemas']['InventoryBatchDto'][];
-    };
-    PagedInventoryBalanceDto: components['schemas']['PagedResult'] & {
-      items?: components['schemas']['InventoryBalanceDto'][];
-    };
-    PagedInventoryTxnDto: components['schemas']['PagedResult'] & {
-      items?: components['schemas']['InventoryTxnDto'][];
-    };
-    PagedSalesOrderDto: components['schemas']['PagedResult'] & {
-      items?: components['schemas']['SalesOrderDto'][];
-    };
-    PagedSalesInvoiceDto: components['schemas']['PagedResult'] & {
-      items?: components['schemas']['SalesInvoiceDto'][];
-    };
-    PagedSalesReturnDto: components['schemas']['PagedResult'] & {
-      items?: components['schemas']['SalesReturnDto'][];
-    };
-    PagedSupplierDto: components['schemas']['PagedResult'] & {
-      items?: components['schemas']['SupplierDto'][];
-    };
-    PagedPurchaseOrderDto: components['schemas']['PagedResult'] & {
-      items?: components['schemas']['PurchaseOrderDto'][];
-    };
-    PagedVendorReturnDto: components['schemas']['PagedResult'] & {
-      items?: components['schemas']['VendorReturnDto'][];
-    };
+    UserRole: 'Admin' | 'Pharmacist' | 'Cashier';
   };
-  responses: {
-    /** @description Missing/invalid/expired token */
-    Unauthorized: {
-      headers: {
-        [name: string]: unknown;
-      };
-      content: {
-        'application/json': components['schemas']['ApiError'];
-      };
-    };
-    /** @description Authenticated but not permitted */
-    Forbidden: {
-      headers: {
-        [name: string]: unknown;
-      };
-      content: {
-        'application/json': components['schemas']['ApiError'];
-      };
-    };
-    /**
-     * @description Actor authenticated but lacks branch access. Errors shall use code
-     *     FORBIDDEN_BRANCH when branch scope is the failing check.
-     */
-    ForbiddenBranch: {
-      headers: {
-        [name: string]: unknown;
-      };
-      content: {
-        'application/json': components['schemas']['ApiError'];
-      };
-    };
-    /** @description Resource/token is expired, consumed, or no longer available */
-    Gone: {
-      headers: {
-        [name: string]: unknown;
-      };
-      content: {
-        'application/json': components['schemas']['ApiError'];
-      };
-    };
-    /** @description Resource not in scope or does not exist */
-    NotFound: {
-      headers: {
-        [name: string]: unknown;
-      };
-      content: {
-        'application/json': components['schemas']['ApiError'];
-      };
-    };
-    /** @description State / sequence / idempotency / stock conflict */
-    Conflict: {
-      headers: {
-        [name: string]: unknown;
-      };
-      content: {
-        'application/json': components['schemas']['ApiError'];
-      };
-    };
-    /** @description Well-formed but field/domain validation failed */
-    ValidationError: {
-      headers: {
-        [name: string]: unknown;
-      };
-      content: {
-        'application/json': components['schemas']['ApiError'];
-      };
-    };
-    /** @description Malformed or unparseable request (MALFORMED_REQUEST) */
-    MalformedRequest: {
-      headers: {
-        [name: string]: unknown;
-      };
-      content: {
-        'application/json': components['schemas']['ApiError'];
-      };
-    };
-    /** @description Unexpected server error (INTERNAL_ERROR) */
-    InternalError: {
-      headers: {
-        [name: string]: unknown;
-      };
-      content: {
-        'application/json': components['schemas']['ApiError'];
-      };
-    };
-  };
-  parameters: {
-    /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-    idempotencyKey: string;
-    /** @description Opaque continuation cursor from a previous PagedResult response. */
-    cursor: string;
-    /** @description Page size (server-defined default and max). */
-    limit: number;
-    /** @description Include soft-deactivated (is_active=false) master data in list results. */
-    includeInactive: boolean;
-    /** @description Optional branch filter; must be within caller branch scope. */
-    branchIdQuery: string;
-    /** @description Required branch filter; must be within caller branch scope. */
-    branchIdQueryRequired: string;
-    branchId: string;
-    userId: string;
-    employeeId: string;
-    categoryId: string;
-    productId: string;
-    uomId: string;
-    locationId: string;
-    txnId: string;
-    salesOrderId: string;
-    invoiceId: string;
-    returnId: string;
-    supplierId: string;
-    purchaseOrderId: string;
-    supplierPaymentId: string;
-    vendorReturnId: string;
-  };
+  responses: never;
+  parameters: never;
   requestBodies: never;
   headers: never;
   pathItems: never;
 }
 export type $defs = Record<string, never>;
-export interface operations {
-  authLogin: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['LoginRequest'];
-      };
-    };
-    responses: {
-      /** @description Tokens + current user context */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['LoginResponse'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  authRefresh: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['RefreshTokenRequest'];
-      };
-    };
-    responses: {
-      /** @description New token pair */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['TokenPairResponse'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      409: components['responses']['Conflict'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  authLogout: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['LogoutRequest'];
-      };
-    };
-    responses: {
-      /** @description Family revoked */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  authMe: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Current user + organization + branch scope */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['CurrentUserContextDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  getJwks: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Active RS256 public keys */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['JwksResponse'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  createOrganization: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CreateOrganizationRequest'];
-      };
-    };
-    responses: {
-      /** @description Created organization + initial admin context + enrollment setup state */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['OrganizationSetupResultDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  listBranches: {
-    parameters: {
-      query?: {
-        /** @description Opaque continuation cursor from a previous PagedResult response. */
-        cursor?: components['parameters']['cursor'];
-        /** @description Page size (server-defined default and max). */
-        limit?: components['parameters']['limit'];
-        /** @description Include soft-deactivated (is_active=false) master data in list results. */
-        includeInactive?: components['parameters']['includeInactive'];
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Paged branches */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PagedBranchDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['ForbiddenBranch'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  createBranch: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['BranchRequest'];
-      };
-    };
-    responses: {
-      /** @description Created branch (locations are auto-seeded) */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['BranchDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['ForbiddenBranch'];
-      409: components['responses']['Conflict'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  getBranch: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        branchId: components['parameters']['branchId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Branch detail */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['BranchDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      404: components['responses']['NotFound'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  patchBranch: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        branchId: components['parameters']['branchId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['BranchPatchRequest'];
-      };
-    };
-    responses: {
-      /** @description Updated branch */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['BranchDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['ForbiddenBranch'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  createBranchEnrollmentToken: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        branchId: components['parameters']['branchId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Enrollment token (single use, expiring) */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['EnrollmentTokenDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['ForbiddenBranch'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  redeemBranchEnrollment: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['BranchEnrollmentRequest'];
-      };
-    };
-    responses: {
-      /** @description Runtime credential + initial cursor */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['BranchEnrollmentResultDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      410: components['responses']['Gone'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  listUsers: {
-    parameters: {
-      query?: {
-        /** @description Opaque continuation cursor from a previous PagedResult response. */
-        cursor?: components['parameters']['cursor'];
-        /** @description Page size (server-defined default and max). */
-        limit?: components['parameters']['limit'];
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Paged users */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PagedUserDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  createUser: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CreateUserRequest'];
-      };
-    };
-    responses: {
-      /** @description Created user */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['UserDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  getUser: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        userId: components['parameters']['userId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description User detail */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['UserDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      404: components['responses']['NotFound'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  patchUser: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        userId: components['parameters']['userId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['UserPatchRequest'];
-      };
-    };
-    responses: {
-      /** @description Updated user */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['UserDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  resetUserPassword: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        userId: components['parameters']['userId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['PasswordResetRequest'];
-      };
-    };
-    responses: {
-      /** @description Password reset */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  revokeUserSessions: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        userId: components['parameters']['userId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Sessions revoked */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      404: components['responses']['NotFound'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  listEmployees: {
-    parameters: {
-      query?: {
-        /** @description Opaque continuation cursor from a previous PagedResult response. */
-        cursor?: components['parameters']['cursor'];
-        /** @description Page size (server-defined default and max). */
-        limit?: components['parameters']['limit'];
-        /** @description Optional branch filter; must be within caller branch scope. */
-        branchId?: components['parameters']['branchIdQuery'];
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Paged employees */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PagedEmployeeDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  createEmployee: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['EmployeeRequest'];
-      };
-    };
-    responses: {
-      /** @description Created employee */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['EmployeeDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  getEmployee: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        employeeId: components['parameters']['employeeId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Employee detail */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['EmployeeDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      404: components['responses']['NotFound'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  patchEmployee: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        employeeId: components['parameters']['employeeId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['EmployeePatchRequest'];
-      };
-    };
-    responses: {
-      /** @description Updated employee */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['EmployeeDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  listProductCategories: {
-    parameters: {
-      query?: {
-        /** @description Opaque continuation cursor from a previous PagedResult response. */
-        cursor?: components['parameters']['cursor'];
-        /** @description Page size (server-defined default and max). */
-        limit?: components['parameters']['limit'];
-        /** @description Include soft-deactivated (is_active=false) master data in list results. */
-        includeInactive?: components['parameters']['includeInactive'];
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Paged categories (tree via parent_category_id) */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PagedProductCategoryDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  createProductCategory: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ProductCategoryRequest'];
-      };
-    };
-    responses: {
-      /** @description Created category */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProductCategoryDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  getProductCategory: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        categoryId: components['parameters']['categoryId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Category detail */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProductCategoryDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      404: components['responses']['NotFound'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  patchProductCategory: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        categoryId: components['parameters']['categoryId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ProductCategoryPatchRequest'];
-      };
-    };
-    responses: {
-      /** @description Updated category */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProductCategoryDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  listProducts: {
-    parameters: {
-      query?: {
-        /** @description Opaque continuation cursor from a previous PagedResult response. */
-        cursor?: components['parameters']['cursor'];
-        /** @description Page size (server-defined default and max). */
-        limit?: components['parameters']['limit'];
-        /** @description Match on SKU / barcode / name (server-defined behavior) */
-        search?: string;
-        categoryId?: string;
-        /** @description Include soft-deactivated (is_active=false) master data in list results. */
-        includeInactive?: components['parameters']['includeInactive'];
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Paged products */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PagedProductDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  createProduct: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CreateProductRequest'];
-      };
-    };
-    responses: {
-      /** @description Created product (with initial base UOM) */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProductDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  getProduct: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        productId: components['parameters']['productId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Product detail incl. UOMs */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProductDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      404: components['responses']['NotFound'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  patchProduct: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        productId: components['parameters']['productId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ProductPatchRequest'];
-      };
-    };
-    responses: {
-      /** @description Updated product */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProductDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  listProductUoms: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        productId: components['parameters']['productId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description UOM list for product (incl. inactive) */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProductUomDto'][];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  createProductUom: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        productId: components['parameters']['productId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ProductUomRequest'];
-      };
-    };
-    responses: {
-      /** @description Created UOM */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProductUomDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  patchProductUom: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        productId: components['parameters']['productId'];
-        uomId: components['parameters']['uomId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ProductUomPatchRequest'];
-      };
-    };
-    responses: {
-      /** @description Updated UOM */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProductUomDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  getReorderRule: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        branchId: components['parameters']['branchId'];
-        productId: components['parameters']['productId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Reorder rule (or null if none configured) */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            rule?: components['schemas']['ReorderRuleDto'];
-          } | null;
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      404: components['responses']['NotFound'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  putReorderRule: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        branchId: components['parameters']['branchId'];
-        productId: components['parameters']['productId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ReorderRuleRequest'];
-      };
-    };
-    responses: {
-      /** @description Upserted rule */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ReorderRuleDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  listInventoryLocations: {
-    parameters: {
-      query: {
-        /** @description Opaque continuation cursor from a previous PagedResult response. */
-        cursor?: components['parameters']['cursor'];
-        /** @description Page size (server-defined default and max). */
-        limit?: components['parameters']['limit'];
-        /** @description Required branch filter; must be within caller branch scope. */
-        branchId: components['parameters']['branchIdQueryRequired'];
-        locationType?: components['schemas']['LocationType'];
-        /** @description Include soft-deactivated (is_active=false) master data in list results. */
-        includeInactive?: components['parameters']['includeInactive'];
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Paged locations. Branches are seeded with SELLABLE / QUARANTINE / SCRAP defaults. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PagedInventoryLocationDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  createInventoryLocation: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['InventoryLocationRequest'];
-      };
-    };
-    responses: {
-      /** @description Created location */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['InventoryLocationDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  getInventoryLocation: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        locationId: components['parameters']['locationId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Location detail */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['InventoryLocationDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      404: components['responses']['NotFound'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  patchInventoryLocation: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        locationId: components['parameters']['locationId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['InventoryLocationPatchRequest'];
-      };
-    };
-    responses: {
-      /** @description Updated location */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['InventoryLocationDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  listInventoryBatches: {
-    parameters: {
-      query: {
-        /** @description Opaque continuation cursor from a previous PagedResult response. */
-        cursor?: components['parameters']['cursor'];
-        /** @description Page size (server-defined default and max). */
-        limit?: components['parameters']['limit'];
-        /** @description Required branch filter; must be within caller branch scope. */
-        branchId: components['parameters']['branchIdQueryRequired'];
-        productId?: string;
-        qualityStatus?: components['schemas']['BatchQualityStatus'];
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Paged batches */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PagedInventoryBatchDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  listInventoryBalances: {
-    parameters: {
-      query: {
-        /** @description Opaque continuation cursor from a previous PagedResult response. */
-        cursor?: components['parameters']['cursor'];
-        /** @description Page size (server-defined default and max). */
-        limit?: components['parameters']['limit'];
-        /** @description Required branch filter; must be within caller branch scope. */
-        branchId: components['parameters']['branchIdQueryRequired'];
-        productId?: string;
-        locationId?: string;
-        batchId?: string;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Paged balances (no reserved quantity in MVP) */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PagedInventoryBalanceDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  listInventoryTransactions: {
-    parameters: {
-      query: {
-        /** @description Opaque continuation cursor from a previous PagedResult response. */
-        cursor?: components['parameters']['cursor'];
-        /** @description Page size (server-defined default and max). */
-        limit?: components['parameters']['limit'];
-        /** @description Required branch filter; must be within caller branch scope. */
-        branchId: components['parameters']['branchIdQueryRequired'];
-        transactionType?: components['schemas']['InventoryTxnType'];
-        productId?: string;
-        from?: string;
-        to?: string;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Paged ledger transactions */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PagedInventoryTxnDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  getInventoryTransaction: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        txnId: components['parameters']['txnId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Transaction + lines */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['InventoryTxnDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      404: components['responses']['NotFound'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  postInventoryAdjustment: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['InventoryTxnRequest'];
-      };
-    };
-    responses: {
-      /** @description Posted or draft adjustment */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['InventoryTxnDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  postInventoryAdjustmentById: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        txnId: components['parameters']['txnId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Posted transaction */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['InventoryTxnDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  patchInventoryAdjustment: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        txnId: components['parameters']['txnId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['InventoryTxnPatchRequest'];
-      };
-    };
-    responses: {
-      /** @description Updated draft */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['InventoryTxnDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  cancelInventoryAdjustment: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        txnId: components['parameters']['txnId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Draft cancelled */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  listSalesOrders: {
-    parameters: {
-      query: {
-        /** @description Required branch filter; must be within caller branch scope. */
-        branchId: components['parameters']['branchIdQueryRequired'];
-        status?: components['schemas']['SalesOrderStatus'];
-        from?: string;
-        to?: string;
-        /** @description Opaque continuation cursor from a previous PagedResult response. */
-        cursor?: components['parameters']['cursor'];
-        /** @description Page size (server-defined default and max). */
-        limit?: components['parameters']['limit'];
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Paged orders */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PagedSalesOrderDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  createSalesOrder: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CreateSalesOrderRequest'];
-      };
-    };
-    responses: {
-      /** @description Draft order with server-priced lines */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SalesOrderDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  getSalesOrder: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        salesOrderId: components['parameters']['salesOrderId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Order + lines */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SalesOrderDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      404: components['responses']['NotFound'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  putSalesOrderLines: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        salesOrderId: components['parameters']['salesOrderId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SalesOrderLinesRequest'];
-      };
-    };
-    responses: {
-      /** @description Updated draft order (server re-prices lines) */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SalesOrderDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  completeSalesOrder: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        salesOrderId: components['parameters']['salesOrderId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CompleteSalesOrderRequest'];
-      };
-    };
-    responses: {
-      /** @description Completed order + invoice + payment + inventory txn refs */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['CompleteSalesOrderResultDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      /** @description OUT_OF_STOCK (typed, per-line) / INVALID_STATE_TRANSITION / IDEMPOTENCY_MISMATCH */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ApiError'];
-        };
-      };
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  cancelSalesOrder: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        salesOrderId: components['parameters']['salesOrderId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Draft cancelled */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  listSalesInvoices: {
-    parameters: {
-      query: {
-        /** @description Required branch filter; must be within caller branch scope. */
-        branchId: components['parameters']['branchIdQueryRequired'];
-        invoiceNo?: string;
-        from?: string;
-        to?: string;
-        /** @description Opaque continuation cursor from a previous PagedResult response. */
-        cursor?: components['parameters']['cursor'];
-        /** @description Page size (server-defined default and max). */
-        limit?: components['parameters']['limit'];
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Paged invoices */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PagedSalesInvoiceDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  getSalesInvoice: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        invoiceId: components['parameters']['invoiceId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Invoice detail */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SalesInvoiceDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      404: components['responses']['NotFound'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  listSalesReturns: {
-    parameters: {
-      query: {
-        /** @description Required branch filter; must be within caller branch scope. */
-        branchId: components['parameters']['branchIdQueryRequired'];
-        invoiceId?: string;
-        from?: string;
-        to?: string;
-        /** @description Opaque continuation cursor from a previous PagedResult response. */
-        cursor?: components['parameters']['cursor'];
-        /** @description Page size (server-defined default and max). */
-        limit?: components['parameters']['limit'];
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Paged returns */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PagedSalesReturnDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  createSalesReturn: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SalesReturnRequest'];
-      };
-    };
-    responses: {
-      /** @description Posted return (may include refund + stock txn) */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SalesReturnDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      /** @description Expiry / 14-day / over-return / approver policy violations */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ApiError'];
-        };
-      };
-      500: components['responses']['InternalError'];
-    };
-  };
-  getSalesReturn: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        returnId: components['parameters']['returnId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Return + lines + stock txn + refund */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SalesReturnDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      404: components['responses']['NotFound'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  listSuppliers: {
-    parameters: {
-      query?: {
-        /** @description Opaque continuation cursor from a previous PagedResult response. */
-        cursor?: components['parameters']['cursor'];
-        /** @description Page size (server-defined default and max). */
-        limit?: components['parameters']['limit'];
-        /** @description Include soft-deactivated (is_active=false) master data in list results. */
-        includeInactive?: components['parameters']['includeInactive'];
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Paged suppliers */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PagedSupplierDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  createSupplier: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CreateSupplierRequest'];
-      };
-    };
-    responses: {
-      /** @description Created supplier */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SupplierDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  getSupplier: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        supplierId: components['parameters']['supplierId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Supplier detail */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SupplierDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      404: components['responses']['NotFound'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  patchSupplier: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        supplierId: components['parameters']['supplierId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SupplierPatchRequest'];
-      };
-    };
-    responses: {
-      /** @description Updated supplier */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SupplierDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  patchSupplierStatus: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        supplierId: components['parameters']['supplierId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SupplierStatusPatchRequest'];
-      };
-    };
-    responses: {
-      /** @description Updated supplier */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SupplierDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  listPurchaseOrders: {
-    parameters: {
-      query?: {
-        supplierId?: string;
-        /** @description Optional branch filter; must be within caller branch scope. */
-        branchId?: components['parameters']['branchIdQuery'];
-        status?: components['schemas']['PurchaseOrderStatus'];
-        from?: string;
-        to?: string;
-        /** @description Opaque continuation cursor from a previous PagedResult response. */
-        cursor?: components['parameters']['cursor'];
-        /** @description Page size (server-defined default and max). */
-        limit?: components['parameters']['limit'];
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Paged POs */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PagedPurchaseOrderDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  createPurchaseOrder: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CreatePurchaseOrderRequest'];
-      };
-    };
-    responses: {
-      /** @description Draft PO with per-line allocations */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PurchaseOrderDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  getPurchaseOrder: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        purchaseOrderId: components['parameters']['purchaseOrderId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description PO detail + lines + totals + payments summary */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PurchaseOrderDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      404: components['responses']['NotFound'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  patchPurchaseOrder: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        purchaseOrderId: components['parameters']['purchaseOrderId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['PurchaseOrderPatchRequest'];
-      };
-    };
-    responses: {
-      /** @description Updated draft PO */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PurchaseOrderDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  cancelPurchaseOrder: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        purchaseOrderId: components['parameters']['purchaseOrderId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CancelPurchaseOrderRequest'];
-      };
-    };
-    responses: {
-      /** @description Cancelled PO (CANCELLED or remaining-cancelled transition) */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PurchaseOrderDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  approvePurchaseOrder: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        purchaseOrderId: components['parameters']['purchaseOrderId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Approved PO */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PurchaseOrderDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  orderPurchaseOrder: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        purchaseOrderId: components['parameters']['purchaseOrderId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: {
-      content: {
-        'application/json': components['schemas']['OrderPurchaseOrderRequest'];
-      };
-    };
-    responses: {
-      /** @description Ordered PO */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PurchaseOrderDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  receivePurchaseOrder: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        purchaseOrderId: components['parameters']['purchaseOrderId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ReceivePurchaseOrderRequest'];
-      };
-    };
-    responses: {
-      /** @description Receipt result + inventory txn refs */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PurchaseReceiptResultDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      /** @description EXPIRY_POLICY_VIOLATION / shelf-life / quantity policy */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ApiError'];
-        };
-      };
-      500: components['responses']['InternalError'];
-    };
-  };
-  cancelPurchaseOrderRemaining: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        purchaseOrderId: components['parameters']['purchaseOrderId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CancelPurchaseOrderRemainingRequest'];
-      };
-    };
-    responses: {
-      /** @description CLOSED PO */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PurchaseOrderDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  createSupplierPayment: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['RecordSupplierPaymentRequest'];
-      };
-    };
-    responses: {
-      /** @description Posted payment + updated PO payment status */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SupplierPaymentDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  getSupplierPayment: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        supplierPaymentId: components['parameters']['supplierPaymentId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Payment detail */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SupplierPaymentDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      404: components['responses']['NotFound'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  listVendorReturns: {
-    parameters: {
-      query?: {
-        /** @description Opaque continuation cursor from a previous PagedResult response. */
-        cursor?: components['parameters']['cursor'];
-        /** @description Page size (server-defined default and max). */
-        limit?: components['parameters']['limit'];
-        /** @description Optional branch filter; must be within caller branch scope. */
-        branchId?: components['parameters']['branchIdQuery'];
-        status?: components['schemas']['VendorReturnStatus'];
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Paged vendor returns */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PagedVendorReturnDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  createVendorReturn: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CreateVendorReturnRequest'];
-      };
-    };
-    responses: {
-      /** @description Draft vendor return */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['VendorReturnDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  getVendorReturn: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        vendorReturnId: components['parameters']['vendorReturnId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Return + lines + linked inventory txn */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['VendorReturnDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      404: components['responses']['NotFound'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  cancelVendorReturn: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        vendorReturnId: components['parameters']['vendorReturnId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Cancelled return */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['VendorReturnDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      500: components['responses']['InternalError'];
-    };
-  };
-  postVendorReturn: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description Stable per-mutation key (UUID or opaque, max 100 chars). Same key with same payload hash replays the original stored response; same key with a DIFFERENT payload → 409 IDEMPOTENCY_MISMATCH. */
-        'Idempotency-Key': components['parameters']['idempotencyKey'];
-      };
-      path: {
-        vendorReturnId: components['parameters']['vendorReturnId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Posted return */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['VendorReturnDto'];
-        };
-      };
-      400: components['responses']['MalformedRequest'];
-      401: components['responses']['Unauthorized'];
-      403: components['responses']['Forbidden'];
-      409: components['responses']['Conflict'];
-      422: components['responses']['ValidationError'];
-      500: components['responses']['InternalError'];
-    };
-  };
-}
+export type operations = Record<string, never>;

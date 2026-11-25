@@ -10,7 +10,7 @@ import { NAV_GROUPS } from './navItems';
  */
 export function Topbar() {
   const location = useLocation();
-  const { currentUser, runtime } = useAuth();
+  const { organizationCode, runtime } = useAuth();
 
   const currentLabel =
     NAV_GROUPS.flatMap((group) => group.items).find(
@@ -24,7 +24,7 @@ export function Topbar() {
       <div className="flex items-center gap-3">
         <BranchContextControl />
         <span className="text-body-sm text-text-secondary">
-          {currentUser?.organization_code ?? 'Organization unavailable'}
+          {organizationCode ?? 'Organization unavailable'}
         </span>
         <Badge variant="neutral" dot>
           {runtime ?? 'Runtime unavailable'}

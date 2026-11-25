@@ -4,11 +4,12 @@
  * Configured using React Router v7 createBrowserRouter.
  * Follows STRUCTURE.md: routes/router.tsx.
  *
- * Route gates (contracts/FRONTEND.md §1 and §6):
+ * Route gates (contracts/FRONTEND.md §2 and §4):
  * - Organization & Identity screens → Admin role, Cloud runtime.
  * - Catalog and inventory reads → every role, both runtimes.
- * - Branch device enrollment → public (the device has no session before it is
- *   enrolled) and only offered on the BranchLocal runtime.
+ * - Branch device enrollment → public (POST /api/v1/branch-enrollment is a
+ *   public endpoint on the Cloud runtime per openapi.erp.yaml &
+ *   contracts/FRONTEND.md §2).
  */
 
 import { createBrowserRouter, type RouteObject } from 'react-router-dom';

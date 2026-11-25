@@ -1,124 +1,288 @@
 import { describe, expect, it } from 'vitest';
 import { ApiClientError } from './client';
+import { ContractValidationError, requireString } from './normalizers';
 import {
+  MAX_PAGE_SIZE,
+  buildPaginationQueryParams,
   fetchAllPages,
-  normalizeCursorParam,
   parseArrayResult,
   parsePagedResult,
 } from './pagination';
 
-describe('pagination helpers', () => {
-  it('parsePagedResult accepts valid { items, nextCursor } envelopes and preserves opaque cursor whitespace', () => {
+function expectInvalidResponseError(fn: () => unknown): void {
+  try {
+    fn();
+    expect.fail('Expected ApiClientError to be thrown');
+  } catch (error: unknown) {
+    expect(error).toBeInstanceOf(ApiClientError);
+    if (error instanceof ApiClientError) {
+      expect(error.code).toBe('INVALID_RESPONSE');
+    }
+  }
+}
+
+describe('Stage 1 pagination helpers', () => {
+  it('parsePagedResult accepts valid Stage 1 PagedResult envelopes', () => {
     const page = parsePagedResult<{ id: string }>(
-      { items: [{ id: '1' }], nextCursor: ' opaque-cursor-2 ' },
+      {
+        items: [{ id: '1' }],
+        page: 1,
+        page_size: 25,
+        total_count: 1,
+        next_cursor: '2',
+      },
       '/inventory/balances'
     );
     expect(page).toEqual({
       items: [{ id: '1' }],
-      nextCursor: ' opaque-cursor-2 ',
+      page: 1,
+      page_size: 25,
+      total_count: 1,
+      next_cursor: '2',
     });
 
-    const terminalPage = parsePagedResult<{ id: string }>(
-      { items: [], nextCursor: null },
+    const emptyPage = parsePagedResult<{ id: string }>(
+      {
+        items: [],
+        page: 1,
+        page_size: 25,
+        total_count: 0,
+        next_cursor: null,
+      },
       '/inventory/balances'
     );
-    expect(terminalPage).toEqual({ items: [], nextCursor: null });
+    expect(emptyPage).toEqual({
+      items: [],
+      page: 1,
+      page_size: 25,
+      total_count: 0,
+      next_cursor: null,
+    });
   });
 
-  it('parsePagedResult rejects bare JSON arrays and malformed or blank nextCursor envelopes with INVALID_RESPONSE', () => {
-    expect(() =>
-      parsePagedResult([{ on_hand_qty_base: '10.0000' }], '/inventory/balances')
-    ).toThrowError(ApiClientError);
-
-    try {
+  it('parsePagedResult rejects bare arrays, invalid metadata, and blank next_cursor with INVALID_RESPONSE', () => {
+    expectInvalidResponseError(() =>
+      parsePagedResult([{ on_hand_qty_base: 10 }], '/inventory/balances')
+    );
+    expectInvalidResponseError(() => parsePagedResult(null, '/products'));
+    expectInvalidResponseError(() =>
+      parsePagedResult({ results: [] }, '/products')
+    );
+    expectInvalidResponseError(() =>
       parsePagedResult(
-        [{ on_hand_qty_base: '10.0000' }],
-        '/inventory/balances'
-      );
-    } catch (error) {
-      expect(error).toBeInstanceOf(ApiClientError);
-      if (error instanceof ApiClientError) {
-        expect(error.code).toBe('INVALID_RESPONSE');
-      }
-    }
-
-    expect(() => parsePagedResult(null, '/products')).toThrowError(
-      ApiClientError
+        {
+          items: [],
+          page: 0,
+          page_size: 25,
+          total_count: 0,
+          next_cursor: null,
+        },
+        '/products'
+      )
     );
-    expect(() => parsePagedResult({ results: [] }, '/products')).toThrowError(
-      ApiClientError
+    expectInvalidResponseError(() =>
+      parsePagedResult(
+        {
+          items: [],
+          page: 1,
+          page_size: MAX_PAGE_SIZE + 1,
+          total_count: 0,
+          next_cursor: null,
+        },
+        '/products'
+      )
     );
-    expect(() => parsePagedResult({ items: [] }, '/products')).toThrowError(
-      ApiClientError
+    expectInvalidResponseError(() =>
+      parsePagedResult(
+        {
+          items: [],
+          page: 1,
+          page_size: 25,
+          total_count: -1,
+          next_cursor: null,
+        },
+        '/products'
+      )
     );
-    expect(() =>
-      parsePagedResult({ items: [], nextCursor: undefined }, '/products')
-    ).toThrowError(ApiClientError);
-    expect(() =>
-      parsePagedResult({ items: [], nextCursor: 123 }, '/products')
-    ).toThrowError(ApiClientError);
-    expect(() =>
-      parsePagedResult({ items: [{ id: '1' }], nextCursor: '' }, '/products')
-    ).toThrowError(ApiClientError);
-    expect(() =>
-      parsePagedResult({ items: [{ id: '1' }], nextCursor: '   ' }, '/products')
-    ).toThrowError(ApiClientError);
+    expectInvalidResponseError(() =>
+      parsePagedResult(
+        {
+          items: [],
+          page: 1,
+          page_size: 25,
+          total_count: 0,
+        },
+        '/products'
+      )
+    );
+    expectInvalidResponseError(() =>
+      parsePagedResult(
+        {
+          items: [{ id: '1' }],
+          page: 1,
+          page_size: 25,
+          total_count: 1,
+          next_cursor: '',
+        },
+        '/products'
+      )
+    );
+    expectInvalidResponseError(() =>
+      parsePagedResult(
+        {
+          items: [{ id: '1' }],
+          page: 1,
+          page_size: 25,
+          total_count: 1,
+          next_cursor: '   ',
+        },
+        '/products'
+      )
+    );
+    expectInvalidResponseError(() =>
+      parsePagedResult(
+        {
+          items: [{ id: '1' }],
+          page: 1,
+          page_size: 25,
+          total_count: 1,
+          next_cursor: 123,
+        },
+        '/products'
+      )
+    );
   });
 
-  it('normalizeCursorParam omits blank caller inputs while preserving opaque cursor whitespace', () => {
-    expect(normalizeCursorParam(undefined)).toBeUndefined();
-    expect(normalizeCursorParam('')).toBeUndefined();
-    expect(normalizeCursorParam('   ')).toBeUndefined();
-    expect(normalizeCursorParam(' opaque-cursor-2 ')).toBe(' opaque-cursor-2 ');
+  it('wraps ContractValidationError thrown by normalizeItem into ApiClientError(INVALID_RESPONSE)', () => {
+    const normalizeItem = (item: unknown) => {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+        throw new ContractValidationError(
+          'Item must be an object',
+          '/branches'
+        );
+      }
+      const record: Record<string, unknown> = Object.fromEntries(
+        Object.entries(item)
+      );
+      return { id: requireString(record, 'id', '/branches') };
+    };
+
+    expect(
+      parsePagedResult(
+        {
+          items: [{ id: 'branch-1' }],
+          page: 1,
+          page_size: 25,
+          total_count: 1,
+          next_cursor: null,
+        },
+        '/branches',
+        normalizeItem
+      ).items
+    ).toEqual([{ id: 'branch-1' }]);
+
+    expectInvalidResponseError(() =>
+      parsePagedResult(
+        {
+          items: [{ id: '' }],
+          page: 1,
+          page_size: 25,
+          total_count: 1,
+          next_cursor: null,
+        },
+        '/branches',
+        normalizeItem
+      )
+    );
+
+    expectInvalidResponseError(() =>
+      parseArrayResult([{ id: 42 }], '/products/1/uoms', normalizeItem)
+    );
   });
 
   it('parseArrayResult accepts JSON arrays and rejects non-arrays', () => {
     expect(
-      parseArrayResult<{ code: string }>([{ code: 'TAB' }], '/uoms')
+      parseArrayResult<{ code: string }>([{ code: 'TAB' }], '/products/1/uoms')
     ).toEqual([{ code: 'TAB' }]);
-    expect(() =>
+    expectInvalidResponseError(() =>
       parseArrayResult({ items: [] }, '/products/1/uoms')
-    ).toThrowError(ApiClientError);
+    );
   });
 
-  it('fetchAllPages drains all pages beyond 200 items and forwards opaque nextCursor verbatim without trimming', async () => {
+  it('buildPaginationQueryParams includes valid bounds and omits invalid values', () => {
+    expect(buildPaginationQueryParams()).toEqual({});
+    expect(buildPaginationQueryParams({ page: 2, page_size: 50 })).toEqual({
+      page: 2,
+      page_size: 50,
+    });
+    expect(
+      buildPaginationQueryParams({ page: 0, page_size: MAX_PAGE_SIZE + 1 })
+    ).toEqual({});
+    expect(buildPaginationQueryParams({ page: 1.5, page_size: -5 })).toEqual(
+      {}
+    );
+  });
+
+  it('fetchAllPages returns [] immediately when total_count is 0', async () => {
+    const calls: Array<{ page: number; pageSize: number }> = [];
+    const items = await fetchAllPages(async (page, pageSize) => {
+      calls.push({ page, pageSize });
+      return {
+        items: [],
+        page,
+        page_size: pageSize,
+        total_count: 0,
+        next_cursor: null,
+      };
+    });
+
+    expect(items).toEqual([]);
+    expect(calls).toEqual([{ page: 1, pageSize: MAX_PAGE_SIZE }]);
+  });
+
+  it('fetchAllPages drains multiple sequential pages until total_count is reached', async () => {
     const firstPageItems = Array.from({ length: 200 }, (_, i) => ({
       index: i + 1,
     }));
     const secondPageItems = [{ index: 201 }];
-    const calls: Array<{ cursor: string | undefined; limit: number }> = [];
+    const calls: Array<{ page: number; pageSize: number }> = [];
 
-    const all = await fetchAllPages(async (cursor, limit) => {
-      calls.push({ cursor, limit });
-      if (!cursor) {
-        return { items: firstPageItems, nextCursor: ' cursor-after-200 ' };
+    const all = await fetchAllPages(async (page, pageSize) => {
+      calls.push({ page, pageSize });
+      if (page === 1) {
+        return {
+          items: firstPageItems,
+          page: 1,
+          page_size: pageSize,
+          total_count: 201,
+          next_cursor: '2',
+        };
       }
-      return { items: secondPageItems, nextCursor: null };
+      return {
+        items: secondPageItems,
+        page: 2,
+        page_size: pageSize,
+        total_count: 201,
+        next_cursor: null,
+      };
     });
 
     expect(calls).toEqual([
-      { cursor: undefined, limit: 200 },
-      { cursor: ' cursor-after-200 ', limit: 200 },
+      { page: 1, pageSize: 200 },
+      { page: 2, pageSize: 200 },
     ]);
     expect(all).toHaveLength(201);
     expect(all[200]).toEqual({ index: 201 });
   });
 
-  it('fetchAllPages rejects empty or whitespace-only nextCursor values with INVALID_RESPONSE instead of returning partial items', async () => {
+  it('fetchAllPages rejects empty pages before reaching total_count', async () => {
     await expect(
-      fetchAllPages(async () => ({
-        items: [{ id: 1 }],
-        nextCursor: '',
-      }))
-    ).rejects.toMatchObject({
-      name: 'ApiClientError',
-      code: 'INVALID_RESPONSE',
-    });
-
-    await expect(
-      fetchAllPages(async () => ({
-        items: [{ id: 1 }],
-        nextCursor: '   ',
+      fetchAllPages(async (page, pageSize) => ({
+        items: [],
+        page,
+        page_size: pageSize,
+        total_count: 5,
+        next_cursor: null,
       }))
     ).rejects.toMatchObject({
       name: 'ApiClientError',
@@ -126,41 +290,37 @@ describe('pagination helpers', () => {
     });
   });
 
-  it('fetchAllPages rejects non-advancing duplicate cursors', async () => {
-    await expect(
-      fetchAllPages(async () => ({
-        items: [{ id: 1 }],
-        nextCursor: 'stuck-cursor',
-      }))
-    ).rejects.toThrowError(ApiClientError);
-  });
-
-  it('enforces maxPages: throws INVALID_RESPONSE if nextCursor remains after page 2, and returns combined items if page 2 has nextCursor: null', async () => {
+  it('fetchAllPages enforces maxPages guard against infinite pagination', async () => {
     await expect(
       fetchAllPages(
-        async (cursor) => {
-          if (!cursor) {
-            return { items: [{ qty: 10 }], nextCursor: 'page-2' };
-          }
-          return { items: [{ qty: 20 }], nextCursor: 'page-3' };
-        },
-        { maxPages: 2 }
+        async (page, pageSize) => ({
+          items: [{ page }],
+          page,
+          page_size: pageSize,
+          total_count: 5,
+          next_cursor: String(page + 1),
+        }),
+        { pageSize: 1, maxPages: 2 }
       )
     ).rejects.toMatchObject({
       name: 'ApiClientError',
       code: 'INVALID_RESPONSE',
     });
 
-    const combined = await fetchAllPages(
-      async (cursor) => {
-        if (!cursor) {
-          return { items: [{ qty: 10 }], nextCursor: 'page-2' };
-        }
-        return { items: [{ qty: 20 }], nextCursor: null };
-      },
-      { maxPages: 2 }
-    );
-
-    expect(combined).toEqual([{ qty: 10 }, { qty: 20 }]);
+    await expect(
+      fetchAllPages(
+        async () => ({
+          items: [],
+          page: 1,
+          page_size: 25,
+          total_count: 0,
+          next_cursor: null,
+        }),
+        { pageSize: MAX_PAGE_SIZE + 1 }
+      )
+    ).rejects.toMatchObject({
+      name: 'ApiClientError',
+      code: 'INVALID_RESPONSE',
+    });
   });
 });

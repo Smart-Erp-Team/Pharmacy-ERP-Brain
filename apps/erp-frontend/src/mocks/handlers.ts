@@ -1,13 +1,20 @@
 /**
- * Pharmacy ERP — MSW Request Handlers
+ * Pharmacy ERP — MSW Request Handlers (Stage 1)
  *
- * Mock Service Worker endpoints matching Phase 0 contracts.
- * Handlers return canonical JSON mock payloads from contracts/fixtures.
+ * Mock Service Worker endpoints matching Stage 1 contracts (`contracts/FRONTEND.md`).
+ * Handlers return canonical JSON mock payloads from `contracts/fixtures/` and
+ * strict `ApiErrorEnvelopeDto` errors (`{ error: { code, message, details, trace_id } }`).
  */
 
 import { http, HttpResponse } from 'msw';
 import authTokenPair from '@contracts/fixtures/auth-token-pair.json';
 import currentUserContext from '@contracts/fixtures/current-user-context.json';
+import type {
+  CanonicalCapabilitiesDto,
+  ErrorCode,
+  NormalizedApiErrorDetail,
+  NormalizedApiErrorEnvelope,
+} from '../types/api';
 import { branchHandlers } from './branchHandlers';
 import { employeeHandlers } from './employeeHandlers';
 import { inventoryHandlers } from './inventoryHandlers';
@@ -34,6 +41,30 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === 'string' && value.trim().length > 0;
 
+const createMockErrorEnvelope = (
+  code: ErrorCode,
+  message: string,
+  traceId: string,
+  details: NormalizedApiErrorDetail[] = []
+): NormalizedApiErrorEnvelope => ({
+  error: {
+    code,
+    message,
+    details,
+    trace_id: traceId,
+  },
+});
+
+const MOCK_CLOUD_CAPABILITIES: CanonicalCapabilitiesDto = {
+  stage: 1,
+  runtime_mode: 'Cloud',
+  supported_reads: ['canonical.products', 'canonical.inventory'],
+  supported_writes: [
+    'canonical.configuration.products',
+    'canonical.configuration.reorder_rules',
+  ],
+};
+
 export const handlers = [
   // POST /api/v1/auth/login
   http.post('*/api/v1/auth/login', async ({ request }) => {
@@ -41,18 +72,16 @@ export const handlers = [
 
     if (!isRecord(body)) {
       return HttpResponse.json(
-        {
-          error: {
-            code: 'MALFORMED_REQUEST',
-            message: 'Login request body must be a JSON object.',
-            trace_id: 'mock-trace-malformed-login',
-          },
-        },
+        createMockErrorEnvelope(
+          'MALFORMED_REQUEST',
+          'Login request body must be a JSON object.',
+          'mock-trace-malformed-login'
+        ),
         { status: 400 }
       );
     }
 
-    const details: Array<{ field: string; issue: string }> = [];
+    const details: NormalizedApiErrorDetail[] = [];
     if (!isNonEmptyString(body.organization_code)) {
       details.push({
         field: 'organization_code',
@@ -68,27 +97,23 @@ export const handlers = [
 
     if (details.length > 0) {
       return HttpResponse.json(
-        {
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: 'Login request failed validation.',
-            details,
-            trace_id: 'mock-trace-login-validation',
-          },
-        },
+        createMockErrorEnvelope(
+          'VALIDATION_ERROR',
+          'Login request failed validation.',
+          'mock-trace-login-validation',
+          details
+        ),
         { status: 422 }
       );
     }
 
     if (body.password === INVALID_CREDENTIALS_PASSWORD) {
       return HttpResponse.json(
-        {
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Invalid organization code or credentials.',
-            trace_id: 'mock-trace-invalid-credentials',
-          },
-        },
+        createMockErrorEnvelope(
+          'UNAUTHORIZED',
+          'Invalid organization code or credentials.',
+          'mock-trace-invalid-credentials'
+        ),
         { status: 401 }
       );
     }
@@ -118,13 +143,11 @@ export const handlers = [
       consumedRefreshTokens.has(refreshToken)
     ) {
       return HttpResponse.json(
-        {
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Refresh token is invalid or has already been consumed.',
-            trace_id: 'mock-trace-refresh-rejected',
-          },
-        },
+        createMockErrorEnvelope(
+          'UNAUTHORIZED',
+          'Refresh token is invalid or has already been consumed.',
+          'mock-trace-refresh-rejected'
+        ),
         { status: 401 }
       );
     }
@@ -143,12 +166,38 @@ export const handlers = [
   }),
 
   // POST /api/v1/auth/logout
+  // Stage 1 requires non-empty `refresh_token`; Idempotency-Key is NOT required.
   http.post('*/api/v1/auth/logout', async ({ request }) => {
     const body: unknown = await request.json().catch(() => null);
-    if (isRecord(body) && isNonEmptyString(body.refresh_token)) {
-      consumedRefreshTokens.add(body.refresh_token);
+    const refreshToken =
+      isRecord(body) && isNonEmptyString(body.refresh_token)
+        ? body.refresh_token
+        : null;
+
+    if (!refreshToken) {
+      return HttpResponse.json(
+        createMockErrorEnvelope(
+          'VALIDATION_ERROR',
+          'Logout request failed validation.',
+          'mock-trace-logout-validation',
+          [
+            {
+              field: 'refresh_token',
+              issue: 'Refresh token is required.',
+            },
+          ]
+        ),
+        { status: 422 }
+      );
     }
+
+    consumedRefreshTokens.add(refreshToken);
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  // GET /api/v1/canonical/capabilities
+  http.get('*/api/v1/canonical/capabilities', () => {
+    return HttpResponse.json(MOCK_CLOUD_CAPABILITIES, { status: 200 });
   }),
 
   ...branchHandlers,

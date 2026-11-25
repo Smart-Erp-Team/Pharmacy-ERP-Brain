@@ -1,16 +1,15 @@
 /**
- * Pharmacy ERP — Central API Client
+ * Pharmacy ERP — Central API Client (Stage 1)
  *
  * The single Axios instance for the whole app (skill `api-server-state`).
  * - Base URL: /api/v1 (resolved with origin fallback for Node/test environments)
- * - Automatic Bearer token injection from tokenStorage
- * - Automatic `Idempotency-Key` on mutations (contract requirement)
- * - Single-flight 401 refresh with token rotation, then session expiration
- * - Standard ApiError envelope formatting
+ * - Automatic Bearer token injection from `tokenStorage`
+ * - Automatic `Idempotency-Key` on non-exempt mutations (`contracts/FRONTEND.md §5.3`)
+ * - Single-flight 401 refresh with token rotation & `LoginResponse` validation
+ * - Stage 1 `ApiErrorEnvelopeDto` runtime normalization into `ApiClientError`
  */
 
 import axios, {
-  type AxiosError,
   type AxiosInstance,
   type AxiosResponse,
   type InternalAxiosRequestConfig,
@@ -22,30 +21,42 @@ import {
   createIdempotencyKey,
   isMutationMethod,
 } from './idempotency';
+import {
+  ContractValidationError,
+  normalizeApiErrorEnvelope,
+  normalizeLoginResponse,
+} from './normalizers';
 import type {
-  ApiError,
+  ErrorCode,
+  NormalizedApiErrorDetail,
+  NormalizedLoginResponse,
   RefreshTokenRequest,
-  TokenPairResponse,
 } from '../../types/api';
 
+declare module 'axios' {
+  export interface InternalAxiosRequestConfig {
+    _retry?: boolean;
+  }
+}
+
 export type ApiClientErrorCode =
-  ApiError['error']['code'] | 'INVALID_RESPONSE' | 'UNKNOWN_ERROR';
+  ErrorCode | 'INVALID_RESPONSE' | 'UNKNOWN_ERROR';
 
 export interface ApiClientErrorPayload {
   code: ApiClientErrorCode;
   message: string;
-  details?: ApiError['error']['details'];
-  trace_id?: ApiError['error']['trace_id'];
+  details?: NormalizedApiErrorDetail[];
+  trace_id?: string;
 }
 
 /**
- * Standard client error normalizing the backend ApiError envelope and
- * client-side invalid transport responses.
+ * Standard client error normalizing the Stage 1 `ApiErrorEnvelopeDto` and
+ * client-side invalid transport/schema responses.
  */
 export class ApiClientError extends Error {
-  public readonly code: string;
+  public readonly code: ApiClientErrorCode;
   public readonly status?: number;
-  public readonly details?: Array<{ field?: string; issue: string }>;
+  public readonly details: NormalizedApiErrorDetail[];
   public readonly trace_id?: string;
 
   constructor(payload: ApiClientErrorPayload, status?: number) {
@@ -53,16 +64,30 @@ export class ApiClientError extends Error {
     this.name = 'ApiClientError';
     this.code = payload.code || 'UNKNOWN_ERROR';
     this.status = status;
-    this.details = payload.details;
-    this.trace_id = payload.trace_id;
+    this.details = payload.details ? [...payload.details] : [];
+    this.trace_id =
+      payload.trace_id && payload.trace_id.length > 0
+        ? payload.trace_id
+        : undefined;
   }
 }
 
 /**
- * Custom request config interface extending Axios to track retry attempts.
+ * Converts a `ContractValidationError` into a standardized `ApiClientError`
+ * (`INVALID_RESPONSE`) so transport and service layers wrap schema mismatches
+ * consistently.
  */
-interface RetriableRequestConfig extends InternalAxiosRequestConfig {
-  _retry?: boolean;
+export function toInvalidResponseError(
+  error: ContractValidationError,
+  status?: number
+): ApiClientError {
+  return new ApiClientError(
+    {
+      code: error.code,
+      message: error.message,
+    },
+    status
+  );
 }
 
 const resolveBaseUrl = (): string => {
@@ -85,8 +110,8 @@ export const apiClient: AxiosInstance = axios.create({
 });
 
 /**
- * Strips the origin, the query string and a trailing slash from a request URL so
- * the token endpoints can be recognized in both relative and absolute form.
+ * Strips the origin, the query string, and trailing slashes from a request URL
+ * so endpoints are matched reliably in both relative and absolute forms.
  */
 const normalizeApiPath = (url: string | undefined): string => {
   if (!url) {
@@ -103,8 +128,8 @@ const normalizeApiPath = (url: string | undefined): string => {
 };
 
 /**
- * The token endpoints. They never take an `Idempotency-Key`, and they must never
- * trigger the refresh flow (that would loop forever).
+ * Token issuance/rotation endpoints. They must never trigger the 401 refresh
+ * flow (which would loop infinitely).
  */
 const isAuthTokenPath = (url: string | undefined): boolean => {
   const path = normalizeApiPath(url);
@@ -119,6 +144,22 @@ const isAuthTokenPath = (url: string | undefined): boolean => {
 const isBranchEnrollmentPath = (url: string | undefined): boolean =>
   normalizeApiPath(url).endsWith('/branch-enrollment');
 
+const IDEMPOTENCY_EXEMPT_SUFFIXES = [
+  '/auth/login',
+  '/auth/refresh',
+  '/auth/logout',
+  '/branch-enrollment',
+] as const;
+
+/**
+ * Stage 1 contract-exempt endpoints (`contracts/FRONTEND.md §5.3`) that must
+ * NOT receive an automatically injected `Idempotency-Key` header.
+ */
+const isIdempotencyExemptPath = (url: string | undefined): boolean => {
+  const path = normalizeApiPath(url);
+  return IDEMPOTENCY_EXEMPT_SUFFIXES.some((suffix) => path.endsWith(suffix));
+};
+
 /**
  * One refresh at a time. Refresh tokens rotate on every use, so two parallel
  * refreshes would consume the same token twice and revoke the whole token family.
@@ -126,8 +167,8 @@ const isBranchEnrollmentPath = (url: string | undefined): boolean =>
 let refreshRequest: Promise<string> | null = null;
 
 /**
- * Performs the rotation call. It uses a plain Axios call on purpose: the refresh
- * request must not re-enter this interceptor and try to refresh itself.
+ * Performs the token rotation call. Uses a plain Axios call on purpose so the
+ * refresh request never re-enters `apiClient`'s 401 interceptor.
  */
 const requestRefreshedAccessToken = async (): Promise<string> => {
   const refreshToken = tokenStorage.getRefreshToken();
@@ -138,18 +179,25 @@ const requestRefreshedAccessToken = async (): Promise<string> => {
 
   const payload: RefreshTokenRequest = { refresh_token: refreshToken };
 
-  const response = await axios.post<TokenPairResponse>(
+  const response = await axios.post<unknown>(
     `${apiClient.defaults.baseURL ?? ''}/auth/refresh`,
     payload,
     { headers: { 'Content-Type': 'application/json' } }
   );
 
-  tokenStorage.setTokens(
-    response.data.access_token,
-    response.data.refresh_token
-  );
+  let normalized: NormalizedLoginResponse;
+  try {
+    normalized = normalizeLoginResponse(response.data, '/auth/refresh');
+  } catch (error: unknown) {
+    if (error instanceof ContractValidationError) {
+      throw toInvalidResponseError(error, response.status);
+    }
+    throw error;
+  }
 
-  return response.data.access_token;
+  tokenStorage.setTokens(normalized.access_token, normalized.refresh_token);
+
+  return normalized.access_token;
 };
 
 /**
@@ -166,7 +214,7 @@ const getRefreshedAccessToken = (): Promise<string> => {
 };
 
 /**
- * Drops the local session and asks the app to send the user back to the login page.
+ * Drops the local session and asks the app to send the user back to login.
  */
 const endExpiredSession = (): void => {
   tokenStorage.clearTokens();
@@ -195,7 +243,7 @@ const getResponseContentType = (response: AxiosResponse): string => {
 /**
  * Rejects HTML/text SPA-fallback payloads (e.g., Vite serving `index.html` with
  * HTTP 200 when MSW or a proxy misses `/api/v1/*`) so API callers never coerce
- * non-JSON strings into empty lists via `data.items ?? []`.
+ * non-JSON strings into empty lists.
  */
 const validateJsonApiResponse = (response: AxiosResponse): AxiosResponse => {
   if (response.status === 204 || response.status === 205) {
@@ -228,7 +276,7 @@ const validateJsonApiResponse = (response: AxiosResponse): AxiosResponse => {
   return response;
 };
 
-// Request Interceptor: Inject JWT token from storage
+// Request Interceptor: Inject Bearer JWT and Stage 1 Idempotency-Key
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     const token = tokenStorage.getAccessToken();
@@ -236,11 +284,12 @@ apiClient.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
 
-    // The contract requires the header on every mutation except the two token
-    // endpoints. The key stays on the config, so a retry keeps the same key.
+    // Attach Idempotency-Key on every mutating endpoint except the four
+    // Stage 1 contract-exempt paths. Keeping the header on `config` preserves
+    // the same key across retries of the same request.
     if (
       isMutationMethod(config.method) &&
-      !isAuthTokenPath(config.url) &&
+      !isIdempotencyExemptPath(config.url) &&
       !config.headers.has(IDEMPOTENCY_KEY_HEADER)
     ) {
       config.headers.set(IDEMPOTENCY_KEY_HEADER, createIdempotencyKey());
@@ -251,11 +300,15 @@ apiClient.interceptors.request.use(
   (error: unknown) => Promise.reject(error)
 );
 
-// Response Interceptor: Validate JSON payload, handle 401 refresh flow & ApiError formatting
+// Response Interceptor: Validate JSON payload, handle 401 refresh flow & Stage 1 ApiError normalization
 apiClient.interceptors.response.use(
   validateJsonApiResponse,
-  async (error: AxiosError<ApiError>) => {
-    const originalRequest = error.config as RetriableRequestConfig | undefined;
+  async (error: unknown) => {
+    if (!axios.isAxiosError(error)) {
+      return Promise.reject(error);
+    }
+
+    const originalRequest = error.config;
     const isUnauthorized = error.response?.status === 401;
 
     if (
@@ -281,10 +334,10 @@ apiClient.interceptors.response.use(
       }
     }
 
-    // Format error into standard ApiClientError if error envelope exists
-    if (error.response?.data?.error) {
+    const normalizedEnvelope = normalizeApiErrorEnvelope(error.response?.data);
+    if (normalizedEnvelope) {
       return Promise.reject(
-        new ApiClientError(error.response.data.error, error.response.status)
+        new ApiClientError(normalizedEnvelope.error, error.response?.status)
       );
     }
 

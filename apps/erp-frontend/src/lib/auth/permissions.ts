@@ -1,82 +1,57 @@
 /**
- * Pharmacy ERP — Roles, Scopes, Runtime and Branch Permissions
+ * Pharmacy ERP — Roles, Scopes, Runtime and Branch Permissions (Stage 1)
  *
  * The single place where every permission decision is made (skill `routing-auth`).
- * Two authoritative sources come from the session (`/auth/me`):
- * - `roles`  → who the user is (Admin | Pharmacist | Cashier)
- * - `scopes` → what the user may do (the contract's PermissionScope vocabulary)
- * Plus the deployment context: `runtime` (Cloud | BranchLocal) and the branch scope.
+ * Two authoritative sources come from the flat `CurrentUserDto` (`/auth/me`):
+ * - `role`   → who the user is (Admin | Pharmacist | Cashier)
+ * - `scopes` → what the user may do (the Stage 1 closed 5-scope PermissionScope vocabulary)
+ * Plus the deployment context: `runtime_mode` (Cloud | BranchLocal) and branch scope.
  */
 
+import { ERP_RUNTIME_MODES, USER_ROLES, isUserRole } from '../api/normalizers';
 import type {
   BranchScope,
-  CurrentUserContext,
+  CurrentUser,
+  ErpRuntimeMode,
   PermissionScope,
-  Role,
-  RuntimeMode,
+  UserRole,
 } from '../../types/api';
 
-export const VALID_ROLES: readonly Role[] = [
-  'Admin',
-  'Pharmacist',
-  'Cashier',
-] as const;
+export const VALID_ROLES: readonly UserRole[] = USER_ROLES;
 
-export const VALID_RUNTIMES: readonly RuntimeMode[] = [
-  'Cloud',
-  'BranchLocal',
-] as const;
+export const VALID_RUNTIMES: readonly ErpRuntimeMode[] = ERP_RUNTIME_MODES;
 
-export const ROLE_PERMISSIONS: Record<Role, readonly PermissionScope[]> = {
+/**
+ * Exact emitted JWT `scopes[]` per role (Stage 1 closed 5-scope vocabulary,
+ * contracts/FRONTEND.md §3.3).
+ */
+export const ROLE_PERMISSIONS: Record<UserRole, readonly PermissionScope[]> = {
   Admin: [
     'user:admin',
     'inventory:read',
     'inventory:write',
     'sales:read',
     'sales:write',
-    'return:read',
-    'return:write',
-    'purchase-order:read',
-    'purchase-order:draft',
-    'purchase-order:approve',
-    'purchase-order:receive',
-    'supplier-payment:write',
-    'sync:retry',
   ],
-  Pharmacist: [
-    'inventory:read',
-    'inventory:write',
-    'sales:read',
-    'return:read',
-    'purchase-order:read',
-    'purchase-order:draft',
-    'purchase-order:receive',
-    'supplier-payment:write',
-  ],
-  Cashier: [
-    'sales:read',
-    'sales:write',
-    'return:read',
-    'return:write',
-    'inventory:read',
-  ],
+  Pharmacist: ['inventory:read', 'inventory:write', 'sales:read'],
+  Cashier: ['inventory:read', 'sales:read', 'sales:write'],
 } as const;
 
-export function isValidRole(role: string): role is Role {
-  return (VALID_ROLES as readonly string[]).includes(role);
+export function isValidRole(role: string): role is UserRole {
+  return isUserRole(role);
 }
 
 export function hasRole(
-  userRoles: readonly Role[] | undefined,
-  requiredRole: Role
+  userRoles: readonly UserRole[] | undefined,
+  requiredRole: UserRole
 ): boolean {
   if (!userRoles || userRoles.length === 0) return false;
   return userRoles.includes(requiredRole);
 }
 
 export function hasAnyRole(
-  userRoles: readonly Role[] | undefined,
-  requiredRoles: readonly Role[]
+  userRoles: readonly UserRole[] | undefined,
+  requiredRoles: readonly UserRole[]
 ): boolean {
   if (!userRoles || userRoles.length === 0) return false;
   return requiredRoles.some((role) => userRoles.includes(role));
@@ -104,12 +79,13 @@ export function hasAllPermissions(
 }
 
 /**
- * Runtime gate (contracts/FRONTEND.md §1): a route the current runtime does not
- * own answers 404/405 on the server, so the UI must not offer it.
+ * Runtime gate (contracts/FRONTEND.md §2): a route unavailable in the active
+ * `ERP_RUNTIME_MODE` returns `404 NOT_FOUND` on the server, so the UI must not
+ * offer it.
  */
 export function isAllowedRuntime(
-  runtime: RuntimeMode | null | undefined,
-  allowedRuntimes: readonly RuntimeMode[]
+  runtime: ErpRuntimeMode | null | undefined,
+  allowedRuntimes: readonly ErpRuntimeMode[]
 ): boolean {
   if (!runtime) return false;
   return allowedRuntimes.includes(runtime);
@@ -120,7 +96,7 @@ export function isAllowedRuntime(
  * `ASSIGNED` covers only the branches listed in `branch_ids`.
  */
 export function isAllowedBranch(
-  currentUser: CurrentUserContext | null | undefined,
+  currentUser: CurrentUser | null | undefined,
   branchId: string
 ): boolean {
   if (!currentUser) return false;

@@ -4,7 +4,7 @@
  * The sidebar entries and the rules that decide who may see them:
  * - roles   → who the user is (Admin | Pharmacist | Cashier)
  * - scopes  → what the user may do (the contract's scope vocabulary)
- * - runtime → the deployment the session belongs to (contracts/FRONTEND.md §1)
+ * - runtime → the deployment the session belongs to (contracts/FRONTEND.md §2)
  *
  * The model is data only, so the shell and the router gate on the same source.
  */
@@ -15,7 +15,6 @@ import type { PermissionScope, Role, RuntimeMode } from '../types/api';
 
 const ALL_ROLES: readonly Role[] = ['Admin', 'Pharmacist', 'Cashier'];
 const CLOUD_ONLY: readonly RuntimeMode[] = ['Cloud'];
-const BRANCH_ONLY: readonly RuntimeMode[] = ['BranchLocal'];
 const BOTH_RUNTIMES: readonly RuntimeMode[] = ['Cloud', 'BranchLocal'];
 
 export interface NavItem {
@@ -65,7 +64,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         label: 'Branch Enrollment',
         path: PATHS.BRANCH_ENROLLMENT,
         roles: ALL_ROLES,
-        runtimes: BRANCH_ONLY,
+        runtimes: CLOUD_ONLY,
         scopes: [],
       },
     ],

@@ -8,7 +8,7 @@ import { Input } from '../../../components/ui/Input';
 import { ApiClientError } from '../../../lib/api/client';
 import { useAuthStore } from '../../../stores/authStore';
 import { loginSchema, type LoginFormValues } from '../schemas/loginSchema';
-import type { LoginRequest } from '../../../types/generated';
+import type { LoginRequest } from '../../../types/api';
 
 interface LoginFormProps {
   onSuccess: () => void;
@@ -44,7 +44,12 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
 
   const onSubmit = async (values: LoginFormValues) => {
     try {
-      await login(values as LoginRequest);
+      const payload: LoginRequest = {
+        organization_code: values.organization_code,
+        username: values.username,
+        password: values.password,
+      };
+      await login(payload);
       toast.success('Signed in successfully');
       onSuccess();
     } catch (error) {
