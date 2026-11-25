@@ -78,7 +78,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         path: PATHS.BRANCHES,
         roles: ['Admin'],
         runtimes: CLOUD_ONLY,
-        scopes: ['user:admin'],
+        scopes: [],
       },
       {
         label: 'Employees',

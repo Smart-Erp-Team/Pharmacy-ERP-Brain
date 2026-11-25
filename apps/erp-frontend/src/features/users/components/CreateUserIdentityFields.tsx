@@ -65,7 +65,10 @@ export function CreateUserIdentityFields({
         label="Employee"
         options={employeeOptions}
         disabled={
-          disabled || employeesDirectory.isLoading || hasNoEligibleEmployees
+          disabled ||
+          employeesDirectory.isLoading ||
+          employeesDirectory.isError ||
+          hasNoEligibleEmployees
         }
         error={errors.employee_id?.message}
         {...register('employee_id')}

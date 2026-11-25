@@ -1,9 +1,12 @@
 import { useMemo, useState } from 'react';
 import {
-  useEmployeesQuery,
+  useAllEmployeesQuery,
   type EmployeeDto,
 } from '../../../features/employees';
-import { useProductsQuery, type ProductDto } from '../../../features/products';
+import {
+  useAllProductsQuery,
+  type ProductDto,
+} from '../../../features/products';
 import { useAuth } from '../../../hooks/useAuth';
 import { ApiClientError } from '../../../lib/api/client';
 import type {
@@ -14,8 +17,8 @@ import type {
 } from '../../../types/api';
 import { formatNumericDisplay } from '../schemas/inventoryAdjustmentSchema';
 import {
-  useInventoryBatchesQuery,
-  useInventoryLocationsQuery,
+  useAllInventoryBatchesQuery,
+  useAllInventoryLocationsQuery,
   useInventoryTransactionQuery,
   useInventoryTransactionsQuery,
 } from './useInventoryQueries';
@@ -241,23 +244,23 @@ export function useLedgerHistoryState({
     enabled: canReadLedger && Boolean(selectedTxnId),
   });
 
-  const productsQuery = useProductsQuery(
-    { includeInactive: true, limit: 200 },
+  const productsQuery = useAllProductsQuery(
+    { includeInactive: true },
     { enabled: canReadLedger }
   );
 
-  const locationsQuery = useInventoryLocationsQuery(
-    { branchId, includeInactive: true, limit: 200 },
+  const locationsQuery = useAllInventoryLocationsQuery(
+    { branchId, includeInactive: true },
     { enabled: canReadLedger }
   );
 
-  const batchesQuery = useInventoryBatchesQuery(
-    { branchId, limit: 200 },
+  const batchesQuery = useAllInventoryBatchesQuery(
+    { branchId },
     { enabled: canReadLedger }
   );
 
-  const employeesQuery = useEmployeesQuery(
-    { limit: 200 },
+  const employeesQuery = useAllEmployeesQuery(
+    {},
     { enabled: canReadEmployees }
   );
 
@@ -267,8 +270,8 @@ export function useLedgerHistoryState({
   );
 
   const products = useMemo(
-    () => productsQuery.data?.items ?? [],
-    [productsQuery.data?.items]
+    () => productsQuery.data ?? [],
+    [productsQuery.data]
   );
 
   const productsById = useMemo(() => {
@@ -281,27 +284,27 @@ export function useLedgerHistoryState({
 
   const locationsById = useMemo(() => {
     const map = new Map<string, InventoryLocationDto>();
-    for (const loc of locationsQuery.data?.items ?? []) {
+    for (const loc of locationsQuery.data ?? []) {
       map.set(loc.location_id, loc);
     }
     return map;
-  }, [locationsQuery.data?.items]);
+  }, [locationsQuery.data]);
 
   const batchesById = useMemo(() => {
     const map = new Map<string, InventoryBatchDto>();
-    for (const batch of batchesQuery.data?.items ?? []) {
+    for (const batch of batchesQuery.data ?? []) {
       map.set(batch.batch_id, batch);
     }
     return map;
-  }, [batchesQuery.data?.items]);
+  }, [batchesQuery.data]);
 
   const employeesById = useMemo(() => {
     const map = new Map<string, EmployeeDto>();
-    for (const emp of employeesQuery.data?.items ?? []) {
+    for (const emp of employeesQuery.data ?? []) {
       map.set(emp.employee_id, emp);
     }
     return map;
-  }, [employeesQuery.data?.items]);
+  }, [employeesQuery.data]);
 
   const getProductLabel = (id: string): string => {
     const product = productsById.get(id);

@@ -39,7 +39,7 @@ src/
 │   ├── dashboard/                 home / overview after login
 │   │   └── pages/DashboardPage.tsx
 │   ├── branches/                  Stage 1: branch directory + branch device enrollment
-│   │   ├── index.ts               public read-only barrel (`useBranchesQuery`)
+│   │   ├── index.ts               public read-only barrel (`useBranchesQuery`, `useAllBranchesQuery`)
 │   │   ├── api/branchesApi.ts
 │   │   ├── hooks/                 `branchesKeys.ts`, `useBranches.ts`, `useBranchesPageState.ts`
 │   │   ├── schemas/               `branchSchema.ts`, `branchErrorMapper.ts`
@@ -47,7 +47,7 @@ src/
 │   │   ├── pages/BranchesPage.tsx
 │   │   └── pages/BranchEnrollmentPage.tsx
 │   ├── employees/                 Stage 1: employee register
-│   │   ├── index.ts               public read-only barrel (`useEmployeesQuery`, `EmployeeDto`)
+│   │   ├── index.ts               public read-only barrel (`useEmployeesQuery`, `useAllEmployeesQuery`, `EmployeeDto`)
 │   │   ├── api/employeesApi.ts
 │   │   ├── hooks/                 `employeesKeys.ts`, `useEmployees.ts`, `useEmployeeForm.ts`, `useEmployeesPageState.ts`
 │   │   ├── schemas/               `employeeSchema.ts`, `employeeErrorMapper.ts`
@@ -64,7 +64,7 @@ src/
 │   ├── sales/                     (planned) Stage 2: POS cashier checkout, invoices, sales returns & refunds
 │   ├── purchasing/                (planned) Stage 3: suppliers, purchase orders, one-step receiving, payments & vendor returns
 │   ├── products/                  Stage 1: catalog, categories, pricing, barcodes, UOMs, reorder rules
-│   │   ├── index.ts               public read-only barrel (`useProductCategoriesQuery`, `useProductsQuery`, `useProductQuery`, `useProductUomsQuery`)
+│   │   ├── index.ts               public read-only barrel (`useProductCategoriesQuery`, `useAllProductCategoriesQuery`, `useProductsQuery`, `useAllProductsQuery`, `useProductQuery`, `useProductUomsQuery`)
 │   │   ├── api/catalogApi.ts
 │   │   ├── hooks/                 `productsKeys.ts`, `useCatalogQueries.ts`, `useCatalogMutations.ts`, `useProductsPageState.ts`, `useProductUomsTab.ts`, `useProductUomForm.ts`, `useReorderRuleForm.ts`
 │   │   ├── schemas/               `categorySchema.ts`, `productSchema.ts`, `uomReorderSchema.ts`, `catalogErrorMapper.ts`
@@ -93,7 +93,8 @@ src/
 ├── lib/
 │   ├── api/
 │   │   ├── client.ts              the single Axios instance and interceptors
-│   │   └── idempotency.ts         the Idempotency-Key generator, attempt-key tracking, and mutation rules
+│   │   ├── idempotency.ts         the Idempotency-Key generator, attempt-key tracking, and mutation rules
+│   │   └── pagination.ts          PagedResult envelope validator and cursor-draining helper
 │   ├── queryClient.ts             the single QueryClient and its defaults
 │   ├── schemas/
 │   │   └── addressSchema.ts       shared 6-field AddressDto Zod schema and DTO normalizers

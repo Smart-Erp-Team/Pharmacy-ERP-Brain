@@ -101,6 +101,8 @@ afterAll(() => server.close());
 describe('products read-only barrel', () => {
   it('exports only read-only query hooks and no mutation hooks or API functions', () => {
     expect(Object.keys(productsBarrel).sort()).toEqual([
+      'useAllProductCategoriesQuery',
+      'useAllProductsQuery',
       'useProductCategoriesQuery',
       'useProductQuery',
       'useProductUomsQuery',

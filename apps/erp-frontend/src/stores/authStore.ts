@@ -44,15 +44,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // 1. Authenticate with credentials and store tokens
     await authService.login(credentials);
 
-    // 2. Fetch full user context for the session
-    const userContext = await authService.getCurrentUser();
+    // 2. Fetch full user context for the session; roll back stored tokens if
+    //    context hydration fails so storage and UI session state stay aligned.
+    try {
+      const userContext = await authService.getCurrentUser();
 
-    set({
-      currentUser: userContext,
-      activeBranchId: resolveInitialBranchId(userContext),
-      isAuthenticated: true,
-      isInitializing: false,
-    });
+      set({
+        currentUser: userContext,
+        activeBranchId: resolveInitialBranchId(userContext),
+        isAuthenticated: true,
+        isInitializing: false,
+      });
+    } catch (error) {
+      get().resetSession();
+      throw error;
+    }
   },
 
   logout: async () => {

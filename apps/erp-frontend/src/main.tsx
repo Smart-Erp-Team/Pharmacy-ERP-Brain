@@ -4,7 +4,9 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 
 async function prepareApp() {
-  if (import.meta.env.DEV) {
+  const isMswEnabled =
+    import.meta.env.DEV && import.meta.env.VITE_ENABLE_MSW !== 'false';
+  if (isMswEnabled) {
     const { worker } = await import('./mocks/browser');
     await worker.start({
       onUnhandledRequest: 'bypass',

@@ -4,6 +4,7 @@ import {
   getStableAttemptKey,
   type AttemptKeyRecord,
 } from '../../../lib/api/idempotency';
+import { fetchAllPages } from '../../../lib/api/pagination';
 import type { EmployeePatchRequest, EmployeeRequest } from '../../../types/api';
 import {
   createEmployee,
@@ -12,7 +13,7 @@ import {
   patchEmployee,
   type ListEmployeesParams,
 } from '../api/employeesApi';
-import { employeesKeys } from './employeesKeys';
+import { employeesKeys, type AllEmployeesKeyParams } from './employeesKeys';
 
 export interface UseEmployeesQueryOptions {
   enabled?: boolean;
@@ -25,6 +26,20 @@ export function useEmployeesQuery(
   return useQuery({
     queryKey: employeesKeys.list(params),
     queryFn: () => listEmployees(params),
+    enabled: options.enabled ?? true,
+  });
+}
+
+export function useAllEmployeesQuery(
+  params: AllEmployeesKeyParams = {},
+  options: UseEmployeesQueryOptions = {}
+) {
+  return useQuery({
+    queryKey: employeesKeys.allList(params),
+    queryFn: () =>
+      fetchAllPages((cursor, limit) =>
+        listEmployees({ ...params, cursor, limit })
+      ),
     enabled: options.enabled ?? true,
   });
 }

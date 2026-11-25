@@ -3,6 +3,10 @@ import {
   buildMutationConfig,
   type MutationRequestOptions,
 } from '../../../lib/api/idempotency';
+import {
+  normalizeCursorParam,
+  parsePagedResult,
+} from '../../../lib/api/pagination';
 import type {
   ApiComponents,
   BalanceQuery,
@@ -60,10 +64,10 @@ export async function listInventoryLocations(
   params: ListInventoryLocationsParams
 ): Promise<PagedResult<InventoryLocationDto>> {
   const branchId = params.branchId.trim();
-  const cursor = params.cursor?.trim();
+  const cursor = normalizeCursorParam(params.cursor);
   const queryParams = {
     ...(branchId ? { branchId } : {}),
-    ...(cursor ? { cursor } : {}),
+    ...(cursor !== undefined ? { cursor } : {}),
     ...(params.limit !== undefined ? { limit: params.limit } : {}),
     ...(params.locationType !== undefined
       ? { locationType: params.locationType }
@@ -78,10 +82,7 @@ export async function listInventoryLocations(
     { params: queryParams }
   );
 
-  return {
-    items: data.items ?? [],
-    nextCursor: data.nextCursor,
-  };
+  return parsePagedResult<InventoryLocationDto>(data, '/inventory/locations');
 }
 
 export async function getInventoryLocation(
@@ -122,11 +123,11 @@ export async function listInventoryBatches(
   params: ListInventoryBatchesParams
 ): Promise<PagedResult<InventoryBatchDto>> {
   const branchId = params.branchId.trim();
-  const cursor = params.cursor?.trim();
+  const cursor = normalizeCursorParam(params.cursor);
   const productId = params.productId?.trim();
   const queryParams = {
     ...(branchId ? { branchId } : {}),
-    ...(cursor ? { cursor } : {}),
+    ...(cursor !== undefined ? { cursor } : {}),
     ...(params.limit !== undefined ? { limit: params.limit } : {}),
     ...(productId ? { productId } : {}),
     ...(params.qualityStatus !== undefined
@@ -139,23 +140,20 @@ export async function listInventoryBatches(
     { params: queryParams }
   );
 
-  return {
-    items: data.items ?? [],
-    nextCursor: data.nextCursor,
-  };
+  return parsePagedResult<InventoryBatchDto>(data, '/inventory/batches');
 }
 
 export async function listInventoryBalances(
   params: ListInventoryBalancesParams
 ): Promise<PagedResult<InventoryBalanceDto>> {
   const branchId = params.branchId.trim();
-  const cursor = params.cursor?.trim();
+  const cursor = normalizeCursorParam(params.cursor);
   const productId = params.productId?.trim();
   const locationId = params.locationId?.trim();
   const batchId = params.batchId?.trim();
   const queryParams = {
     ...(branchId ? { branchId } : {}),
-    ...(cursor ? { cursor } : {}),
+    ...(cursor !== undefined ? { cursor } : {}),
     ...(params.limit !== undefined ? { limit: params.limit } : {}),
     ...(productId ? { productId } : {}),
     ...(locationId ? { locationId } : {}),
@@ -167,23 +165,20 @@ export async function listInventoryBalances(
     { params: queryParams }
   );
 
-  return {
-    items: data.items ?? [],
-    nextCursor: data.nextCursor,
-  };
+  return parsePagedResult<InventoryBalanceDto>(data, '/inventory/balances');
 }
 
 export async function listInventoryTransactions(
   params: ListInventoryTransactionsParams
 ): Promise<PagedResult<InventoryTxnDto>> {
   const branchId = params.branchId.trim();
-  const cursor = params.cursor?.trim();
+  const cursor = normalizeCursorParam(params.cursor);
   const productId = params.productId?.trim();
   const from = params.from?.trim();
   const to = params.to?.trim();
   const queryParams = {
     ...(branchId ? { branchId } : {}),
-    ...(cursor ? { cursor } : {}),
+    ...(cursor !== undefined ? { cursor } : {}),
     ...(params.limit !== undefined ? { limit: params.limit } : {}),
     ...(params.transactionType !== undefined
       ? { transactionType: params.transactionType }
@@ -198,10 +193,7 @@ export async function listInventoryTransactions(
     { params: queryParams }
   );
 
-  return {
-    items: data.items ?? [],
-    nextCursor: data.nextCursor,
-  };
+  return parsePagedResult<InventoryTxnDto>(data, '/inventory/transactions');
 }
 
 export async function getInventoryTransaction(

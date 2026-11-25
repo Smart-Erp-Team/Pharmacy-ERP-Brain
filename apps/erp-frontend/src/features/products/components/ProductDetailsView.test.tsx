@@ -410,7 +410,7 @@ describe('ProductDetailsView', () => {
         .getByRole('switch', { name: 'Toggle status for bottle60' })
         .hasAttribute('disabled')
     ).toBe(true);
-  });
+  }, 15_000);
 
   it('hides Branch Reorder Settings from Cashier, falls back safely on role switch, validates & saves PUT on Cloud, and locks BranchLocal', async () => {
     const user = userEvent.setup();

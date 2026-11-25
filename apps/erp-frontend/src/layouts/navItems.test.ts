@@ -3,6 +3,7 @@ import { getVisibleNavGroups, isNavItemVisible, NAV_GROUPS } from './navItems';
 
 const overviewItem = NAV_GROUPS[0].items[0];
 const branchesItem = NAV_GROUPS[2].items[0];
+const employeesItem = NAV_GROUPS[2].items[1];
 
 describe('Navigation visibility', () => {
   it('shows an entry whose required scopes are empty', () => {
@@ -13,11 +14,18 @@ describe('Navigation visibility', () => {
         runtime: 'Cloud',
       })
     ).toBe(true);
+    expect(
+      isNavItemVisible(branchesItem, {
+        roles: ['Admin'],
+        scopes: ['inventory:read'],
+        runtime: 'Cloud',
+      })
+    ).toBe(true);
   });
 
   it('hides an entry whose required scope is missing', () => {
     expect(
-      isNavItemVisible(branchesItem, {
+      isNavItemVisible(employeesItem, {
         roles: ['Admin'],
         scopes: ['inventory:read'],
         runtime: 'Cloud',

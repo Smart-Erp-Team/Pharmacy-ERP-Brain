@@ -3,6 +3,10 @@ import {
   buildMutationConfig,
   type MutationRequestOptions,
 } from '../../../lib/api/idempotency';
+import {
+  normalizeCursorParam,
+  parsePagedResult,
+} from '../../../lib/api/pagination';
 import type {
   ApiComponents,
   CreateUserRequest,
@@ -24,9 +28,9 @@ export interface ListUsersParams {
 export async function listUsers(
   params: ListUsersParams = {}
 ): Promise<PagedResult<UserDto>> {
-  const cursor = params.cursor?.trim();
+  const cursor = normalizeCursorParam(params.cursor);
   const queryParams: ListUsersParams = {
-    ...(cursor ? { cursor } : {}),
+    ...(cursor !== undefined ? { cursor } : {}),
     ...(params.limit !== undefined ? { limit: params.limit } : {}),
   };
 
@@ -34,10 +38,7 @@ export async function listUsers(
     params: queryParams,
   });
 
-  return {
-    items: data.items ?? [],
-    nextCursor: data.nextCursor,
-  };
+  return parsePagedResult<UserDto>(data, '/users');
 }
 
 export async function getUser(userId: string): Promise<UserDto> {

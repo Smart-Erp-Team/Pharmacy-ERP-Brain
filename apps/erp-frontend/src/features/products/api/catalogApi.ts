@@ -3,6 +3,11 @@ import {
   buildMutationConfig,
   type MutationRequestOptions,
 } from '../../../lib/api/idempotency';
+import {
+  normalizeCursorParam,
+  parseArrayResult,
+  parsePagedResult,
+} from '../../../lib/api/pagination';
 import type {
   ApiComponents,
   ApiOperations,
@@ -47,9 +52,9 @@ export interface ListProductsParams {
 export async function listProductCategories(
   params: ListProductCategoriesParams = {}
 ): Promise<PagedResult<ProductCategoryDto>> {
-  const cursor = params.cursor?.trim();
+  const cursor = normalizeCursorParam(params.cursor);
   const queryParams: ListProductCategoriesParams = {
-    ...(cursor ? { cursor } : {}),
+    ...(cursor !== undefined ? { cursor } : {}),
     ...(params.limit !== undefined ? { limit: params.limit } : {}),
     ...(params.includeInactive !== undefined
       ? { includeInactive: params.includeInactive }
@@ -61,10 +66,7 @@ export async function listProductCategories(
     { params: queryParams }
   );
 
-  return {
-    items: data.items ?? [],
-    nextCursor: data.nextCursor,
-  };
+  return parsePagedResult<ProductCategoryDto>(data, '/product-categories');
 }
 
 export async function getProductCategory(
@@ -104,11 +106,11 @@ export async function patchProductCategory(
 export async function listProducts(
   params: ListProductsParams = {}
 ): Promise<PagedResult<ProductDto>> {
-  const cursor = params.cursor?.trim();
+  const cursor = normalizeCursorParam(params.cursor);
   const search = params.search?.trim();
   const categoryId = params.categoryId?.trim();
   const queryParams: ListProductsParams = {
-    ...(cursor ? { cursor } : {}),
+    ...(cursor !== undefined ? { cursor } : {}),
     ...(params.limit !== undefined ? { limit: params.limit } : {}),
     ...(search ? { search } : {}),
     ...(categoryId ? { categoryId } : {}),
@@ -121,10 +123,7 @@ export async function listProducts(
     params: queryParams,
   });
 
-  return {
-    items: data.items ?? [],
-    nextCursor: data.nextCursor,
-  };
+  return parsePagedResult<ProductDto>(data, '/products');
 }
 
 export async function getProduct(productId: string): Promise<ProductDto> {
@@ -162,10 +161,9 @@ export async function patchProduct(
 export async function listProductUoms(
   productId: string
 ): Promise<ProductUomDto[]> {
-  const { data } = await apiClient.get<ProductUomDto[]>(
-    `/products/${encodeURIComponent(productId.trim())}/uoms`
-  );
-  return data;
+  const path = `/products/${encodeURIComponent(productId.trim())}/uoms`;
+  const { data } = await apiClient.get<ProductUomDto[]>(path);
+  return parseArrayResult<ProductUomDto>(data, path);
 }
 
 export async function createProductUom(

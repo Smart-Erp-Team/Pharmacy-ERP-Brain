@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
-import { useBranchesQuery } from '../../../features/branches';
+import { useAllBranchesQuery } from '../../../features/branches';
 import { ApiClientError } from '../../../lib/api/client';
 import type { EmployeeDto } from '../../../types/api';
 import type { EmployeeStatusFilter } from '../components/EmployeesFilterBar';
@@ -25,9 +25,8 @@ export function useEmployeesPageState() {
     null
   );
 
-  const branchesQuery = useBranchesQuery({
+  const branchesQuery = useAllBranchesQuery({
     includeInactive: true,
-    limit: 200,
   });
 
   const employeesQuery = useEmployeesQuery({
@@ -39,8 +38,8 @@ export function useEmployeesPageState() {
   const patchEmployeeMutation = usePatchEmployeeMutation();
 
   const branches = useMemo(
-    () => branchesQuery.data?.items ?? [],
-    [branchesQuery.data?.items]
+    () => branchesQuery.data ?? [],
+    [branchesQuery.data]
   );
 
   const branchLabels = useMemo(() => {

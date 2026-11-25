@@ -10,7 +10,7 @@ import {
 import { toast } from 'react-toastify';
 import type { SelectOption } from '../../../components/ui/Select';
 import {
-  useProductsQuery,
+  useAllProductsQuery,
   type ProductDto,
   type ProductUomDto,
 } from '../../../features/products';
@@ -41,9 +41,9 @@ import {
   usePostInventoryAdjustmentMutation,
 } from './useInventoryMutations';
 import {
-  useInventoryBatchesQuery,
-  useInventoryLocationsQuery,
-  useInventoryTransactionsQuery,
+  useAllInventoryBatchesQuery,
+  useAllInventoryLocationsQuery,
+  useAllInventoryTransactionsQuery,
 } from './useInventoryQueries';
 
 export function getLineSelectOptions(
@@ -334,20 +334,20 @@ export function useAdjustmentForm({
     can('inventory:write') &&
     runtime === 'BranchLocal';
 
-  const productsQuery = useProductsQuery(
-    { includeInactive: false, limit: 200 },
+  const productsQuery = useAllProductsQuery(
+    { includeInactive: false },
     { enabled: canAccessTab }
   );
-  const locationsQuery = useInventoryLocationsQuery(
-    { branchId, includeInactive: false, limit: 200 },
+  const locationsQuery = useAllInventoryLocationsQuery(
+    { branchId, includeInactive: false },
     { enabled: canAccessTab }
   );
-  const batchesQuery = useInventoryBatchesQuery(
-    { branchId, limit: 200 },
+  const batchesQuery = useAllInventoryBatchesQuery(
+    { branchId },
     { enabled: canAccessTab }
   );
-  const transactionsQuery = useInventoryTransactionsQuery(
-    { branchId, limit: 200 },
+  const transactionsQuery = useAllInventoryTransactionsQuery(
+    { branchId },
     { enabled: canAccessTab }
   );
 
@@ -439,20 +439,17 @@ export function useAdjustmentForm({
     useWatch({ control, name: 'reverses_inventory_txn_id' }) ?? '';
 
   const products = useMemo(
-    () => productsQuery.data?.items ?? [],
-    [productsQuery.data?.items]
+    () => productsQuery.data ?? [],
+    [productsQuery.data]
   );
   const locations = useMemo(
-    () => locationsQuery.data?.items ?? [],
-    [locationsQuery.data?.items]
+    () => locationsQuery.data ?? [],
+    [locationsQuery.data]
   );
-  const batches = useMemo(
-    () => batchesQuery.data?.items ?? [],
-    [batchesQuery.data?.items]
-  );
+  const batches = useMemo(() => batchesQuery.data ?? [], [batchesQuery.data]);
   const transactions = useMemo(
-    () => transactionsQuery.data?.items ?? [],
-    [transactionsQuery.data?.items]
+    () => transactionsQuery.data ?? [],
+    [transactionsQuery.data]
   );
 
   const draftTransactions = useMemo(

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { fetchAllPages } from '../../../lib/api/pagination';
 import {
   getProduct,
   getReorderRule,
@@ -8,7 +9,11 @@ import {
   type ListProductCategoriesParams,
   type ListProductsParams,
 } from '../api/catalogApi';
-import { productsKeys } from './productsKeys';
+import {
+  productsKeys,
+  type AllProductCategoriesKeyParams,
+  type AllProductsKeyParams,
+} from './productsKeys';
 
 export interface UseCatalogQueryOptions {
   enabled?: boolean;
@@ -25,6 +30,20 @@ export function useProductCategoriesQuery(
   });
 }
 
+export function useAllProductCategoriesQuery(
+  params: AllProductCategoriesKeyParams = {},
+  options: UseCatalogQueryOptions = {}
+) {
+  return useQuery({
+    queryKey: productsKeys.allCategoryList(params),
+    queryFn: () =>
+      fetchAllPages((cursor, limit) =>
+        listProductCategories({ ...params, cursor, limit })
+      ),
+    enabled: options.enabled ?? true,
+  });
+}
+
 export function useProductsQuery(
   params: ListProductsParams = {},
   options: UseCatalogQueryOptions = {}
@@ -32,6 +51,20 @@ export function useProductsQuery(
   return useQuery({
     queryKey: productsKeys.list(params),
     queryFn: () => listProducts(params),
+    enabled: options.enabled ?? true,
+  });
+}
+
+export function useAllProductsQuery(
+  params: AllProductsKeyParams = {},
+  options: UseCatalogQueryOptions = {}
+) {
+  return useQuery({
+    queryKey: productsKeys.allList(params),
+    queryFn: () =>
+      fetchAllPages((cursor, limit) =>
+        listProducts({ ...params, cursor, limit })
+      ),
     enabled: options.enabled ?? true,
   });
 }

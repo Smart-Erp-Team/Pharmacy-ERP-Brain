@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Badge } from '../components/ui/Badge';
 import { Select } from '../components/ui/Select';
-import { useBranchesQuery } from '../features/branches';
+import { useAllBranchesQuery } from '../features/branches';
 import { useAuth } from '../hooks/useAuth';
 
 /**
@@ -24,12 +24,12 @@ export function BranchContextControl() {
   } = useAuth();
 
   const isAdmin = hasRole('Admin');
-  const branchesQuery = useBranchesQuery(
-    { includeInactive: false, limit: 200 },
+  const branchesQuery = useAllBranchesQuery(
+    { includeInactive: false },
     { enabled: isAuthenticated && isAdmin }
   );
 
-  const loadedBranches = branchesQuery.data?.items ?? [];
+  const loadedBranches = branchesQuery.data ?? [];
   const activeBranchMissing =
     isAuthenticated &&
     isAdmin &&

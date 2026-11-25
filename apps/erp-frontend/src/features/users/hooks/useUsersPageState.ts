@@ -1,14 +1,18 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
-import { useBranchesQuery } from '../../../features/branches';
+import { useAllBranchesQuery } from '../../../features/branches';
 import {
-  useEmployeesQuery,
+  useAllEmployeesQuery,
   type EmployeeDto,
 } from '../../../features/employees';
 import { ApiClientError } from '../../../lib/api/client';
 import type { Role, UserDto } from '../../../types/api';
 import { USER_ROLES } from '../schemas/userSchema';
-import { usePatchUserMutation, useUsersQuery } from './useUsers';
+import {
+  useAllUsersQuery,
+  usePatchUserMutation,
+  useUsersQuery,
+} from './useUsers';
 
 export const USERS_PAGE_SIZE = 20;
 
@@ -58,11 +62,18 @@ export function useUsersPageState() {
     limit: USERS_PAGE_SIZE,
   });
 
-  const employeesQuery = useEmployeesQuery({ limit: 200 });
+  const isCreatingUser = formModalState.open && formModalState.user === null;
+  const hasCompleteFirstPageUsers =
+    pageIndex === 0 &&
+    usersQuery.isSuccess &&
+    usersQuery.data.nextCursor === null;
+  const needsFullUsersDirectory = isCreatingUser && !hasCompleteFirstPageUsers;
+  const allUsersQuery = useAllUsersQuery({ enabled: needsFullUsersDirectory });
 
-  const branchesQuery = useBranchesQuery({
+  const employeesQuery = useAllEmployeesQuery();
+
+  const branchesQuery = useAllBranchesQuery({
     includeInactive: false,
-    limit: 200,
   });
 
   const patchUserMutation = usePatchUserMutation();
@@ -73,13 +84,13 @@ export function useUsersPageState() {
   );
 
   const employees = useMemo(
-    () => employeesQuery.data?.items ?? [],
-    [employeesQuery.data?.items]
+    () => employeesQuery.data ?? [],
+    [employeesQuery.data]
   );
 
   const branches = useMemo(
-    () => branchesQuery.data?.items ?? [],
-    [branchesQuery.data?.items]
+    () => branchesQuery.data ?? [],
+    [branchesQuery.data]
   );
 
   const employeesById = useMemo(() => {
@@ -91,15 +102,33 @@ export function useUsersPageState() {
   }, [employees]);
 
   const eligibleEmployees = useMemo(() => {
+    if (employeesQuery.isError) {
+      return [];
+    }
+    const completeUsers = hasCompleteFirstPageUsers
+      ? usersQuery.data.items
+      : allUsersQuery.isError
+        ? null
+        : (allUsersQuery.data ?? null);
+    if (!completeUsers) {
+      return [];
+    }
     const assignedIds = new Set(
-      users.map((user) => user.employee_id.toLowerCase())
+      completeUsers.map((user) => user.employee_id.toLowerCase())
     );
     return employees.filter(
       (employee) =>
         employee.is_active &&
         !assignedIds.has(employee.employee_id.toLowerCase())
     );
-  }, [employees, users]);
+  }, [
+    allUsersQuery.data,
+    allUsersQuery.isError,
+    employees,
+    employeesQuery.isError,
+    hasCompleteFirstPageUsers,
+    usersQuery.data,
+  ]);
 
   const getEmployeeDisplay = (employeeId: string): EmployeeDisplay => {
     if (employeesQuery.isError) {
@@ -222,14 +251,28 @@ export function useUsersPageState() {
 
   const referenceNowMs = Math.max(mountNowMs, usersQuery.dataUpdatedAt);
 
+  const isEmployeesLoading =
+    employeesQuery.isPending ||
+    (employeesQuery.isError && employeesQuery.isFetching);
+  const isAllUsersLoading =
+    needsFullUsersDirectory &&
+    (allUsersQuery.isPending ||
+      (allUsersQuery.isError && allUsersQuery.isFetching));
+  const isAllUsersError = needsFullUsersDirectory && allUsersQuery.isError;
+
   const employeesDirectory: DirectoryQueryStatus = {
-    isLoading:
-      employeesQuery.isPending ||
-      (employeesQuery.isError && employeesQuery.isFetching),
-    isError: employeesQuery.isError,
-    isRetrying: employeesQuery.isFetching,
+    isLoading: isEmployeesLoading || isAllUsersLoading,
+    isError: employeesQuery.isError || isAllUsersError,
+    isRetrying:
+      employeesQuery.isFetching ||
+      (needsFullUsersDirectory && allUsersQuery.isFetching),
     onRetry: () => {
-      void employeesQuery.refetch();
+      if (employeesQuery.isError) {
+        void employeesQuery.refetch();
+      }
+      if (isAllUsersError) {
+        void allUsersQuery.refetch();
+      }
     },
   };
 

@@ -3,7 +3,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'react-toastify';
 import type { SelectOption } from '../../../components/ui/Select';
-import { useBranchesQuery } from '../../../features/branches';
+import { useAllBranchesQuery } from '../../../features/branches';
 import { useAuth } from '../../../hooks/useAuth';
 import type { BranchDto, ProductDto, ReorderRuleDto } from '../../../types/api';
 import { usePutReorderRuleMutation } from './useCatalogMutations';
@@ -32,11 +32,11 @@ export function useBranchReorderTab(productId: string) {
   const isAdmin = hasRole('Admin');
   const canRead = hasAnyRole(['Admin', 'Pharmacist']) && can('inventory:read');
   const canWrite = canRead && can('inventory:write') && runtime === 'Cloud';
-  const branchesQ = useBranchesQuery(
-    { includeInactive: false, limit: 200 },
+  const branchesQ = useAllBranchesQuery(
+    { includeInactive: false },
     { enabled: canRead && isAdmin }
   );
-  const loaded: readonly BranchDto[] = branchesQ.data?.items ?? [];
+  const loaded: readonly BranchDto[] = branchesQ.data ?? [];
   const assignedIds =
     branchIds.length > 0 ? branchIds : activeBranchId ? [activeBranchId] : [];
   const options: readonly SelectOption[] = isAdmin
