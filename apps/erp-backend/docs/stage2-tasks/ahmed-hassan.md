@@ -7,22 +7,23 @@
 | **Base / Target Branch** | `stage2-dev` (**NEVER** open Stage 2 feature PRs against `main`) |
 | **Execution Protocol** | Run every engineering task via `/execute-stage-task` applying `@.agent/rules/00-backend-guardrails.md`, `@.agent/skills/pharmacy-stage1-baseline/SKILL.md`, and `@.agent/skills/pharmacy-backend-engineering/SKILL.md`. Run `AH-FINAL` via `/stage-final-audit`. |
 | **Stage 1 Verified PKs & AKs** | `Organization.OrganizationId` · `Branch.BranchId` AK `(OrganizationId, BranchId)` · `Employee.EmployeeId` AK `(OrganizationId, EmployeeId)` · `Product.ProductId` AK `(OrganizationId, ProductId)` · `ProductUom.ProductUomId` AK `(OrganizationId, ProductId, ProductUomId)` · `InventoryBatch.BatchId` AK `(OrganizationId, ProductId, BatchId)` · `InventoryLocation.LocationId` AK `(OrganizationId, BranchId, LocationId)` · `InventoryTxn.InventoryTxnId` AK `(OrganizationId, InventoryTxnId, BranchId)` |
-| **Hard Boundaries** | Edit ONLY inside `apps/erp-backend/`. Keep `src/PharmacyERP.Api/Program.cs` and `src/PharmacyERP.Infrastructure/Persistence/Database/PharmacyDbContext.cs` **100% untouched**. Reference only active `INonLotBatchInitializer` and `IProductInventoryUsageChecker` (ignore `*2.cs` interfaces). **ZERO Stage 3 Purchasing code.** |
+| **Verified Stage 1 Baseline** | **`767 / 767`** tests passing (`590` Unit + `177` Integration), **`48` live HTTP endpoints** (`47` controller actions + `GET /.well-known/jwks.json`), **`76` OpenAPI schemas**, `0 Error(s), 0 Warning(s)`, global `JsonNamingPolicy.SnakeCaseLower` + string-only enums (`allowIntegerValues: false`), and live `ContractsArtifactSyncTests` gate |
+| **Hard Boundaries** | Edit strictly inside `apps/erp-backend/` **plus** the shared monorepo-root `contracts/` directory when exporting synchronized Stage 2 OpenAPI/JSON schemas (per `00-backend-guardrails.md` §1.1). Keep `src/PharmacyERP.Api/Program.cs` and `src/PharmacyERP.Infrastructure/Persistence/Database/PharmacyDbContext.cs` **100% untouched**. Reference only active `INonLotBatchInitializer` and `IProductInventoryUsageChecker` (ignore `*2.cs` interfaces). **ZERO Stage 3 Purchasing code.** |
 
 ---
 
-## Task `AH-01`: `stage2-dev` Branch Bootstrap, Stage 2 Domain Enums & Exceptions
+## Task `AH-01`: `stage2-dev` Branch Bootstrap, Stage 2 Domain Enums, Exceptions & Error Schema Sync
 
 ### 1. Task Header
 - **Task ID:** `AH-01`
-- **Title:** `stage2-dev` Branch Bootstrap, Stage 2 Domain Enums & Exceptions
+- **Title:** `stage2-dev` Branch Bootstrap, Stage 2 Domain Enums, Exceptions & Error Schema Sync
 - **Base Branch:** `stage2-dev` (created directly from verified Stage 1 `main`)
 - **Feature Branch:** `stage2/ahmed-hassan/ah-01-stage2-enums-and-exceptions`
 - **Execution Command:** Execute via `/execute-stage-task` applying `@.agent/rules/00-backend-guardrails.md` and `@.agent/skills/pharmacy-backend-engineering/SKILL.md`.
 
 ### 2. Hard Prerequisites Checklist (BLOCKING GATE)
-- [ ] Local PostgreSQL environment initialized via `setup-local-db.ps1` and verified Stage 1 baseline passes (`724 / 724` tests, `0` warnings).
-- [ ] `src/PharmacyERP.Domain/Enums/ErrorCode.cs` exists with the 11 Stage 1 error codes.
+- [ ] Local PostgreSQL environment initialized via `setup-local-db.ps1` and verified Stage 1 baseline passes (**`767 / 767`** tests: `590` Unit + `177` Integration, `48` live HTTP endpoints, `76` OpenAPI schemas, `0` warnings).
+- [ ] `src/PharmacyERP.Domain/Enums/ErrorCode.cs` exists with the 11 Stage 1 error codes, and `apps/erp-backend/contracts/schemas/api-error-envelope.schema.json` + `tests/PharmacyERP.IntegrationTests/Api/ContractsArtifactSyncTests.cs` exist and pass.
 - [ ] `src/PharmacyERP.Domain/Exceptions/DomainException.cs` (or `IntegrationDomainException.cs` / `InventoryDomainExceptions.cs`) exists as the base domain exception pattern.
 - [ ] `stage2-dev` branch exists locally (branched from verified Stage 1 `main`).
 
@@ -43,8 +44,9 @@
    - `SyncProcessingStatus.cs`: `public enum SyncProcessingStatus { RECEIVED = 1, APPLIED = 2, CONFLICT = 3, FAILED = 4 }`
    - `SyncResultCode.cs`: `public enum SyncResultCode { APPLIED = 1, CONFLICT = 2, FAILED = 3 }`
    - `SyncDeliveryOutcome.cs`: `public enum SyncDeliveryOutcome { APPLIED = 1, ALREADY_APPLIED = 2, CONFLICT = 3, FAILED = 4 }` *(response DTO status per Blueprint §4.4)*.
-2. **Extend `src/PharmacyERP.Domain/Enums/ErrorCode.cs`:**
-   - Append `SYNC_CURSOR_EXPIRED` (`// HTTP 409`) without altering or reordering any of the 11 Stage 1 values.
+2. **Extend `src/PharmacyERP.Domain/Enums/ErrorCode.cs` & Synchronize Error Envelope Schema:**
+   - Append `SYNC_CURSOR_EXPIRED` (`// HTTP 409`) to `ErrorCode.cs` without altering or reordering any of the 11 Stage 1 values.
+   - **MANDATORY CONTRACT SYNC (prevents `ContractsArtifactSyncTests` failure):** Add `"SYNC_CURSOR_EXPIRED"` to `properties.error.properties.code.enum` in `apps/erp-backend/contracts/schemas/api-error-envelope.schema.json` in this same PR (live `ContractsArtifactSyncTests.CanonicalCapabilitiesAndErrorEnvelopeSchemas_MatchLiveEndpointsAndErrorCodes` asserts every `Enum.GetNames<ErrorCode>()` value exists in `api-error-envelope.schema.json`).
 3. **Create Domain Exceptions under `src/PharmacyERP.Domain/Exceptions/`** (`namespace PharmacyERP.Domain.Exceptions;`):
    - `SalesDomainException.cs`:
      ```csharp
@@ -73,19 +75,20 @@
   - Verify exact `Enum.GetNames<T>()` string values for all 12 Stage 2 enums match Blueprint §4.2 & §8.9.11 case-sensitively.
   - Verify `ErrorCode` retains all 11 Stage 1 names plus `SYNC_CURSOR_EXPIRED`.
   - Verify `SalesDomainException` and `SyncDomainException` inherit from `DomainException` and preserve message text.
+- Verify `tests/PharmacyERP.IntegrationTests/Api/ContractsArtifactSyncTests.cs` (`CanonicalCapabilitiesAndErrorEnvelopeSchemas_MatchLiveEndpointsAndErrorCodes`) passes with `"SYNC_CURSOR_EXPIRED"` synchronized in `apps/erp-backend/contracts/schemas/api-error-envelope.schema.json`.
 
 ### 5. Verification & Arabic Explanation Gate
 - Run `dotnet build PharmacyERP.sln --no-restore` (`0 Error(s), 0 Warning(s)`).
-- Run `dotnet test PharmacyERP.sln --no-restore` (`100% Passed, 0 Failed, 0 Skipped`).
-- Provide a concise **Arabic explanation in chat** (keeping C# identifiers, enum values, and file paths in English) summarizing the enums, exceptions, and `stage2-dev` bootstrap.
+- Run `dotnet test PharmacyERP.sln --no-restore` (`100% Passed, 0 Failed, 0 Skipped`, including `ContractsArtifactSyncTests`).
+- Provide a concise **Arabic explanation in chat** (keeping C# identifiers, enum values, and file paths in English) summarizing the enums, exceptions, error schema sync, and `stage2-dev` bootstrap.
 
 ---
 
-## Task `AH-02`: Stage 2 Sales Domain Entities & `InventoryTxn` Extensions
+## Task `AH-02`: Stage 2 Sales Domain Entities, `InventoryTxn` Extensions & `BranchEnrollment` Runtime Credential Support
 
 ### 1. Task Header
 - **Task ID:** `AH-02`
-- **Title:** Stage 2 Sales Domain Entities & `InventoryTxn` Extensions
+- **Title:** Stage 2 Sales Domain Entities, `InventoryTxn` Extensions & `BranchEnrollment` Runtime Credential Support
 - **Base Branch:** `stage2-dev`
 - **Feature Branch:** `stage2/ahmed-hassan/ah-02-sales-domain-entities`
 - **Execution Command:** Execute via `/execute-stage-task` applying `@.agent/rules/00-backend-guardrails.md` and `@.agent/skills/pharmacy-backend-engineering/SKILL.md`.
@@ -93,7 +96,7 @@
 ### 2. Hard Prerequisites Checklist (BLOCKING GATE)
 - [ ] `AH-01` merged into `stage2-dev` and pulled locally.
 - [ ] All Stage 2 enums (`OrderChannel`, `SalesOrderStatus`, `SalesInvoiceStatus`, `SalesPaymentStatus`, `PaymentMethod`, `SalesReturnStatus`, `SalesRefundStatus`, `ReturnDisposition`) and `SalesDomainException` compile in `PharmacyERP.Domain`.
-- [ ] `src/PharmacyERP.Domain/Entities/Inventory/InventoryTxn.cs` and `InventoryTxnLine.cs` exist.
+- [ ] `src/PharmacyERP.Domain/Entities/Inventory/InventoryTxn.cs`, `InventoryTxnLine.cs`, and `src/PharmacyERP.Domain/Entities/Identity/BranchEnrollment.cs` exist.
 
 > **BLOCKING GATE RULE:** *If ANY prerequisite above is missing or fails to compile, STOP immediately, refuse to implement this task, and inform the developer in Arabic which exact task/PR must be merged and pulled from `stage2-dev` first.*
 
@@ -137,24 +140,34 @@ Create persistence-ignorant entities under `src/PharmacyERP.Domain/Entities/Sale
    - Properties: `Guid RefundId`, `Guid OrganizationId`, `Guid BranchId`, `Guid SalesReturnId`, `Guid InvoiceId`, `Guid ProcessedByEmployeeId`, `decimal Amount`, `PaymentMethod Method` (`CASH`), `string IdempotencyKey` (max 100), `DateTimeOffset RefundedAt`.
    - Navigation: `public SalesReturn SalesReturn { get; private set; } = null!;`, `public SalesInvoice Invoice { get; private set; } = null!;`
    - Factory `CreateCashRefund(...)`: enforces `Method == PaymentMethod.CASH`, `Amount > 0`.
-9. **Extend `src/PharmacyERP.Domain/Entities/Inventory/InventoryTxn.cs` (Backwards-Compatible):**
-   - Add an optional `Guid? inventoryTxnId = null` parameter at the end of `CreateDraft` and `CreatePosted` (default `null` -> `Guid.NewGuid()`) so Cloud Sync exact fact replay (`AH-09`) preserves branch-assigned `InventoryTxnId`.
-   - Add an overload of `AddLine(...)` accepting optional `Guid? salesOrderLineId = null, Guid? salesReturnLineId = null, Guid? inventoryTxnLineId = null` (passing them to `InventoryTxnLine.Create(...)`, and adding optional `Guid? inventoryTxnLineId = null` to `InventoryTxnLine.Create(...)`). Keep all existing Stage 1 signatures 100% intact.
-10. **Update `GlobalUsings.cs`:** Add `global using PharmacyERP.Domain.Entities.Sales;` (sorted alphabetically) to `src/PharmacyERP.Domain/GlobalUsings.cs`, `src/PharmacyERP.Application/GlobalUsings.cs`, and `src/PharmacyERP.Infrastructure/GlobalUsings.cs`.
+9. **Extend `src/PharmacyERP.Domain/Entities/Inventory/InventoryTxn.cs` & `InventoryTxnLine.cs` (Backwards-Compatible with Live Stage 1 Signatures):**
+   - Live Stage 1 `InventoryTxn.CreateDraft` and `InventoryTxn.CreatePosted` already accept `salesOrderId`, `salesReturnId`, `purchaseOrderId`, `vendorReturnId`. Append an optional trailing `Guid? inventoryTxnId = null` parameter after `vendorReturnId = null` on both `CreateDraft` and `CreatePosted` (`InventoryTxnId = inventoryTxnId ?? Guid.NewGuid()`, forwarded from `CreatePosted` to `CreateDraft`) so Cloud Sync exact fact replay (`AH-09`) preserves branch-assigned `InventoryTxnId`.
+   - Live Stage 1 `InventoryTxnLine.Create` already accepts `salesOrderLineId`, `salesReturnLineId`, `purchaseOrderLineId`, `vendorReturnLineId`. Append an optional trailing `Guid? inventoryTxnLineId = null` parameter after `vendorReturnLineId = null` (`InventoryTxnLineId = inventoryTxnLineId ?? Guid.NewGuid()`).
+   - Keep the existing 8-parameter Stage 1 `InventoryTxn.AddLine(...)` and `AddLine(InventoryTxnLine)` overloads 100% intact, and add a new `InventoryTxn.AddLine(...)` overload accepting `(Guid productId, Guid locationId, Guid batchId, Guid productUomId, decimal enteredQty, decimal conversionSnapshot, decimal quantityDeltaBase, decimal unitCostBase, Guid? salesOrderLineId, Guid? salesReturnLineId = null, Guid? inventoryTxnLineId = null)` forwarding to `InventoryTxnLine.Create(...)`.
+10. **Extend `src/PharmacyERP.Domain/Entities/Identity/BranchEnrollment.cs` (Runtime Credential Persistence Support):**
+   - Live Stage 1 `BranchEnrollment` only stores `TokenHash` (the 15-min one-time enrollment token hash), leaving `BranchService.RedeemEnrollmentAsync` with nowhere to persist the issued `runtime_credential` hash for `IBranchSyncAuthenticator`.
+   - Add `private byte[]? _runtimeCredentialHash;`, nullable `public byte[]? RuntimeCredentialHash { get => _runtimeCredentialHash?.ToArray(); private set => _runtimeCredentialHash = value?.ToArray(); }` (defensive copy matching `TokenHash`), and nullable `public DateTimeOffset? RuntimeCredentialExpiresAt { get; private set; }`.
+   - Extend `Redeem` to a backwards-compatible signature:
+     `public void Redeem(DateTimeOffset now, byte[]? runtimeCredentialHash = null, DateTimeOffset? runtimeCredentialExpiresAt = null)`
+     - Preserves all existing 1-arg Stage 1 callers (`enrollment.Redeem(now)`).
+     - Enforces existing `UsedAt.HasValue || ExpiresAt <= now` guard (`EnrollmentTokenInvalidOrExpiredException`).
+     - When `runtimeCredentialHash` is supplied: validates `runtimeCredentialHash.Length == 32` (`ArgumentException`), requires `runtimeCredentialExpiresAt.HasValue && runtimeCredentialExpiresAt.Value > now` (`ArgumentException`), and persists defensive copy + expiry.
+11. **Update `GlobalUsings.cs`:** Add `global using PharmacyERP.Domain.Entities.Sales;` (sorted alphabetically) to `src/PharmacyERP.Domain/GlobalUsings.cs`, `src/PharmacyERP.Application/GlobalUsings.cs`, and `src/PharmacyERP.Infrastructure/GlobalUsings.cs`.
 
 ### 4. Mandatory Unit & Integration Tests
 - `tests/PharmacyERP.UnitTests/Domain/Sales/SalesOrderAndInvoiceDomainTests.cs`:
   - Draft creation, line math (`MidpointRounding.AwayFromZero` for `quantity_base`, `net`, `tax`, `line_total`), replace-lines on `DRAFT`, rejection on `COMPLETED`/`CANCELLED`.
   - Invoice issuance total reconciliation, `ApplyRefund` (`PAID -> PARTIALLY_REFUNDED -> REFUNDED`), rejection when `refund > paid - refunded`.
-  - Cash payment change calculation, rejection when `cashTendered < amountDue` or `amountDue <= 0`.
+  - Cash payment change calculation, rejection when `cash_tendered_amount < amount_due` or `amount_due <= 0`.
 - `tests/PharmacyERP.UnitTests/Domain/Sales/SalesReturnAndRefundDomainTests.cs`:
   - Return creation with `RESTOCK`/`QUARANTINE`/`SCRAP`, self-approval rejection (`ApprovedByEmployeeId == ReceivedByEmployeeId`), empty `BatchId` rejection, non-positive `QuantityBase` rejection, `SalesRefund` amount validation.
-  - `InventoryTxn` `AddLine` overload with `salesOrderLineId` / `salesReturnLineId` preserves Stage 1 sign rules (`SALE_ISSUE < 0`, `SALES_RETURN_IN > 0`, `SCRAP_OUT < 0`).
+  - `InventoryTxn.CreateDraft`/`CreatePosted` optional `inventoryTxnId`, `InventoryTxnLine.Create` optional `inventoryTxnLineId`, and `InventoryTxn.AddLine(...)` overload with `salesOrderLineId` / `salesReturnLineId` / `inventoryTxnLineId` preserve Stage 1 sign rules (`SALE_ISSUE < 0`, `SALES_RETURN_IN > 0`, `SCRAP_OUT < 0`).
+  - `BranchEnrollment.Redeem(now, runtimeCredentialHash, expiry)`: persists defensive copy of 32-byte `RuntimeCredentialHash` & `RuntimeCredentialExpiresAt`, preserves 1-arg `Redeem(now)` compatibility, and rejects non-32-byte hashes or `expiry <= now`.
 
 ### 5. Verification & Arabic Explanation Gate
 - Run `dotnet build PharmacyERP.sln --no-restore` (`0 Error(s), 0 Warning(s)`).
 - Run `dotnet test PharmacyERP.sln --no-restore` (`100% Passed, 0 Failed, 0 Skipped`).
-- Provide a concise **Arabic explanation in chat** covering all 8 Sales entities, domain invariants, and why explicit-ID factory support is required for Branch-to-Cloud sync replay.
+- Provide a concise **Arabic explanation in chat** covering all 8 Sales entities, domain invariants, explicit-ID factory support for Branch-to-Cloud sync replay, and `BranchEnrollment` runtime credential hash persistence.
 
 ---
 
@@ -194,9 +207,9 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
    - Methods:
      - `AllocateNextIssuedSequence()` -> increments `LastIssuedSequence` by `1` and returns the new sequence.
      - `AdvanceAppliedSequence(long appliedSequence)`: validates `appliedSequence == LastAppliedSequence + 1` (throws `InvalidSyncSequenceException` on gap or regression).
-     - `UpdateCloudCursor(string nextCursor)`: validates non-null and length `<= 500`.
+     - `UpdateCloudCursor(string cloudCursor)`: validates non-null and length `<= 500`.
 4. **Backwards-Compatible `AuditLog` Replay Support (`src/PharmacyERP.Domain/Entities/Integration/AuditLog.cs`):**
-   - Add an optional trailing parameter `Guid? auditLogId = null` to the existing `AuditLog(...)` constructor (`AuditLogId = auditLogId ?? Guid.NewGuid();`) so Cloud Sync exact fact replay (`AH-09`) can persist branch-originated audit rows with their exact original `audit_log_id` (Blueprint §8.9.9 & §9.3) with zero impact on Stage 1 callers.
+   - Append an optional trailing parameter `Guid? auditLogId = null` after `string? sourcePromptId = null` on the existing `AuditLog(...)` constructor (`AuditLogId = auditLogId ?? Guid.NewGuid();`) so Cloud Sync exact fact replay (`AH-09`) can persist branch-originated audit rows with their exact original `audit_log_id` (Blueprint §8.9.9 & §9.3) with zero impact on Stage 1 callers.
 
 ### 4. Mandatory Unit & Integration Tests
 - `tests/PharmacyERP.UnitTests/Domain/Integration/SyncEntitiesTests.cs`:
@@ -211,11 +224,11 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
 
 ---
 
-## Task `AH-04`: EF Core Configurations (11 New + 2 Updated) & `PharmacyDbContext` Partials
+## Task `AH-04`: EF Core Configurations (11 New + 3 Updated) & `PharmacyDbContext` Partials
 
 ### 1. Task Header
 - **Task ID:** `AH-04`
-- **Title:** EF Core Configurations (11 New + 2 Updated) & `PharmacyDbContext` Partials
+- **Title:** EF Core Configurations (11 New + 3 Updated) & `PharmacyDbContext` Partials
 - **Base Branch:** `stage2-dev`
 - **Feature Branch:** `stage2/ahmed-hassan/ah-04-ef-configurations-and-dbcontext`
 - **Execution Command:** Execute via `/execute-stage-task` applying `@.agent/rules/00-backend-guardrails.md` and `@.agent/skills/pharmacy-backend-engineering/SKILL.md`.
@@ -277,7 +290,7 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
    - **`SyncOutboxConfiguration.cs`** -> `integration."SYNC_OUTBOX"`: PK `OperationId`, UK `(OrganizationId, BranchId, BranchSequence)`, partial pending index `(OrganizationId, BranchId, BranchSequence) WHERE synced_at IS NULL`, `payload jsonb`, `payload_hash char(64)`, `last_error varchar(500)`, CHECKs on `operation_type` (6 closed values), `branch_sequence > 0`, `payload_version > 0`, `retry_count >= 0`, FK `(OrganizationId, BranchId) -> Branch`.
    - **`SyncInboxConfiguration.cs`** -> `integration."SYNC_INBOX"`: PK `OperationId`, UK `(OrganizationId, BranchId, BranchSequence)`, `payload jsonb NOT NULL`, `payload_hash char(64)`, CHECKs on `processing_status IN ('RECEIVED','APPLIED','CONFLICT','FAILED')`, `result_code IS NULL OR result_code IN ('APPLIED','CONFLICT','FAILED')`, `branch_sequence > 0`, `payload_version > 0`, FK `(OrganizationId, BranchId) -> Branch`.
    - **`SyncBranchCursorConfiguration.cs`** -> `integration."SYNC_BRANCH_CURSOR"`: Composite PK `(OrganizationId, BranchId)`, `last_issued_sequence bigint DEFAULT 0`, `last_applied_sequence bigint DEFAULT 0`, `last_applied_cloud_cursor varchar(500) DEFAULT ''`, CHECKs `last_issued_sequence >= 0 AND last_applied_sequence >= 0`, FK `(OrganizationId, BranchId) -> Branch`.
-4. **Update 2 Stage 1 Inventory Configurations** (`InventoryTxnConfiguration.cs`, `InventoryTxnLineConfiguration.cs`):
+4. **Update 3 Stage 1 Configurations (`InventoryTxnConfiguration.cs`, `InventoryTxnLineConfiguration.cs`, `BranchEnrollmentConfiguration.cs`):**
    - `InventoryTxnConfiguration.cs`:
      - Add composite FKs: `(OrganizationId, BranchId, SalesOrderId) -> SalesOrder(OrganizationId, BranchId, SalesOrderId)` and `(OrganizationId, BranchId, SalesReturnId) -> SalesReturn(OrganizationId, BranchId, ReturnId)`.
      - Add 3 partial unique indexes: `(OrganizationId, SalesOrderId) WHERE transaction_type = 'SALE_ISSUE' AND sales_order_id IS NOT NULL`; `(OrganizationId, SalesReturnId) WHERE transaction_type = 'SALES_RETURN_IN' AND sales_return_id IS NOT NULL`; `(OrganizationId, SalesReturnId) WHERE transaction_type = 'SCRAP_OUT' AND sales_return_id IS NOT NULL`.
@@ -285,15 +298,18 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
    - `InventoryTxnLineConfiguration.cs`:
      - Add composite FKs: `(OrganizationId, SalesOrderLineId, ProductId) -> SalesOrderLine(OrganizationId, OrderLineId, ProductId)` and `(OrganizationId, SalesReturnLineId, BranchId, ProductId, BatchId, LocationId) -> SalesReturnLine(OrganizationId, ReturnLineId, BranchId, ProductId, BatchId, DestinationLocationId)`.
      - Add `CK_INVENTORY_TXN_LINE_single_source_line`: at most one of `sales_order_line_id`, `sales_return_line_id`, `purchase_order_line_id`, `vendor_return_line_id` is non-null.
+   - `src/PharmacyERP.Infrastructure/Persistence/Configurations/Identity/BranchEnrollmentConfiguration.cs`:
+     - Map nullable `RuntimeCredentialHash` -> `.HasColumnName("runtime_credential_hash").HasColumnType("bytea")` with unique partial index `builder.HasIndex(x => x.RuntimeCredentialHash).IsUnique().HasFilter("runtime_credential_hash IS NOT NULL");`.
+     - Map nullable `RuntimeCredentialExpiresAt` -> `.HasColumnName("runtime_credential_expires_at").HasColumnType("timestamptz")`.
 
 ### 4. Mandatory Unit & Integration Tests
 - `tests/PharmacyERP.UnitTests/Infrastructure/SalesAndSyncModelConfigurationTests.cs`:
-  - Inspect EF Core `IModel` for all 11 new + 2 updated entities: verify exact schemas/table names, decimal column types (`numeric(18,4)`, `numeric(18,2)`, `numeric(18,6)`, `numeric(9,4)`), `DeleteBehavior.Restrict` on every FK, exact composite alternate keys & composite FKs, partial unique index filters, CHECK constraints, and dynamic `OrganizationId` query filter on all 11 new entities.
+  - Inspect EF Core `IModel` for all 11 new + 3 updated entities: verify exact schemas/table names, decimal column types (`numeric(18,4)`, `numeric(18,2)`, `numeric(18,6)`, `numeric(9,4)`), `DeleteBehavior.Restrict` on every FK, exact composite alternate keys & composite FKs, partial unique index filters (including `BRANCH_ENROLLMENT` `runtime_credential_hash IS NOT NULL`), CHECK constraints, and dynamic `OrganizationId` query filter on all 11 new entities.
 
 ### 5. Verification & Arabic Explanation Gate
 - Run `dotnet build PharmacyERP.sln --no-restore` (`0 Error(s), 0 Warning(s)`).
 - Run `dotnet test PharmacyERP.sln --no-restore` (`100% Passed, 0 Failed, 0 Skipped`).
-- Provide a concise **Arabic explanation in chat** detailing the 11 new configurations, the 2 extended Inventory ledger configurations, and how composite keys prevent cross-tenant/cross-branch/cross-product mismatches at the database layer.
+- Provide a concise **Arabic explanation in chat** detailing the 11 new configurations, the 3 extended Stage 1 configurations (`InventoryTxn`, `InventoryTxnLine`, `BranchEnrollment`), and how composite keys prevent cross-tenant/cross-branch/cross-product mismatches at the database layer.
 
 ---
 
@@ -308,7 +324,7 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
 
 ### 2. Hard Prerequisites Checklist (BLOCKING GATE)
 - [ ] `AH-04` merged into `stage2-dev` and pulled locally.
-- [ ] All 11 new + 2 updated EF configurations compile and `SalesAndSyncModelConfigurationTests` pass.
+- [ ] All 11 new + 3 updated EF configurations compile and `SalesAndSyncModelConfigurationTests` pass.
 - [ ] Local PostgreSQL accessible via `erp_migrator` (`ERP_MIGRATOR_CONNECTION`) and `ERP_IT_POSTGRES`.
 
 > **BLOCKING GATE RULE:** *If ANY prerequisite above is missing or fails to compile, STOP immediately, refuse to implement this task, and inform the developer in Arabic which exact task/PR must be merged and pulled from `stage2-dev` first.*
@@ -339,6 +355,7 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
      --startup-project src/PharmacyERP.Api/PharmacyERP.Api.csproj `
      --output-dir Persistence/Migrations
    ```
+   - Verify the generated migration captures all 11 new tables, the `INVENTORY_TXN`/`INVENTORY_TXN_LINE` Sales FKs/partial unique indexes/CHECK constraints, AND the additive nullable `runtime_credential_hash bytea` (unique partial index `WHERE runtime_credential_hash IS NOT NULL`) & `runtime_credential_expires_at timestamptz` columns on `identity."BRANCH_ENROLLMENT"`.
    - In the generated migration's `Up(MigrationBuilder migrationBuilder)` (after table creation):
      1. `migrationBuilder.Sql(RlsAndAuditProtectionSql.GenerateStage2RlsSql());`
      2. `migrationBuilder.Sql(SalesImmutabilityAndSourceConstraintSql.CreateFunctionsAndTriggersSql);`
@@ -363,11 +380,11 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
 
 ---
 
-## Task `AH-06`: Zero-Conflict Scaffolding, `RuntimeModeGuardMiddleware`, Authz Policies & `ApiResultMapper`
+## Task `AH-06`: Zero-Conflict Scaffolding, `RuntimeModeGuardMiddleware`, Authz Policies, Stage 2 Scopes & `CanonicalReader` Validation
 
 ### 1. Task Header
 - **Task ID:** `AH-06`
-- **Title:** Zero-Conflict Scaffolding (4 Modular DIs, Partial Controller Shells), Runtime Mode Guard & Authz Policies
+- **Title:** Zero-Conflict Scaffolding (4 Modular DIs, Partial Controller Shells), Runtime Mode Guard, Authz Policies, Stage 2 JWT Scopes & `CanonicalReader` Validation
 - **Base Branch:** `stage2-dev`
 - **Feature Branch:** `stage2/ahmed-hassan/ah-06-zero-conflict-scaffolding`
 - **Execution Command:** Execute via `/execute-stage-task` applying `@.agent/rules/00-backend-guardrails.md` and `@.agent/skills/pharmacy-backend-engineering/SKILL.md`.
@@ -376,6 +393,7 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
 - [ ] `AH-05` merged into `stage2-dev` and pulled locally.
 - [ ] Stage 2 migration applies cleanly and `ErrorCode.SYNC_CURSOR_EXPIRED` exists.
 - [ ] `src/PharmacyERP.Api/Program.cs` is untouched.
+- [ ] Live Stage 1 `RuntimeModeGuardMiddleware.cs`, `AuthorizationPoliciesExtensions.cs`, `Api/DependencyInjection.cs`, `CurrentUser.cs`, `JwtTokenGenerator.cs`, and `AuthService.cs` exist.
 
 > **BLOCKING GATE RULE:** *If ANY prerequisite above is missing or fails to compile, STOP immediately, refuse to implement this task, and inform the developer in Arabic which exact task/PR must be merged and pulled from `stage2-dev` first.*
 
@@ -416,43 +434,74 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
      }
      ```
    *(Zero constructor fields — teammates inject their own services + `ICurrentUser` via `[FromServices]` in their separate partial files.)*
-3. **Update `src/PharmacyERP.Api/Middleware/RuntimeModeGuardMiddleware.cs`:**
+3. **Update `src/PharmacyERP.Api/Middleware/RuntimeModeGuardMiddleware.cs` (Match Live Stage 1 Exactly):**
    - In `IsBranchLocalOnlyMutation(string path, string method)` (returns `404 NOT_FOUND` on `ErpRuntimeMode.Cloud` for non-GET/HEAD/OPTIONS):
-     - Keep Stage 1 paths (`/api/v1/inventory/adjustments`, `/api/v1/inventory/opening-balances`, `/api/v1/inventory/transfers`).
+     - Preserve live Stage 1 `path.StartsWith("/api/v1/inventory/adjustments", StringComparison.OrdinalIgnoreCase)`.
      - Add `path.StartsWith("/api/v1/sales-orders", StringComparison.OrdinalIgnoreCase)` and `path.StartsWith("/api/v1/sales-returns", StringComparison.OrdinalIgnoreCase)`.
      - *(Read `GET` requests on `/api/v1/sales-orders`, `/api/v1/sales-invoices`, `/api/v1/sales-returns` remain allowed on BOTH `Cloud` and `BranchLocal`.)*
    - In `IsCloudOnlyEndpoint(string path, string method)` (returns `404 NOT_FOUND` on `ErpRuntimeMode.BranchLocal`):
-     - Keep Stage 1 paths (`/api/v1/organizations`, `/api/v1/canonical/`, catalog write paths).
+     - Preserve **all** live Stage 1 Cloud-only guards: `/api/v1/organizations`, `/api/v1/canonical/` (except `/api/v1/canonical/capabilities`), `/api/v1/branch-enrollment`, plus non-GET/HEAD/OPTIONS writes on `/api/v1/product-categories`, `/api/v1/products`, `*/reorder-rule`, `/api/v1/branches`, `/api/v1/users`, and `/api/v1/employees`.
      - Add `path.StartsWith("/api/v1/sync", StringComparison.OrdinalIgnoreCase)` (blocks ALL verbs on `/api/v1/sync/*` in `BranchLocal` mode).
 4. **Update `src/PharmacyERP.Api/Auth/AuthorizationPoliciesExtensions.cs`:**
    - Preserve existing `AdminOnly`, `OrgAdminOnly`, `PlatformProvisionerOnly`.
-   - Add Stage 2 named policies matching Blueprint §8.5 & §9.1:
+   - Add all 5 Stage 2 named policies matching Blueprint §8.5, §9.1 & `API-DIFF-012`:
      - `PosCashierOrAdmin`: `RequireAuthenticatedUser().RequireRole("Cashier", "Admin")`
      - `SalesReadAccess`: `RequireAuthenticatedUser().RequireRole("Admin", "Pharmacist", "Cashier")`
      - `SalesReturnWriteAccess`: `RequireAuthenticatedUser().RequireRole("Cashier", "Pharmacist", "Admin")`
      - `SyncAdminOnly`: `RequireAuthenticatedUser().RequireRole("Admin").RequireAssertion(ctx => ctx.User.Claims.Any(c => (c.Type == "scopes" || c.Type == "scope") && c.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains("sync:retry", StringComparer.Ordinal)))`
-5. **Update `src/PharmacyERP.Api/Common/ApiResultMapper.cs`:**
+     - `CanonicalRead`: `RequireAuthenticatedUser().RequireRole("Admin", "Pharmacist", "CanonicalReader")` *(permits human `Admin`/`Pharmacist` users and short-lived `.NET`-issued read-only `CanonicalReader` service tokens across all 5 canonical read feeds while denying `CanonicalReader` on canonical configuration writes)*.
+5. **Update `src/PharmacyERP.Api/DependencyInjection.cs` (`JwtBearerEvents.OnTokenValidated` — `.NET` `CanonicalReader` Service Token Exemption, `API-DIFF-012`):**
+   - Preserve existing `PlatformProvisioner` exemption (not a tenant `USER_ACCOUNT` principal).
+   - Add strict recognition for `.NET`-issued short-lived read-only `CanonicalReader` service tokens (not backed by a `USER_ACCOUNT` row or `security_stamp`):
+     - `token_type` claim equals `"service"` (`StringComparison.Ordinal`).
+     - `roles` claims contain ONLY `"CanonicalReader"` (reject if any human/admin role such as `Admin`, `Pharmacist`, `Cashier`, or `PlatformProvisioner` is present).
+     - `organization_id` is a valid non-empty `Guid`.
+     - `branch_scope` is `"ALL"` or `"ASSIGNED"` (and if `"ASSIGNED"`, at least one valid GUID exists in `branch_ids`).
+     - `scopes` contains `"canonical:read"` and contains **no** write/admin scopes (`user:admin`, `inventory:write`, `sales:write`, `return:write`, `sync:retry`, `canonical:write`).
+     - Lifetime bounded: valid `iat` and `exp` numeric claims with `exp > iat` and `(exp - iat) <= 3600` seconds (max 1 hour).
+   - When all checks pass, return early to bypass `IUserSecurityStampValidator` (just like `PlatformProvisioner`); if `token_type == "service"` or role `"CanonicalReader"` fails any invariant above, call `context.Fail(...)` immediately.
+6. **Update `src/PharmacyERP.Infrastructure/Services/Context/CurrentUser.cs`:**
+   - In `CanAccessBranch(Guid branchId)`, permit `BranchScope == "ALL"` bypass for **`Admin` OR `CanonicalReader`**:
+     ```csharp
+     if (string.Equals(BranchScope, "ALL", StringComparison.OrdinalIgnoreCase) &&
+         (string.Equals(Role, "Admin", StringComparison.OrdinalIgnoreCase) ||
+          string.Equals(Role, "CanonicalReader", StringComparison.OrdinalIgnoreCase)))
+     {
+         return true;
+     }
+     ```
+7. **Emit Stage 2 Blueprint §8.5 Scopes in `src/PharmacyERP.Infrastructure/Auth/JwtTokenGenerator.cs` & `src/PharmacyERP.Application/Features/Identity/Services/Implementations/AuthService.cs`:**
+   - Update both `JwtTokenGenerator.GetScopes(...)` and `AuthService.ScopeNames(...)` in lockstep (passing `user.Role`, `effectiveBranchScope` / `user.BranchScope`, and `_runtimeMode.CurrentMode`) so JWT `scopes` and `LoginResponse.User.Scopes` stay 100% identical:
+     - `UserRole.Admin`: `"user:admin"`, `"inventory:read"`, `"inventory:write"`, `"sales:read"`, `"sales:write"`, `"return:read"`, `"return:write"`, plus **`"sync:retry"`** ONLY when `user.BranchScope == BranchScope.ALL` AND `_runtimeMode.CurrentMode == ErpRuntimeMode.Cloud` (note: in `BranchLocal`, `effectiveBranchScope` is already forced to `ASSIGNED` and `/api/v1/sync/*` is Cloud-only, so `sync:retry` is never emitted on `BranchLocal`).
+     - `UserRole.Pharmacist`: `"inventory:read"`, `"inventory:write"`, `"sales:read"`, `"return:read"`, `"return:write"`.
+     - `UserRole.Cashier`: `"inventory:read"`, `"sales:read"`, `"sales:write"`, `"return:read"`, `"return:write"`.
+   - Update affected Stage 1 scope assertions in `JwtAndPasswordSecurityTests`, `Stage1ContractFixesUnitTests`, and `Stage1FrontendContractFixesTests` so all Stage 1 + Stage 2 tests stay 100% green.
+8. **Update `src/PharmacyERP.Api/Common/ApiResultMapper.cs`:**
    - Map `ErrorCode.SYNC_CURSOR_EXPIRED` -> `409` in `MapStatusCode(ErrorCode code)`.
 
 ### 4. Mandatory Unit & Integration Tests
 - `tests/PharmacyERP.UnitTests/API/Middleware/Stage2RuntimeModeGuardAndAuthzTests.cs`:
-  - `Cloud` mode returns `404 NOT_FOUND` (`ApiErrorEnvelopeDto`) for `POST /api/v1/sales-orders`, `PUT /api/v1/sales-orders/{id}/lines`, `POST /api/v1/sales-orders/{id}/complete`, `POST /api/v1/sales-orders/{id}/cancel`, `POST /api/v1/sales-returns`; allows `GET /api/v1/sales-orders`, `GET /api/v1/sales-invoices`, `GET /api/v1/sales-returns`, and all `/api/v1/sync/*`.
-  - `BranchLocal` mode returns `404 NOT_FOUND` for `POST /api/v1/sync/operations`, `POST /api/v1/sync/operations/{id}/retry`, `GET /api/v1/sync/bootstrap`, `GET /api/v1/sync/changes`, `GET /api/v1/canonical/sales`, `/orders`, `/returns`; allows `GET /api/v1/canonical/capabilities` and all `/api/v1/sales-*` verbs.
+  - `Cloud` mode returns `404 NOT_FOUND` (`ApiErrorEnvelopeDto`) for `POST /api/v1/sales-orders`, `PUT /api/v1/sales-orders/{id}/lines`, `POST /api/v1/sales-orders/{id}/complete`, `POST /api/v1/sales-orders/{id}/cancel`, `POST /api/v1/sales-returns`, and `POST /api/v1/inventory/adjustments`; allows `GET /api/v1/sales-orders`, `GET /api/v1/sales-invoices`, `GET /api/v1/sales-returns`, and all `/api/v1/sync/*`.
+  - `BranchLocal` mode returns `404 NOT_FOUND` for `POST /api/v1/sync/operations`, `POST /api/v1/sync/operations/{id}/retry`, `GET /api/v1/sync/bootstrap`, `GET /api/v1/sync/changes`, `GET /api/v1/canonical/sales`, `/orders`, `/returns`, `/api/v1/branch-enrollment`, and writes on `/branches`/`/users`/`/employees`/`/products`; allows `GET /api/v1/canonical/capabilities` and all `/api/v1/sales-*` verbs.
   - `ApiResultMapper` maps `ErrorCode.SYNC_CURSOR_EXPIRED` to HTTP `409`.
   - `SyncAdminOnly` allows `Admin` with `sync:retry` scope and rejects `Admin` without `sync:retry` and `Pharmacist`/`Cashier`.
+  - `CanonicalRead` allows `Admin`, `Pharmacist`, and `CanonicalReader`, and rejects `Cashier`.
+  - `JwtBearerEvents.OnTokenValidated` accepts valid `.NET` `CanonicalReader` service tokens (`token_type: "service"`, `roles: ["CanonicalReader"]`, `scopes: ["canonical:read"]`, `exp - iat <= 3600`, valid `organization_id`) without calling `IUserSecurityStampValidator`, and rejects service tokens with write scopes, mixed roles, missing `organization_id`, or `exp - iat > 3600`.
+  - `CurrentUser.CanAccessBranch` permits `CanonicalReader` with `branch_scope == "ALL"` and restricts `CanonicalReader` with `branch_scope == "ASSIGNED"` to `AuthorizedBranchIds`.
+  - `JwtTokenGenerator` and `AuthService` emit `return:read`, `return:write` for all 3 roles and `sync:retry` exclusively for `Admin` + `BranchScope.ALL` on `Cloud` (and omit `sync:retry` on `BranchLocal` or `ASSIGNED` Admin).
 
 ### 5. Verification & Arabic Explanation Gate
 - Run `dotnet build PharmacyERP.sln --no-restore` (`0 Error(s), 0 Warning(s)`).
 - Run `dotnet test PharmacyERP.sln --no-restore` (`100% Passed, 0 Failed, 0 Skipped`).
-- Provide a concise **Arabic explanation in chat** noting that Wave 1 scaffolding is ready to unblock `Yassin` and `Ahmed Salah`, and explaining the `Cloud`/`BranchLocal` guard and `SyncAdminOnly` policy.
+- Provide a concise **Arabic explanation in chat** noting that Wave 1 scaffolding is ready to unblock `Yassin` and `Ahmed Salah`, and explaining the live `Cloud`/`BranchLocal` guard, Stage 2 JWT scopes, `SyncAdminOnly`, `CanonicalRead`, and `.NET` `CanonicalReader` service-token validation.
 
 ---
 
-## Task `AH-07`: `ISyncOutboxWriter`, `ISyncBranchCursorRepository` & Stage 1 Adjustment Hook
+## Task `AH-07`: `ISyncOutboxWriter`, `IAuditLogger.LogWithIdAsync`, `SyncPayloads.cs` & Stage 1 Adjustment Hook
 
 ### 1. Task Header
 - **Task ID:** `AH-07`
-- **Title:** `ISyncOutboxWriter`, `ISyncBranchCursorRepository` & Wiring `POST_INVENTORY_ADJUSTMENT` into `InventoryAdjustmentService`
+- **Title:** `ISyncOutboxWriter`, `IAuditLogger.LogWithIdAsync`, `SyncPayloads.cs` & Wiring `POST_INVENTORY_ADJUSTMENT` into `InventoryAdjustmentService`
 - **Base Branch:** `stage2-dev`
 - **Feature Branch:** `stage2/ahmed-hassan/ah-07-sync-outbox-writer`
 - **Execution Command:** Execute via `/execute-stage-task` applying `@.agent/rules/00-backend-guardrails.md` and `@.agent/skills/pharmacy-backend-engineering/SKILL.md`.
@@ -460,18 +509,35 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
 ### 2. Hard Prerequisites Checklist (BLOCKING GATE)
 - [ ] `AH-06` merged into `stage2-dev` and pulled locally.
 - [ ] `SyncOutbox`, `SyncBranchCursor`, and `SyncDependencyInjection.cs` exist.
-- [ ] `src/PharmacyERP.Application/Features/Inventory/Services/Implementations/InventoryAdjustmentService.cs` and `src/PharmacyERP.Application/Common/Utilities/CanonicalJsonHasher.cs` exist.
+- [ ] `src/PharmacyERP.Application/Common/Interfaces/Integration/IAuditLogger.cs`, `src/PharmacyERP.Application/Features/Integration/Services/Implementations/AuditLogger.cs`, `src/PharmacyERP.Application/Features/Inventory/Services/Implementations/InventoryAdjustmentService.cs`, and `src/PharmacyERP.Application/Common/Utilities/CanonicalJsonHasher.cs` exist.
 
 > **BLOCKING GATE RULE:** *If ANY prerequisite above is missing or fails to compile, STOP immediately, refuse to implement this task, and inform the developer in Arabic which exact task/PR must be merged and pulled from `stage2-dev` first.*
 
 ### 3. Exhaustive Implementation Specification
-1. **Create `ISyncBranchCursorRepository`** (`src/PharmacyERP.Application/Features/Sync/Repositories/Interfaces/ISyncBranchCursorRepository.cs`):
+1. **Add Non-Breaking `LogWithIdAsync` to `IAuditLogger` & `AuditLogger` (Captures Exact `AuditLogId` for Sync Replay):**
+   - Live Stage 1 `IAuditLogger.LogAsync(...)` returns `Task` and generates `AuditLogId = Guid.NewGuid()` internally inside `AuditLogger.cs`, which prevents `InventoryAdjustmentService`, `SalesCheckoutService`, and `SalesReturnService` from capturing the exact persisted `audit_log_id` for `SyncAuditFactDto`.
+   - In `src/PharmacyERP.Application/Common/Interfaces/Integration/IAuditLogger.cs`: keep the existing `Task LogAsync(...)` signature **100% untouched** (preserving all 590 Stage 1 unit tests and Moq setups!) and add a second method:
+     ```csharp
+     Task<Guid> LogWithIdAsync(
+         string action,
+         string entitySchema,
+         string entityName,
+         Guid entityId,
+         object? beforeData,
+         object? afterData,
+         Guid? branchId = null,
+         AuditActorType? actorTypeOverride = null,
+         string? sourcePromptId = null,
+         CancellationToken ct = default);
+     ```
+   - In `src/PharmacyERP.Application/Features/Integration/Services/Implementations/AuditLogger.cs`: implement `LogWithIdAsync(...)` persisting `AuditLog` via `_repository.AddAsync(logEntry, ct)` and returning `logEntry.AuditLogId`; have `LogAsync(...)` delegate cleanly to `LogWithIdAsync(...)` (discarding the returned `Guid`).
+2. **Create `ISyncBranchCursorRepository`** (`src/PharmacyERP.Application/Features/Sync/Repositories/Interfaces/ISyncBranchCursorRepository.cs`):
    - `Task<SyncBranchCursor> GetOrCreateForUpdateAsync(Guid organizationId, Guid branchId, CancellationToken ct = default);`
    - `Task<SyncBranchCursor?> GetByBranchAsync(Guid organizationId, Guid branchId, CancellationToken ct = default);`
-2. **Implement `SyncBranchCursorRepository`** (`src/PharmacyERP.Infrastructure/Persistence/Repositories/Integration/SyncBranchCursorRepository.cs`):
+3. **Implement `SyncBranchCursorRepository`** (`src/PharmacyERP.Infrastructure/Persistence/Repositories/Integration/SyncBranchCursorRepository.cs`):
    - Relational PostgreSQL path: `INSERT INTO integration."SYNC_BRANCH_CURSOR" (organization_id, branch_id, last_issued_sequence, last_applied_sequence, last_applied_cloud_cursor) VALUES ({orgId}, {branchId}, 0, 0, '') ON CONFLICT (organization_id, branch_id) DO NOTHING;` followed by `SELECT * FROM integration."SYNC_BRANCH_CURSOR" WHERE organization_id = {orgId} AND branch_id = {branchId} FOR UPDATE` (`.IgnoreQueryFilters()`), guaranteeing rollback leaves zero sequence gaps (Blueprint §4.2).
    - Non-relational fallback for unit tests.
-3. **Create `ISyncOutboxWriter`** (`src/PharmacyERP.Application/Common/Interfaces/Integration/ISyncOutboxWriter.cs`):
+4. **Create `ISyncOutboxWriter`** (`src/PharmacyERP.Application/Common/Interfaces/Integration/ISyncOutboxWriter.cs`):
    ```csharp
    public sealed record SyncAuditFactDto(
        Guid AuditLogId,
@@ -484,7 +550,9 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
        Guid EntityId,
        string? SourcePromptId,
        string TraceId,
-       DateTimeOffset CreatedAt);
+       DateTimeOffset CreatedAt,
+       string? BeforeData = null,
+       string? AfterData = null);
 
    public interface ISyncOutboxWriter
    {
@@ -502,27 +570,30 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
            CancellationToken ct = default);
    }
    ```
-4. **Implement `SyncOutboxWriter`** (`src/PharmacyERP.Application/Features/Sync/Services/Implementations/SyncOutboxWriter.cs`):
+5. **Implement `SyncOutboxWriter`** (`src/PharmacyERP.Application/Features/Sync/Services/Implementations/SyncOutboxWriter.cs`):
    - If `_runtimeMode.CurrentMode != ErpRuntimeMode.BranchLocal`, return `null` immediately (no-op on `Cloud`).
    - Require active tenant (`_tenantContext.OrganizationId`) and active transaction (`_unitOfWork.HasActiveTransaction`).
    - Call `_cursorRepo.GetOrCreateForUpdateAsync(organizationId, branchId, ct)` and `var sequence = cursor.AllocateNextIssuedSequence();`.
    - Serialize canonical JSON via `CanonicalJsonHasher.SerializeToCanonicalJson(typedPayload)` and compute `payloadHash = CanonicalJsonHasher.ComputeSha256Hex(typedPayload)` (64-char lowercase hex).
    - Create `SyncOutbox.Create(Guid.NewGuid(), organizationId, branchId, operationType, aggregateId, sequence, payloadVersion, payloadHash, canonicalJson, _dateTimeProvider.UtcNow)` and add via `ISyncOutboxRepository.AddAsync(...)` (registering `ISyncOutboxWriter`, `ISyncBranchCursorRepository`, and minimal `ISyncOutboxRepository` in `SyncDependencyInjection.cs`, Scoped).
-5. **Create Versioned Immutable `v1` Sync Payloads (`src/PharmacyERP.Application/Features/Sync/Contracts/SyncPayloads.cs`):**
+6. **Create Versioned Immutable `v1` Sync Payloads (`src/PharmacyERP.Application/Features/Sync/Contracts/SyncPayloads.cs`):**
    - Place all three Stage 2 `v1` sync payload contracts here in Wave 1 so `El-Hosseiny` (`EH-05`, `EH-07`) has zero Wave 2 dependency on `AH-08`:
      - `SupportedPayloadVersion = 1`
-     - `PostInventoryAdjustmentSyncPayloadV1` (exact posted `InventoryTxn` + `InventoryTxnLine`s + `SyncAuditFactDto`)
+     - `PostInventoryAdjustmentSyncPayloadV1` (exact posted `InventoryTxn` + `InventoryTxnLine`s + `SyncAuditFactDto` with `AuditLogId`, `BeforeData`, `AfterData`)
      - `CompleteSalesOrderSyncPayloadV1` (exact posted `SalesOrder` + `SalesOrderLine`s + `SalesInvoice` + `SalesInvoiceLine`s + `SalesPayment` + `SALE_ISSUE` `InventoryTxn`/`InventoryTxnLine`s + `SyncAuditFactDto`)
      - `PostSalesReturnSyncPayloadV1` (exact posted `SalesReturn` + `SalesReturnLine`s + optional `SalesRefund` + `SALES_RETURN_IN` & optional `SCRAP_OUT` `InventoryTxn`/`InventoryTxnLine`s + `SyncAuditFactDto`)
-6. **Wire `POST_INVENTORY_ADJUSTMENT` into Stage 1 `InventoryAdjustmentService.cs`:**
-   - Add an **optional** trailing constructor parameter `ISyncOutboxWriter? syncOutboxWriter = null` (exact same backwards-compatible pattern used for `IProductUomRepository?` / `IProductRepository?` in Stage 1 so zero existing Stage 1 unit tests break).
-   - Inside `PostAdjustmentAsync` (after `inventoryTransaction.Post(now)` and `_auditLogger.LogAsync(...)`, BEFORE `_unitOfWork.CommitTransactionAsync(ct)`): when `_syncOutboxWriter is not null && _runtimeMode.CurrentMode == ErpRuntimeMode.BranchLocal`, build a `PostInventoryAdjustmentSyncPayloadV1` record containing exact posted `InventoryTxn` + `InventoryTxnLine` IDs, `TransactionNo`, `TransactionType`, `Status`, `ReasonCode`, `Note`, `IdempotencyKey`, `CreatedByEmployeeId`, `ReversesInventoryTxnId`, `CreatedAt`, `PostedAt`, all lines (`InventoryTxnLineId`, `ProductId`, `LocationId`, `BatchId`, `BatchNumber`, `ExpiresOn`, `ManufacturedOn`, `ProductUomId`, `EnteredQty`, `ConversionSnapshot`, `QuantityDeltaBase`, `UnitCostBase`), and `SyncAuditFactDto`, and call `_syncOutboxWriter.EnqueueAsync(request.BranchId, SyncOperationType.POST_INVENTORY_ADJUSTMENT, inventoryTransaction.InventoryTxnId, syncPayload, payloadVersion: 1, ct)`.
+7. **Wire `POST_INVENTORY_ADJUSTMENT` into Stage 1 `InventoryAdjustmentService.cs`:**
+   - Live Stage 1 `InventoryAdjustmentService` has a **14-parameter constructor** ending with `IProductUomRepository? productUomRepo = null, IProductRepository? productRepo = null`. Append `ISyncOutboxWriter? syncOutboxWriter = null` as **optional trailing parameter #15** so zero existing Stage 1 unit tests break.
+   - Inside `PostAdjustmentAsync` (after `inventoryTransaction.Post(now)`, BEFORE `_unitOfWork.CommitTransactionAsync(ct)`):
+     - When `_syncOutboxWriter is not null && _runtimeMode.CurrentMode == ErpRuntimeMode.BranchLocal`: call `var auditLogId = await _auditLogger.LogWithIdAsync(...)` to capture the exact persisted `AuditLogId`, build `PostInventoryAdjustmentSyncPayloadV1` containing exact posted `InventoryTxn` + `InventoryTxnLine` IDs, `TransactionNo`, `TransactionType`, `Status`, `ReasonCode`, `Note`, `IdempotencyKey`, `CreatedByEmployeeId`, `ReversesInventoryTxnId`, `CreatedAt`, `PostedAt`, all lines (`InventoryTxnLineId`, `ProductId`, `LocationId`, `BatchId`, `BatchNumber`, `ExpiresOn`, `ManufacturedOn`, `ProductUomId`, `EnteredQty`, `ConversionSnapshot`, `QuantityDeltaBase`, `UnitCostBase`), and `SyncAuditFactDto` (with exact `auditLogId` and serialized `AfterData`), and call `_syncOutboxWriter.EnqueueAsync(request.BranchId, SyncOperationType.POST_INVENTORY_ADJUSTMENT, inventoryTransaction.InventoryTxnId, syncPayload, payloadVersion: 1, ct)`.
+     - Otherwise (when `_syncOutboxWriter is null` or on `Cloud`): preserve the existing `_auditLogger.LogAsync(...)` call so every Stage 1 Moq verification on `IAuditLogger.LogAsync` stays 100% green.
 
 ### 4. Mandatory Unit & Integration Tests
 - `tests/PharmacyERP.UnitTests/Application/Sync/SyncOutboxWriterTests.cs`:
+  - `AuditLogger.LogWithIdAsync` persists `AuditLog` and returns its exact `AuditLogId`; `LogAsync` remains 100% backwards-compatible.
   - `BranchLocal` allocates contiguous `branch_sequence` (`1, 2, 3`), stores exact `CanonicalJsonHasher.ComputeSha256Hex` hash, and persists `SyncOutbox`.
   - `Cloud` mode performs a clean no-op returning `null` with zero cursor mutation.
-  - `InventoryAdjustmentService` emits `POST_INVENTORY_ADJUSTMENT` in `BranchLocal` mode when `ISyncOutboxWriter` is injected and remains 100% compatible when omitted (`null`).
+  - `InventoryAdjustmentService` captures the exact `AuditLogId` + `AfterData` into `SyncAuditFactDto` and emits `POST_INVENTORY_ADJUSTMENT` in `BranchLocal` mode when `ISyncOutboxWriter` is injected, and remains 100% compatible when omitted (`null`).
 - `tests/PharmacyERP.IntegrationTests/Persistence/SyncBranchCursorConcurrencyTests.cs` (`[SkipWhenPostgresUnavailableFact]`):
   - Transaction rollback after `AllocateNextIssuedSequence()` leaves **zero sequence gap** in `integration."SYNC_BRANCH_CURSOR"`.
   - Concurrent `BranchLocal` transactions allocate strictly gap-free sequential numbers (`1..N`) without duplicates or deadlocks.
@@ -530,7 +601,7 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
 ### 5. Verification & Arabic Explanation Gate
 - Run `dotnet build PharmacyERP.sln --no-restore` (`0 Error(s), 0 Warning(s)`).
 - Run `dotnet test PharmacyERP.sln --no-restore` (`100% Passed, 0 Failed, 0 Skipped`).
-- Provide a concise **Arabic explanation in chat** noting that `ISyncOutboxWriter` is live in `stage2-dev` (unblocking `El-Hosseiny` for `EH-05`/`EH-07`) and explaining gap-free transactional sequence allocation.
+- Provide a concise **Arabic explanation in chat** noting that `IAuditLogger.LogWithIdAsync`, `ISyncOutboxWriter`, and `SyncPayloads.cs` are live in `stage2-dev` (unblocking `El-Hosseiny` for `EH-05`/`EH-07`) and explaining gap-free transactional sequence allocation.
 
 ---
 
@@ -552,7 +623,7 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
 ### 3. Exhaustive Implementation Specification
 1. **Verify/Reuse Versioned `v1` Payloads (`src/PharmacyERP.Application/Features/Sync/Contracts/SyncPayloads.cs` created in `AH-07`):**
    - Reuse `PostInventoryAdjustmentSyncPayloadV1`, `CompleteSalesOrderSyncPayloadV1`, and `PostSalesReturnSyncPayloadV1` (`SupportedPayloadVersion = 1`) for Cloud push/retry deserialization and canonical SHA-256 verification.
-2. **Create Sync HTTP DTOs** (`src/PharmacyERP.Application/Features/Sync/DTOs/SyncDtos.cs`) matching Blueprint §4.4:
+2. **Create Sync HTTP DTOs** (`src/PharmacyERP.Application/Features/Sync/DTOs/SyncDtos.cs`) matching Blueprint §4.4 (all properties serialize strictly as **`snake_case`** via global `DependencyInjection.ApiJsonSerializerOptions` — e.g., `SyncChangesResponse.NextCursor` -> `next_cursor`, `HighestContiguousAppliedSequence` -> `highest_contiguous_applied_sequence`, `ExpectedNextSequence` -> `expected_next_sequence`, `PayloadHash` -> `payload_hash`; enums serialize strictly as case-sensitive strings with `allowIntegerValues: false`):
    - `SyncOperationItemRequest(Guid OperationId, long BranchSequence, SyncOperationType OperationType, int PayloadVersion, string PayloadHash, JsonElement Payload, DateTimeOffset CreatedAt)`
    - `SyncOperationBatchRequest(Guid OrganizationId, Guid BranchId, IReadOnlyList<SyncOperationItemRequest> Operations)`
    - `SyncOperationResultDto(Guid OperationId, long BranchSequence, SyncDeliveryOutcome Status, long? ExpectedNextSequence, string? ConflictCode, string? Message, IReadOnlyList<ApiErrorDetailDto> Details)`
@@ -560,46 +631,49 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
    - `RetrySyncOperationRequest(string Reason)`
    - `SyncBootstrapResponse(Guid OrganizationId, Guid BranchId, OrganizationBootstrapDto Organization, BranchBootstrapDto Branch, IReadOnlyList<BootstrapEmployeeDto> Employees, IReadOnlyList<BootstrapUserAccountDto> Users, IReadOnlyList<BootstrapUserBranchAccessDto> UserBranchAccesses, IReadOnlyList<BootstrapCategoryDto> Categories, IReadOnlyList<BootstrapProductDto> Products, IReadOnlyList<BootstrapProductUomDto> ProductUoms, IReadOnlyList<BootstrapReorderRuleDto> ReorderRules, IReadOnlyList<BootstrapLocationDto> Locations, SyncBootstrapCursorDto Cursors)` *(explicitly NO `StockBalances`, NO `InventoryTxns`, NO opening balances!)*
    - `SyncChangeItemDto(Guid EventId, long EventSequence, string EventType, string SchemaVersion, Guid? BranchId, JsonElement Payload, DateTimeOffset OccurredAt)`
-   - `SyncChangesResponse(Guid OrganizationId, Guid BranchId, string NextCursor, bool HasMore, IReadOnlyList<SyncChangeItemDto> Items)`
+   - `SyncChangesResponse(Guid OrganizationId, Guid BranchId, string NextCursor, bool HasMore, IReadOnlyList<SyncChangeItemDto> Items)` *(wire JSON field for `NextCursor` is `next_cursor`)*
 3. **Create Validators** (`src/PharmacyERP.Application/Features/Sync/Validators/SyncValidators.cs`):
-   - Validate non-empty batch (`1..100` operations), strictly ascending `BranchSequence` within batch, `PayloadHash` 64-char hex, `PayloadVersion > 0`, non-empty `RetrySyncOperationRequest.Reason` (`3..500` chars).
+   - Validate non-empty batch (`1..100` operations), non-empty `organization_id` and `branch_id`, strictly ascending `branch_sequence` within batch, `payload_hash` 64-char hex, `payload_version > 0`, non-empty `RetrySyncOperationRequest.Reason` (`3..500` chars), and valid pull parameters (`branch_id`, `since_cursor`, `limit`).
+   - **Strict `snake_case` `ApiErrorDetailDto.Field` Paths (MANDATORY):** every validation failure MUST emit wire `snake_case` field names: `organization_id`, `branch_id`, `operations`, `operations[i].operation_id`, `operations[i].branch_sequence`, `operations[i].payload_hash`, `operations[i].payload_version`, `reason`, `since_cursor`, `limit`.
 4. **Create Repository Interfaces & EF Implementations:**
    - `ISyncOutboxRepository` / `SyncOutboxRepository`: `AddAsync`, `GetPendingOrderedBatchAsync(orgId, branchId, batchSize, ct)` (`ORDER BY branch_sequence ASC`), `GetByIdsAsync`, `UpdateRangeAsync`.
    - `ISyncInboxRepository` / `SyncInboxRepository`: `GetByOperationIdAsync(orgId, operationId, ct)`, `GetBySequenceAsync(orgId, branchId, branchSequence, ct)`, `GetHeadConflictAsync(orgId, branchId, expectedSequence, ct)`, `AddAsync`.
-   - `ISyncSnapshotRepository` / `SyncSnapshotRepository`: `AsNoTracking()` queries loading enrolled branch bootstrap entities (excluding stock projections), verifying enrolled branch token hash via `identity."BRANCH_ENROLLMENT"` (`FindActiveEnrollmentByTokenHashAsync` using `AsNoTracking()`), reading `integration."OUTBOX_EVENT"` in commit-ordered `event_sequence` with high-water sequence capture and earliest-retained sequence check for `SYNC_CURSOR_EXPIRED`.
+   - `ISyncSnapshotRepository` / `SyncSnapshotRepository`: `AsNoTracking()` queries loading enrolled branch bootstrap entities (excluding stock projections), verifying enrolled branch runtime credential hash via `identity."BRANCH_ENROLLMENT"` (`FindActiveEnrollmentByCredentialHashAsync(byte[] runtimeCredentialHash, DateTimeOffset now, CancellationToken ct)` using `AsNoTracking()`, filtering `RuntimeCredentialHash == runtimeCredentialHash && UsedAt != null && RuntimeCredentialExpiresAt > now && Branch.IsActive`), and reading `integration."OUTBOX_EVENT"` in commit-ordered `event_sequence` with high-water sequence capture and earliest-retained sequence check for `SYNC_CURSOR_EXPIRED`.
 5. **Update `GlobalUsings.cs`:** Add `PharmacyERP.Application.Features.Sync.Contracts`, `DTOs`, `Repositories.Interfaces`, `Services.Interfaces`, `Validators` to `Application/GlobalUsings.cs` and relevant namespaces to `Infrastructure/GlobalUsings.cs` & `Api/GlobalUsings.cs`.
 
 ### 4. Mandatory Unit & Integration Tests
 - `tests/PharmacyERP.UnitTests/Application/Sync/SyncValidatorAndPayloadHashTests.cs`:
-  - Verify `SyncValidators` rejects empty batches, unsorted/duplicate sequences, malformed SHA-256 hashes, and empty retry reasons.
+  - Verify `SyncValidators` rejects empty batches, unsorted/duplicate sequences, malformed SHA-256 hashes, and empty retry reasons, asserting strict `snake_case` `ApiErrorDetailDto.Field` values (`organization_id`, `branch_id`, `operations[0].branch_sequence`, `operations[0].payload_hash`, `reason`, `since_cursor`, `limit`).
   - Verify `CanonicalJsonHasher.ComputeSha256Hex` produces identical digests for `CompleteSalesOrderSyncPayloadV1` / `PostSalesReturnSyncPayloadV1` across re-ordered JSON properties and trailing-zero decimal variants (`10.0m` vs `10.0000m`), plus Arabic/Unicode strings.
 
 ### 5. Verification & Arabic Explanation Gate
 - Run `dotnet build PharmacyERP.sln --no-restore` (`0 Error(s), 0 Warning(s)`).
 - Run `dotnet test PharmacyERP.sln --no-restore` (`100% Passed, 0 Failed, 0 Skipped`).
-- Provide a concise **Arabic explanation in chat** covering the versioned `v1` sync payloads, DTO contracts, and repository query hygiene.
+- Provide a concise **Arabic explanation in chat** covering the versioned `v1` sync payloads, strict `snake_case` DTO/validator contracts, and repository query hygiene.
 
 ---
 
-## Task `AH-09`: Cloud Sync Push Ingestion & Conflict Engine (`POST /api/v1/sync/operations`)
+## Task `AH-09`: Cloud Sync Push Ingestion, Enrolled-Branch Auth & Conflict Engine (`POST /api/v1/sync/operations`)
 
 ### 1. Task Header
 - **Task ID:** `AH-09`
-- **Title:** Cloud Sync Push Ingestion & Conflict Engine (`POST /api/v1/sync/operations`)
+- **Title:** Cloud Sync Push Ingestion, Enrolled-Branch Auth & Conflict Engine (`POST /api/v1/sync/operations`)
 - **Base Branch:** `stage2-dev`
 - **Feature Branch:** `stage2/ahmed-hassan/ah-09-sync-push-ingestion`
 - **Execution Command:** Execute via `/execute-stage-task` applying `@.agent/rules/00-backend-guardrails.md` and `@.agent/skills/pharmacy-backend-engineering/SKILL.md`.
 
 ### 2. Hard Prerequisites Checklist (BLOCKING GATE)
 - [ ] `AH-08` merged into `stage2-dev` and pulled locally.
-- [ ] `ISyncInboxRepository`, `ISyncBranchCursorRepository`, `ISyncSnapshotRepository`, and `SyncPayloads.cs` compile.
+- [ ] `ISyncInboxRepository`, `ISyncBranchCursorRepository`, `ISyncSnapshotRepository`, `SyncPayloads.cs`, `BranchEnrollment.RuntimeCredentialHash`, and `BranchService.cs` exist and compile.
 
 > **BLOCKING GATE RULE:** *If ANY prerequisite above is missing or fails to compile, STOP immediately, refuse to implement this task, and inform the developer in Arabic which exact task/PR must be merged and pulled from `stage2-dev` first.*
 
 ### 3. Exhaustive Implementation Specification
-1. **Create Enrolled-Branch Credential Verifier** (`IBranchSyncAuthenticator` / `BranchSyncAuthenticator`):
-   - Reads `X-Branch-Enrollment-Token` header (or enrolled-branch credential claim), hashes with SHA-256, resolves `(OrganizationId, BranchId)` from `identity."BRANCH_ENROLLMENT"` inside a short `AllowSystemBypass()` `AsNoTracking()` discovery transaction (matching Stage 1 A-04 pattern: rollback + clear change tracker, then call `_tenantContext.SetTenant(organizationId)`).
-   - Rejects unknown/unredeemed/mismatched credentials with `401 UNAUTHORIZED`; rejects if request `OrganizationId`/`BranchId` differs from enrolled `(OrganizationId, BranchId)` with `403 FORBIDDEN_BRANCH` / `403 FORBIDDEN`.
+1. **Persist Issued Runtime Credential Hash in `BranchService.RedeemEnrollmentAsync` & Implement `IBranchSyncAuthenticator`:**
+   - **Update `src/PharmacyERP.Application/Features/Identity/Services/Implementations/BranchService.cs` (`RedeemEnrollmentAsync`):** generate `credential = Base64UrlEncode(RandomNumberGenerator.GetBytes(32))` and `expiry = now.AddHours(24)` before redeeming, and invoke `enrollment.Redeem(now, HashToken(credential), expiry)` so the 32-byte SHA-256 hash of `runtime_credential` and its expiration timestamp are atomically persisted on `identity."BRANCH_ENROLLMENT"`.
+   - **Create `IBranchSyncAuthenticator` / `BranchSyncAuthenticator`:**
+     - Accepts the `X-Branch-Enrollment-Token` header value (returning `401 UNAUTHORIZED` when missing/blank), hashes with SHA-256, and calls `ISyncSnapshotRepository.FindActiveEnrollmentByCredentialHashAsync(credentialHash, _dateTimeProvider.UtcNow, ct)` inside a short `AllowSystemBypass()` `AsNoTracking()` discovery transaction (matching Stage 1 A-04 pattern: rollback + clear change tracker, then call `_tenantContext.SetTenant(organizationId)`).
+     - Enforces `UsedAt != null && RuntimeCredentialExpiresAt > now && Branch.IsActive` — rejecting unknown, unredeemed, expired, or inactive-branch credentials with `401 UNAUTHORIZED`; rejects if request `organization_id`/`branch_id` differs from enrolled `(OrganizationId, BranchId)` with `403 FORBIDDEN` / `403 FORBIDDEN_BRANCH`.
 2. **Create `ISyncOperationApplier`** (shared by `AH-09` Push and `AH-10` Retry) & **`ISyncPushService`**:
    - Process each operation in ascending `BranchSequence` order inside its own isolated `IUnitOfWork` transaction (so earlier valid operations commit cleanly even if a later operation hits a conflict or gap):
      1. Lock `SYNC_BRANCH_CURSOR` via `GetOrCreateForUpdateAsync(orgId, branchId, ct)` (`expectedSequence = cursor.LastAppliedSequence + 1`).
@@ -615,18 +689,19 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
         - Reject unsupported `PayloadVersion != 1` or Stage 3 unimplemented `OperationType`: persist `SYNC_INBOX` (`RECEIVED -> CONFLICT`, `result_code = CONFLICT`), audit, do NOT advance cursor, halt batch.
         - Deserialize typed `v1` payload, recompute `CanonicalJsonHasher.ComputeSha256Hex(typedPayload)` and compare ordinally with `operation.PayloadHash`. On mismatch: persist `SYNC_INBOX` (`CONFLICT`), audit (`IDEMPOTENCY_MISMATCH`), do NOT advance cursor, halt batch.
      5. **Exact Fact Application (NEVER recalculates FEFO, totals, prices, or tax!):**
-        - `POST_INVENTORY_ADJUSTMENT`: upsert deterministic `InventoryBatch` (conflict if same `batch_id` arrives with conflicting non-identity attributes per §8.9.3), insert `InventoryTxn` (`DRAFT` -> lines -> `POSTED`) with exact branch IDs/timestamps, update `StockBalance` projection in deterministic `(LocationId, BatchId)` lock order, insert replicated `AUDIT_LOG` row preserving original `audit_log_id`/actor/trace/timestamp.
-        - `COMPLETE_SALES_ORDER`: insert exact `SalesOrder` (`COMPLETED`) + `SalesOrderLine`s + `SalesInvoice` (`ISSUED`/`PAID`) + `SalesInvoiceLine`s + `SalesPayment` + `InventoryTxn` (`SALE_ISSUE`, `DRAFT` -> lines -> `POSTED`) + deduct `StockBalance` projection + insert replicated `AUDIT_LOG` + enqueue Cloud `OUTBOX_EVENT`.
-        - `POST_SALES_RETURN`: insert exact `SalesReturn` (`POSTED`) + `SalesReturnLine`s + optional `SalesRefund` + update `SalesInvoice` settlement projection (`ApplyRefund`) + insert `InventoryTxn` (`SALES_RETURN_IN`) + optional `InventoryTxn` (`SCRAP_OUT`) + update `StockBalance` projection + insert replicated `AUDIT_LOG` + enqueue Cloud `OUTBOX_EVENT`.
+        - `POST_INVENTORY_ADJUSTMENT`: upsert deterministic `InventoryBatch` (conflict if same `batch_id` arrives with conflicting non-identity attributes per §8.9.3), insert `InventoryTxn` (`DRAFT` -> lines -> `POSTED`) with exact branch IDs/timestamps, update `StockBalance` projection in deterministic `(LocationId, BatchId)` lock order, insert replicated `AUDIT_LOG` row via `new AuditLog(..., auditLogId: auditFact.AuditLogId)` preserving original `audit_log_id`, `before_data`, `after_data`, actor, trace, and timestamp.
+        - `COMPLETE_SALES_ORDER`: insert exact `SalesOrder` (`COMPLETED`) + `SalesOrderLine`s + `SalesInvoice` (`ISSUED`/`PAID`) + `SalesInvoiceLine`s + `SalesPayment` + `InventoryTxn` (`SALE_ISSUE`, `DRAFT` -> lines -> `POSTED`) + deduct `StockBalance` projection + insert replicated `AUDIT_LOG` (with original `audit_log_id`, `before_data`, `after_data`) + enqueue Cloud `OUTBOX_EVENT`.
+        - `POST_SALES_RETURN`: insert exact `SalesReturn` (`POSTED`) + `SalesReturnLine`s + optional `SalesRefund` + update `SalesInvoice` settlement projection (`ApplyRefund`) + insert `InventoryTxn` (`SALES_RETURN_IN`) + optional `InventoryTxn` (`SCRAP_OUT`) + update `StockBalance` projection + insert replicated `AUDIT_LOG` (with original `audit_log_id`, `before_data`, `after_data`) + enqueue Cloud `OUTBOX_EVENT`.
         - Any deterministic FK/reference/conflict failure rolls back business rows, commits a `SYNC_INBOX` row with `ProcessingStatus = CONFLICT` (`ResultCode = CONFLICT`) + `AUDIT_LOG` entry, leaves `LastAppliedSequence` unchanged, and halts the remaining batch.
      6. **Commit on success:** mark `SYNC_INBOX` `APPLIED` (`ResultCode = APPLIED`), call `cursor.AdvanceAppliedSequence(operation.BranchSequence)`, commit transaction atomically, return `SyncDeliveryOutcome.APPLIED`.
    - Batch response returns `HighestContiguousAppliedSequence = cursor.LastAppliedSequence` and per-operation results.
 
 ### 4. Mandatory Unit & Integration Tests
 - `tests/PharmacyERP.UnitTests/Application/Sync/SyncPushServiceTests.cs`:
-  - Happy path applying `COMPLETE_SALES_ORDER`, `POST_SALES_RETURN`, and `POST_INVENTORY_ADJUSTMENT` sequentially without recalculating FEFO/totals.
+  - `BranchService.RedeemEnrollmentAsync` persists `SHA256(runtime_credential)` & `RuntimeCredentialExpiresAt` on `BranchEnrollment`; `IBranchSyncAuthenticator` accepts valid redeemed credentials and rejects unknown/unredeemed/expired/inactive-branch credentials (`401 UNAUTHORIZED`).
+  - Happy path applying `COMPLETE_SALES_ORDER`, `POST_SALES_RETURN`, and `POST_INVENTORY_ADJUSTMENT` sequentially without recalculating FEFO/totals, preserving exact `audit_log_id` and `before_data`/`after_data`.
   - Duplicate delivery of applied operation returns `ALREADY_APPLIED` with zero duplicate rows.
-  - Sequence gap (`seq 3` when `expected 2`) returns `CONFLICT` with `ExpectedNextSequence = 2` and does not advance cursor.
+  - Sequence gap (`seq 3` when `expected 2`) returns `CONFLICT` with `expected_next_sequence = 2` and does not advance cursor.
   - Payload hash mismatch (`IDEMPOTENCY_MISMATCH`) and unsupported `payload_version = 99` block at queue head without advancing cursor.
   - Enrolled branch scope mismatch returns `403 FORBIDDEN_BRANCH`.
 
@@ -655,7 +730,7 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
 ### 3. Exhaustive Implementation Specification
 Create `ISyncRetryService` & `SyncRetryService` (`src/PharmacyERP.Application/Features/Sync/Services/`):
 1. **Authorization & Validation:**
-   - Validate `RuntimeMode == ErpRuntimeMode.Cloud` (`404 NOT_FOUND` otherwise), active tenant (`_tenantContext.OrganizationId`), non-empty `Reason` (`3..500` chars -> `422 VALIDATION_ERROR`).
+   - Validate `RuntimeMode == ErpRuntimeMode.Cloud` (`404 NOT_FOUND` otherwise), active tenant (`_tenantContext.OrganizationId`), non-empty `Reason` (`3..500` chars -> `422 VALIDATION_ERROR` with strict `snake_case` `ApiErrorDetailDto.Field = "reason"`).
    - Require `Admin` role with `sync:retry` scope and `_currentUser.CanAccessBranch(inbox.BranchId)` (`403 FORBIDDEN` / `403 FORBIDDEN_BRANCH` on failure).
 2. **Head-of-Line Immutability Enforcement (Blueprint §4.3 & §8.9.2):**
    - Inside `IUnitOfWork` transaction:
@@ -699,28 +774,28 @@ Create `ISyncRetryService` & `SyncRetryService` (`src/PharmacyERP.Application/Fe
 
 ### 3. Exhaustive Implementation Specification
 Create `ISyncPullService` & `SyncPullService` (`src/PharmacyERP.Application/Features/Sync/Services/`):
-1. **`GetBootstrapAsync(Guid branchId, CancellationToken ct)` (`GET /api/v1/sync/bootstrap`):**
-   - Authenticate enrolled branch via `IBranchSyncAuthenticator`; derive `organizationId` strictly from enrollment and verify `branchId == enrolledBranchId` (`403 FORBIDDEN_BRANCH` on mismatch).
+1. **`GetBootstrapAsync(string? enrollmentToken, Guid branchId, CancellationToken ct)` (`GET /api/v1/sync/bootstrap?branch_id=...`):**
+   - Authenticate enrolled branch via `IBranchSyncAuthenticator`; derive `organizationId` strictly from `BRANCH_ENROLLMENT.runtime_credential_hash` and verify `branch_id == enrolledBranchId` (`403 FORBIDDEN_BRANCH` on mismatch; empty `branch_id` -> `422 VALIDATION_ERROR`, `field: "branch_id"`).
    - Inside explicit `IUnitOfWork` read transaction (`BeginTransactionAsync` -> queries -> `RollbackTransactionAsync(CancellationToken.None)`):
      - Load `Organization`, enrolled `Branch`, active/authorized `Employee` + `UserAccount` + `UserBranchAccess` rows for users permitted at `branchId` (including `ALL`-scope Admins and `ASSIGNED` users for `branchId` via the protected enrollment channel so local actor FKs and offline login work per Blueprint §8.9.9), `ProductCategory`, `Product` (including `TaxRate`), `ProductUom` (including `SaleUnitPrice`), branch `ProductReorderRule`, branch `InventoryLocation`, and current `SyncBranchCursor` + current committed Cloud `OUTBOX_EVENT.event_sequence` high-water cursor token.
      - **CRITICAL INVARIANT (Blueprint §4.3 & §4.4):** NEVER include `StockBalance`, `InventoryBatch` quantities, `InventoryTxn`, or opening-balance facts. BranchLocal always posts its own local `OPENING_BALANCE` transaction.
-2. **`GetChangesAsync(Guid branchId, string? sinceCursor, int limit, CancellationToken ct)` (`GET /api/v1/sync/changes`):**
-   - Authenticate enrolled branch; derive `organizationId` from enrollment and verify `branchId == enrolledBranchId`.
-   - Clamp `limit` to `[1, 200]` (default `100`).
-   - Encode/decode opaque `sinceCursor` as base64url JSON `{ "v": 1, "seq": <long> }`. Malformed cursor returns `422 VALIDATION_ERROR`.
+2. **`GetChangesAsync(string? enrollmentToken, Guid branchId, string? cursor, int limit, CancellationToken ct)` (`GET /api/v1/sync/changes?branch_id=...&since_cursor=...&limit=...`):**
+   - Authenticate enrolled branch; derive `organizationId` from enrollment and verify `branch_id == enrolledBranchId` (`403 FORBIDDEN_BRANCH` on mismatch; empty `branch_id` -> `422 VALIDATION_ERROR`, `field: "branch_id"`).
+   - Clamp `limit` to `[1, 200]` (default `100`; `<= 0` falls back to `100`).
+   - Encode/decode opaque `since_cursor` as base64url JSON `{ "v": 1, "seq": <long> }`. Malformed `since_cursor` returns `422 VALIDATION_ERROR` with strict `snake_case` `ApiErrorDetailDto.Field = "since_cursor"`.
    - Inside explicit `IUnitOfWork` read transaction:
      - Capture current committed high-water `maxCommittedSequence` from `integration."OUTBOX_EVENT_CURSOR"` / `OUTBOX_EVENT`.
      - Check earliest retained sequence / cursor retention floor (configurable `Sync:MinRetainedEventSequence` or min event check): if `requestedSeq > 0 && requestedSeq < minAvailableFloor`, return `Result<SyncChangesResponse>.Failure(ErrorCode.SYNC_CURSOR_EXPIRED, "The supplied sync cursor has expired. Perform a controlled branch resnapshot via /api/v1/sync/bootstrap.")` (`HTTP 409`).
      - Query `OUTBOX_EVENT` where `OrganizationId == orgId && EventSequence > requestedSeq && EventSequence <= maxCommittedSequence` ordered by `EventSequence ASC`, `Take(limit + 1)`.
-     - Advance `nextCursor` to the **last scanned committed `EventSequence`** even if branch-scope filtering excludes some or all events from the returned `Items` list (Blueprint §4.4).
+     - Advance `SyncChangesResponse.NextCursor` (wire JSON `"next_cursor"`) to the **last scanned committed `EventSequence`** even if branch-scope filtering excludes some or all events from the returned `Items` list (Blueprint §4.4).
      - Filter returned `Items` to organization-wide events (`BranchId == null`: catalog/price/tax/identity/deactivation changes) or events targeting `BranchId == enrolledBranchId` (excluding branch-local stock mutation echoes that originated from this branch).
-     - Replay from the same `sinceCursor` is 100% deterministic.
+     - Replay from the same `since_cursor` is 100% deterministic.
 
 ### 4. Mandatory Unit & Integration Tests
 - `tests/PharmacyERP.UnitTests/Application/Sync/SyncPullServiceTests.cs`:
   - `GetBootstrapAsync` returns catalog, UOM prices, product tax rates, authorized branch users/employees, and initial cursors — asserting zero stock balances or opening balances.
-  - `GetChangesAsync` returns events in strict `EventSequence` order, advances `nextCursor` over scanned events even when branch filtering yields 0 items, replays deterministically from prior cursor, rejects malformed cursor (`422`), and returns `ErrorCode.SYNC_CURSOR_EXPIRED` (`409`) when cursor is expired.
-  - Rejects mismatched `branchId` vs enrolled branch (`403 FORBIDDEN_BRANCH`).
+  - `GetChangesAsync` returns events in strict `EventSequence` order, advances `next_cursor` (`SyncChangesResponse.NextCursor`) over scanned events even when branch filtering yields 0 items, replays deterministically from prior `since_cursor`, rejects malformed `since_cursor` (`422` with `field: "since_cursor"`), and returns `ErrorCode.SYNC_CURSOR_EXPIRED` (`409`) when cursor is expired.
+  - Rejects mismatched `branch_id` vs enrolled branch (`403 FORBIDDEN_BRANCH`).
 
 ### 5. Verification & Arabic Explanation Gate
 - Run `dotnet build PharmacyERP.sln --no-restore` (`0 Error(s), 0 Warning(s)`).
@@ -729,11 +804,11 @@ Create `ISyncPullService` & `SyncPullService` (`src/PharmacyERP.Application/Feat
 
 ---
 
-## Task `AH-12`: `SyncController`, `BranchSyncBackgroundWorker` & `SyncDependencyInjection.cs` Wiring
+## Task `AH-12`: `SyncController`, `BranchSyncBackgroundWorker`, DI Wiring & Incremental OpenAPI Sync
 
 ### 1. Task Header
 - **Task ID:** `AH-12`
-- **Title:** `SyncController`, `BranchSyncBackgroundWorker` & `SyncDependencyInjection.cs` Wiring
+- **Title:** `SyncController`, `BranchSyncBackgroundWorker`, `SyncDependencyInjection.cs` Wiring & Incremental OpenAPI Sync
 - **Base Branch:** `stage2-dev`
 - **Feature Branch:** `stage2/ahmed-hassan/ah-12-sync-controller-and-worker`
 - **Execution Command:** Execute via `/execute-stage-task` applying `@.agent/rules/00-backend-guardrails.md` and `@.agent/skills/pharmacy-backend-engineering/SKILL.md`.
@@ -745,14 +820,26 @@ Create `ISyncPullService` & `SyncPullService` (`src/PharmacyERP.Application/Feat
 > **BLOCKING GATE RULE:** *If ANY prerequisite above is missing or fails to compile, STOP immediately, refuse to implement this task, and inform the developer in Arabic which exact task/PR must be merged and pulled from `stage2-dev` first.*
 
 ### 3. Exhaustive Implementation Specification
-1. **Create Thin `SyncController.cs`** (`src/PharmacyERP.Api/Controllers/SyncController.cs`):
+1. **Create Thin `SyncController.cs`** (`src/PharmacyERP.Api/Controllers/SyncController.cs`) with strict `snake_case` query bindings, accurate `[AllowAnonymous]` vs `[Authorize]` attributes, and complete `[ProducesResponseType]` annotations (mandatory for `ContractsArtifactSyncTests`):
    - `[ApiController]`, `[Route("api/v1/sync")]`.
-   - `POST /api/v1/sync/operations` -> extracts `X-Branch-Enrollment-Token` header, delegates to `ISyncPushService.ProcessBatchAsync(...)`, returns via `ApiResultMapper.ToActionResult`.
-   - `POST /api/v1/sync/operations/{operationId:guid}/retry` -> `[Authorize(Policy = "SyncAdminOnly")]`, delegates to `ISyncRetryService.RetryOperationAsync(operationId, request, ct)`, returns via `ApiResultMapper.ToActionResult`.
-   - `GET /api/v1/sync/bootstrap` -> query `[FromQuery] Guid branchId`, extracts `X-Branch-Enrollment-Token`, delegates to `ISyncPullService.GetBootstrapAsync(...)`, returns via `ApiResultMapper.ToActionResult`.
-   - `GET /api/v1/sync/changes` -> query `[FromQuery] Guid branchId`, `[FromQuery] string? sinceCursor = null`, `[FromQuery] int limit = 100`, extracts `X-Branch-Enrollment-Token`, delegates to `ISyncPullService.GetChangesAsync(...)`, returns via `ApiResultMapper.ToActionResult`.
+   - `POST /api/v1/sync/operations` (`[HttpPost("operations")]`, **`[AllowAnonymous]`** — authenticated via `IBranchSyncAuthenticator` so Swagger/`IdempotencyKeyHeaderOperationFilter` does not falsely require Bearer JWT):
+     - Parameters: `[FromHeader(Name = "X-Branch-Enrollment-Token")] string? enrollmentToken`, `[FromBody] SyncOperationBatchRequest request`, `CancellationToken ct`.
+     - `[ProducesResponseType(typeof(SyncOperationBatchResponse), StatusCodes.Status200OK)]` + `[ProducesResponseType(typeof(ApiErrorEnvelopeDto), 400/401/403/404/422)]`.
+     - Delegates to `ISyncPushService.ProcessBatchAsync(...)`, returns via `ApiResultMapper.ToActionResult`.
+   - `POST /api/v1/sync/operations/{operationId:guid}/retry` (`[HttpPost("operations/{operationId:guid}/retry")]`, **`[Authorize(Policy = "SyncAdminOnly")]`**):
+     - Parameters: `[FromRoute] Guid operationId`, `[FromBody] RetrySyncOperationRequest request`, `CancellationToken ct`.
+     - `[ProducesResponseType(typeof(SyncOperationResultDto), StatusCodes.Status200OK)]` + `[ProducesResponseType(typeof(ApiErrorEnvelopeDto), 400/401/403/404/409/422)]`.
+     - Delegates to `ISyncRetryService.RetryOperationAsync(operationId, request, ct)`, returns via `ApiResultMapper.ToActionResult`.
+   - `GET /api/v1/sync/bootstrap` (`[HttpGet("bootstrap")]`, **`[AllowAnonymous]`**):
+     - Parameters: `[FromHeader(Name = "X-Branch-Enrollment-Token")] string? enrollmentToken`, **`[FromQuery(Name = "branch_id")] Guid branchId`**, `CancellationToken ct`.
+     - `[ProducesResponseType(typeof(SyncBootstrapResponse), StatusCodes.Status200OK)]` + `[ProducesResponseType(typeof(ApiErrorEnvelopeDto), 401/403/404/422)]`.
+     - Delegates to `ISyncPullService.GetBootstrapAsync(enrollmentToken, branchId, ct)`, returns via `ApiResultMapper.ToActionResult`.
+   - `GET /api/v1/sync/changes` (`[HttpGet("changes")]`, **`[AllowAnonymous]`**):
+     - Parameters: `[FromHeader(Name = "X-Branch-Enrollment-Token")] string? enrollmentToken`, **`[FromQuery(Name = "branch_id")] Guid branchId`**, **`[FromQuery(Name = "since_cursor")] string? cursor = null`**, **`[FromQuery(Name = "limit")] int limit = 100`**, `CancellationToken ct`.
+     - `[ProducesResponseType(typeof(SyncChangesResponse), StatusCodes.Status200OK)]` + `[ProducesResponseType(typeof(ApiErrorEnvelopeDto), 401/403/404/409/422)]`.
+     - Delegates to `ISyncPullService.GetChangesAsync(enrollmentToken, branchId, cursor, limit, ct)`, returns via `ApiResultMapper.ToActionResult`.
 2. **Create `ICloudSyncHttpClient` & `CloudSyncHttpClient`** (`src/PharmacyERP.Infrastructure/BackgroundServices/Sync/`):
-   - Typed `HttpClient` calling Cloud `POST /api/v1/sync/operations` and `GET /api/v1/sync/changes` with `X-Branch-Enrollment-Token` and W3C `traceparent` propagation.
+   - Typed `HttpClient` calling Cloud `POST /api/v1/sync/operations`, `GET /api/v1/sync/bootstrap?branch_id=...`, and `GET /api/v1/sync/changes?branch_id=...&since_cursor=...&limit=...` with `X-Branch-Enrollment-Token` and W3C `traceparent` propagation.
 3. **Create `BranchSyncBackgroundWorker`** (`src/PharmacyERP.Infrastructure/BackgroundServices/Sync/BranchSyncBackgroundWorker.cs`):
    - Inherits `BackgroundService`. Registered ONLY when `IRuntimeModeProvider.CurrentMode == ErpRuntimeMode.BranchLocal` AND `configuration.GetValue<bool>("Sync:WorkerEnabled", true)` (disabled in test hosts via `Sync:WorkerEnabled = false`, matching `Outbox:WorkerEnabled`).
    - **Push Loop:** reads pending `SYNC_OUTBOX` rows ordered by `branch_sequence ASC` (batch size configurable, default `25`). Sends batch via `ICloudSyncHttpClient`:
@@ -762,6 +849,17 @@ Create `ISyncPullService` & `SyncPullService` (`src/PharmacyERP.Application/Feat
    - **Pull Loop:** reads `SyncBranchCursor.LastAppliedCloudCursor`, calls `GET /api/v1/sync/changes`, and applies the entire returned reference/catalog/identity change page + `cursor.UpdateCloudCursor(response.NextCursor)` inside a **single atomic local `IUnitOfWork` transaction** (idempotent replay if interrupted). On `409 SYNC_CURSOR_EXPIRED`, logs warning and triggers controlled reference resnapshot via `GET /api/v1/sync/bootstrap` while preserving all local business history and pending `SYNC_OUTBOX` rows.
 4. **Complete DI Registration in `SyncDependencyInjection.cs` (Application & Infrastructure):**
    - Register all Sync repositories, services (`ISyncOutboxWriter`, `IBranchSyncAuthenticator`, `ISyncOperationApplier`, `ISyncPushService`, `ISyncRetryService`, `ISyncPullService`), typed `ICloudSyncHttpClient`, and conditional `BranchSyncBackgroundWorker` (`Scoped` for repos/services, `HostedService` for worker). Keep root `DependencyInjection.cs` files untouched.
+5. **Incremental OpenAPI, `ContractsArtifactSyncTests` & `contracts/README.md` Sync (MANDATORY IN THIS PR):**
+   - Update `tests/PharmacyERP.IntegrationTests/Api/ContractsArtifactSyncTests.cs`:
+     - Add all 4 `/api/v1/sync/*` endpoints (`POST /api/v1/sync/operations`, `POST /api/v1/sync/operations/{operationId}/retry`, `GET /api/v1/sync/bootstrap`, `GET /api/v1/sync/changes`) to `ExpectedLiveEndpoints`.
+     - Add `typeof(SyncOperationType)` and `typeof(SyncDeliveryOutcome)` to the string-only wire enum schema verification list.
+   - Regenerate `apps/erp-backend/contracts/openapi.v1.json` against live `/swagger/v1/swagger.json`:
+     ```powershell
+     $env:UPDATE_OPENAPI_SNAPSHOT="true"
+     dotnet test tests/PharmacyERP.IntegrationTests/PharmacyERP.IntegrationTests.csproj --filter ContractsArtifactSyncTests
+     Remove-Item Env:UPDATE_OPENAPI_SNAPSHOT
+     ```
+   - Update `apps/erp-backend/contracts/README.md` documenting the 4 Sync endpoints, `X-Branch-Enrollment-Token` header auth on enrolled-branch endpoints, `SyncAdminOnly` (`sync:retry`) on retry, and `409 SYNC_CURSOR_EXPIRED`.
 
 ### 4. Mandatory Unit & Integration Tests
 - `tests/PharmacyERP.UnitTests/Infrastructure/BranchSyncBackgroundWorkerTests.cs`:
@@ -770,13 +868,14 @@ Create `ISyncPullService` & `SyncPullService` (`src/PharmacyERP.Application/Feat
   - Verifies transient HTTP 503 triggers bounded exponential backoff without discarding `SYNC_OUTBOX` row.
   - Verifies pull page application + `LastAppliedCloudCursor` commit atomically; verifies `SYNC_CURSOR_EXPIRED` triggers bootstrap resnapshot without deleting pending `SYNC_OUTBOX`.
 - `tests/PharmacyERP.UnitTests/API/Controllers/SyncControllerTests.cs`:
-  - Verifies route attributes, `[Authorize(Policy = "SyncAdminOnly")]` on retry, and `ApiResultMapper` error mapping.
+  - Verifies route attributes, `[AllowAnonymous]` + `[FromHeader(Name = "X-Branch-Enrollment-Token")]` on `operations`, `bootstrap`, and `changes`, `[Authorize(Policy = "SyncAdminOnly")]` on `retry`, explicit `[FromQuery(Name = "branch_id")]`/`[FromQuery(Name = "since_cursor")]`/`[FromQuery(Name = "limit")]`, complete `[ProducesResponseType]` annotations, and `ApiResultMapper` error mapping.
+- `tests/PharmacyERP.IntegrationTests/Api/ContractsArtifactSyncTests.cs` passes 100% with zero OpenAPI drift.
 
 ### 5. Verification & Arabic Explanation Gate
 - Run `dotnet build PharmacyERP.sln --no-restore` (`0 Error(s), 0 Warning(s)`).
-- Run `dotnet test PharmacyERP.sln --no-restore` (`100% Passed, 0 Failed, 0 Skipped`).
-- Local API boot check (`dotnet run` in `Cloud` mode -> verify Swagger `/swagger/v1/swagger.json` exposes all 4 `/api/v1/sync/*` endpoints, then terminate cleanly).
-- Provide a concise **Arabic explanation in chat** covering `SyncController`, `BranchSyncBackgroundWorker` push/pull resilience, and backoff/conflict halting.
+- Run `dotnet test PharmacyERP.sln --no-restore` (`100% Passed, 0 Failed, 0 Skipped`, including `ContractsArtifactSyncTests`).
+- Local API boot check (`dotnet run` in `Cloud` mode -> verify Swagger `/swagger/v1/swagger.json` exposes all 4 `/api/v1/sync/*` endpoints with `snake_case` query params and typed schemas, then terminate cleanly).
+- Provide a concise **Arabic explanation in chat** covering `SyncController`, `BranchSyncBackgroundWorker` push/pull resilience, backoff/conflict halting, and the synchronized OpenAPI contract.
 
 ---
 
@@ -806,10 +905,11 @@ Create comprehensive real-PostgreSQL integration test suites under `tests/Pharma
    - **Irreparable Conflict:** retry with corrupted payload hash stays `CONFLICT` and cursor remains blocked.
    - **Runtime Mode Enforcement:** `BranchLocal` host returns `404 NOT_FOUND` for all 4 `/api/v1/sync/*` endpoints; `Cloud` host returns `403 FORBIDDEN` when retry lacks `sync:retry` scope.
 2. `SyncPullAndRlsIntegrationTests.cs`:
-   - **`GET /api/v1/sync/bootstrap`:** returns full catalog/UOM prices/tax/locations/branch-authorized users with **zero stock balances**; rejects cross-branch `branchId` (`403 FORBIDDEN_BRANCH`).
+   - **Real Enrollment Redemption & Credential Auth:** redeem enrollment via `POST /api/v1/branch-enrollment` (`BranchService.RedeemEnrollmentAsync`) and authenticate all enrolled-branch sync routes with the issued `runtime_credential` via `X-Branch-Enrollment-Token`; verify expired/unknown credentials return `401 UNAUTHORIZED`.
+   - **`GET /api/v1/sync/bootstrap`:** returns full catalog/UOM prices/tax/locations/branch-authorized users with **zero stock balances**; rejects cross-branch `branch_id` (`403 FORBIDDEN_BRANCH`).
    - **`GET /api/v1/sync/changes`:**
      - Overlapping/delayed transaction test proving commit-ordered `OUTBOX_EVENT.event_sequence` never skips a late commit.
-     - Page-boundary replay returns identical page deterministically.
+     - Page-boundary replay returns identical page deterministically (`since_cursor` / `next_cursor`).
      - Deactivation/tombstone event delivery verified.
      - Expired cursor returns `409 SYNC_CURSOR_EXPIRED`.
    - **Multi-Tenant RLS Pool Reuse:** alternating Tenant A and Tenant B sync calls across pooled `erp_it_app` connections prove zero cross-tenant leakage.
@@ -851,10 +951,10 @@ Create comprehensive real-PostgreSQL integration test suites under `tests/Pharma
    - Add an independent Stage 2 idempotency guard (`IsStage2AlreadySeededAsync()` checking `db.SalesOrders.AsNoTracking().AnyAsync(o => o.OrderNo == "POS-MED-DT-0001")`) so developers with an existing Stage 1 local database STILL receive Stage 2 seed rows on next dev boot without duplicating Stage 1 data!
    - Seed inside tenant-bound `IUnitOfWork` transactions (`ITenantContext.SetTenant(...)`) respecting `FORCE ROW LEVEL SECURITY` and all immutability triggers (`INVENTORY_TXN` inserted as `DRAFT` -> lines added -> `SaveChangesAsync()` -> `Post(now)`):
      - Exact FEFO batch deductions on `STOCK_BALANCE`, linked `SALE_ISSUE` + `SALES_RETURN_IN` ledger transactions, `SALES_INVOICE` settlement projection updates (`PARTIALLY_REFUNDED`), `SYNC_BRANCH_CURSOR` initialized cleanly, and append-only `AUDIT_LOG` entries.
-3. **Append Stage 2 Testing Section to `apps/erp-backend/FRONTEND_TEST_DATA_GUIDE.md`:**
-   - Do NOT alter Stage 1 sections; append a new `## Stage 2 — POS Sales, Invoices, Cash Payments, Returns & Sync Test Data` section listing:
+3. **Append Stage 2 Testing Section to `apps/erp-backend/FRONTEND_TEST_DATA_GUIDE.md` (Strict `snake_case`):**
+   - Do NOT alter Stage 1 sections (already migrated to live `snake_case` during Stage 1 Contract Export); append a new `## Stage 2 — POS Sales, Invoices, Cash Payments, Returns & Sync Test Data` section using **strict `snake_case`** JSON payloads, query parameters (`branch_id`, `status`, `from_date`, `to_date`, `invoice_no`, `payment_status`, `invoice_id`, `page`, `page_size`), native JSON decimals, and string-only enums, listing:
      - Exact deterministic IDs & document numbers for `MEDCARE` and `ALNOUR` (completed orders, invoices, cash payments, posted returns/refunds, and the ready-to-checkout `DRAFT` order).
-     - Step-by-step POS checkout & return QA flows (including `BranchLocal` vs `Cloud` runtime mode reminders, header `Idempotency-Key` testing, 14-day return window, distinct approver test user pairs, and `GET /api/v1/canonical/sales|orders|returns|capabilities`).
+     - Step-by-step POS checkout & return QA flows (including `BranchLocal` vs `Cloud` `404`/`403` runtime mode rules, header/optional-body `Idempotency-Key` testing + `400 MALFORMED_REQUEST` when omitted in both, `201 Created` + `Location` on `POST /api/v1/sales-orders` & `POST /api/v1/sales-returns`, `page = 1, page_size = 25` [`1..200`] pagination bounds, 14-day return window, distinct approver test user pairs, and `GET /api/v1/canonical/sales|orders|returns|capabilities`).
 
 ### 4. Mandatory Unit & Integration Tests
 - `tests/PharmacyERP.IntegrationTests/Persistence/Stage2DevDatabaseSeederTests.cs` (`[SkipWhenPostgresUnavailableFact]`):
@@ -883,16 +983,20 @@ Create comprehensive real-PostgreSQL integration test suites under `tests/Pharma
 ### 2. Hard Prerequisites Checklist (BLOCKING GATE)
 - [ ] `AH-01` through `AH-14` merged into `stage2-dev` and pulled locally.
 - [ ] `EH-FINAL`, `YA-FINAL`, and `AS-FINAL` completed and merged into `stage2-dev`.
-- [ ] All 19 Stage 2 routes are registered and active on `stage2-dev`.
+- [ ] All **`66` live HTTP endpoints** (`48` Stage 1 + `18` new Stage 2 + updated `/api/v1/canonical/capabilities`) are registered and active on `stage2-dev`, and `ContractsArtifactSyncTests` passes.
 
 > **BLOCKING GATE RULE:** *If ANY prerequisite above is missing or fails to compile, STOP immediately, refuse to implement this task, and inform the developer in Arabic which exact task/PR must be merged and pulled from `stage2-dev` first.*
 
 ### 3. Exhaustive Implementation Specification
 Run `/stage-final-audit` across all Ahmed Hassan Stage 2 code (`AH-01`..`AH-14`) plus full `stage2-dev` release readiness and generate **`apps/erp-backend/docs/stage2-reports/ahmed-hassan-stage2-report.md`** containing:
-1. **Architecture & Clean Boundary Check:** Confirm `Program.cs` & `PharmacyDbContext.cs` remain `0` lines changed, single unified `PharmacyDbContext`, single cumulative Stage 2 migration in sync with `PharmacyDbContextModelSnapshot.cs`, zero Stage 3 artifacts, and all 4 modular DI files cleanly wired.
-2. **Security & RLS Verification:** Confirm `31/31` tables enforce `ENABLE` + `FORCE ROW LEVEL SECURITY` under least-privilege `erp_app`, `AUDIT_LOG` retains `INSERT/SELECT` only, all immutability and deferred source-line constraint triggers are active, `RuntimeModeGuardMiddleware` enforces `Cloud` vs `BranchLocal` on all 19 routes, and `SyncAdminOnly` + enrolled-branch credential verification have zero bypass paths.
+1. **Architecture & Clean Boundary Check:** Confirm `Program.cs` & `PharmacyDbContext.cs` remain `0` lines changed, single unified `PharmacyDbContext`, single cumulative Stage 2 migration (`Stage2SalesAndOfflineSync`) in sync with `PharmacyDbContextModelSnapshot.cs`, both empty-DB and Stage 1 -> Stage 2 upgrade migrations succeed cleanly, zero Stage 3 artifacts, and all 4 modular DI files cleanly wired.
+2. **Security & RLS Verification:** Confirm `31/31` tables enforce `ENABLE` + `FORCE ROW LEVEL SECURITY` under least-privilege `erp_app`, `AUDIT_LOG` retains `INSERT/SELECT` only, all immutability and deferred source-line constraint triggers are active, `RuntimeModeGuardMiddleware` enforces `Cloud` vs `BranchLocal` across all Stage 1 + Stage 2 routes, and `SyncAdminOnly`, `CanonicalRead`, `.NET` `CanonicalReader` service-token validation, Stage 2 JWT scopes (`return:read`, `return:write`, `sync:retry`), and `BRANCH_ENROLLMENT.runtime_credential_hash` verification have zero bypass paths.
 3. **Concurrency, Reliability & Sync Resilience Verification:** Confirm gap-free row-locked `SYNC_BRANCH_CURSOR`, deterministic `(LocationId, BatchId)` lock ordering, canonical SHA-256 verification, head-of-line conflict blocking, and `BranchSyncBackgroundWorker` backoff/atomicity.
-4. **Full Build, Test & Smoke Proof:** Exact outputs of `dotnet build PharmacyERP.sln --no-restore` (`0 Error(s), 0 Warning(s)`), `dotnet test PharmacyERP.sln --no-restore` (`100% Passed, 0 Failed, 0 Skipped`), and Swagger verification of all 19 Stage 2 routes confirming readiness to open the final `stage2-dev -> main` PR.
+4. **Full Build, Test, OpenAPI Contract & Root `/contracts/` Parity Proof:** Exact outputs of:
+   - `dotnet build PharmacyERP.sln --no-restore` (`0 Error(s), 0 Warning(s)`).
+   - `dotnet test PharmacyERP.sln --no-restore` (`100% Passed, 0 Failed, 0 Skipped`, covering all `767` Stage 1 tests + all Stage 2 unit, integration, concurrency, sync, and contract suites).
+   - `ContractsArtifactSyncTests` passing across all **`66` live HTTP endpoints** (`48` Stage 1 + `18` new Stage 2 + updated `/api/v1/canonical/capabilities`), `contracts/schemas/api-error-envelope.schema.json` (including `SYNC_CURSOR_EXPIRED`), and `contracts/schemas/canonical-capabilities.schema.json` (`stage: 2`, `Cloud`: `5` reads / `2` writes, `BranchLocal`: `0` / `0`).
+   - Verified byte/semantic parity between `apps/erp-backend/contracts/` and the shared monorepo-root `contracts/` directory (`openapi.v1.json`, `schemas/api-error-envelope.schema.json`, `schemas/canonical-capabilities.schema.json`, `README.md`), confirming readiness to open the final `stage2-dev -> main` PR.
 
 ### 4. Mandatory Unit & Integration Tests
 - Execute the full solution test suite (`PharmacyERP.UnitTests` + `PharmacyERP.IntegrationTests`) with zero failures and zero skipped tests. Fix any audit findings with dedicated regression tests before finalizing the report.

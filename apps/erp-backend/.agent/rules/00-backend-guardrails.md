@@ -12,9 +12,9 @@ These rules apply automatically to every backend developer and AI agent operatin
 ## 1. Turbo-Safe OS, Workspace & Terminal Containment (ALWAYS-ON SAFETY)
 
 ### 1.1 Strict Workspace Sandbox (Relative Path — Applies to All Teammates)
-- Your working scope is confined **EXCLUSIVELY** to `apps/erp-backend/` relative to the repository root.
-- **NEVER** read, create, modify, move, or delete any file outside `apps/erp-backend/`:
-  - No frontend folders (`apps/erp-frontend/`), Brain folders (`apps/brain/`), or repository-root frontend files.
+- Your working scope is confined **EXCLUSIVELY** to `apps/erp-backend/` **and the shared monorepo-root `contracts/` directory** (relative to the repository root) for contract reading, alignment, and synchronization.
+- **NEVER** read, create, modify, move, or delete any other file outside `apps/erp-backend/` and `contracts/`:
+  - No frontend folders (`apps/erp-frontend/`), Brain folders (`apps/brain/`), or other repository-root files (`00-router.md`, `MEMORY.md`, CI/infra files, etc.).
   - No OS/System directories (`C:\Windows`, `Program Files`, `/etc`, etc.), user profile/Desktop/Documents files, Windows Registry keys, or system/machine environment variables.
 
 ### 1.2 Strict Monorepo Boundary
@@ -23,7 +23,7 @@ These rules apply automatically to every backend developer and AI agent operatin
 - Treat `apps/erp-backend/_audit_docs/01_master_spec/ERP-Backend-Blueprint-v1.1.md` as **frozen reference-only**; never edit it.
 
 ### 1.3 Allowed Terminal Commands Only
-Execute commands strictly with working directory inside `apps/erp-backend/`:
+Execute commands strictly with working directory inside `apps/erp-backend/` (targeting `apps/erp-backend/` or the shared repo-root `contracts/` directory only):
 - **Build & Test:** `dotnet build`, `dotnet test`, `dotnet restore` (only when explicitly needed).
 - **EF Core CLI:** `dotnet ef migrations add`, `dotnet ef migrations script`, `dotnet ef database update` (using `erp_migrator` or local dev DB).
 - **Local Smoke Checks:** `dotnet run` strictly for local verification (e.g., `GET /.well-known/jwks.json`, `/swagger/v1/swagger.json`, or target endpoint), and **always terminate the process cleanly** once verified.
