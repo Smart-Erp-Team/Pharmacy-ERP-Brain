@@ -3112,7 +3112,19 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
             new Microsoft.AspNetCore.Routing.RouteData(),
             new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor());
 
-        var dtoWithNullKey = new CreateProductCategoryRequest(null, "CAT-01", "Valid Name", null, null!);
+        // Optional IdempotencyKey on standard Catalog DTOs no longer triggers an implicit Required error
+        var optionalKeyCtx = new ActionContext(
+            new Microsoft.AspNetCore.Http.DefaultHttpContext { RequestServices = sp },
+            new Microsoft.AspNetCore.Routing.RouteData(),
+            new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor());
+        var catalogDtoWithNullKey = new CreateProductCategoryRequest(null, "CAT-01", "Valid Name", null, null);
+        validator.Validate(optionalKeyCtx, validationState: null, prefix: string.Empty, model: catalogDtoWithNullKey);
+        Assert.True(optionalKeyCtx.ModelState.IsValid);
+
+        // Non-nullable IdempotencyKey on Canonical DTO still triggers ASP.NET Core's implicit Required error,
+        // which AllowHeaderIdempotencyKeyAttribute strips cleanly.
+        var dtoWithNullKey = new CanonicalProductConfigurationRequest(
+            Guid.NewGuid(), "prompt-1", null!, CatalogConfigurationAction.CreateProduct);
         validator.Validate(actionContext1, validationState: null, prefix: string.Empty, model: dtoWithNullKey);
 
         // Confirm the exact runtime ModelState key ("IdempotencyKey") and exact ModelError details
@@ -3175,26 +3187,27 @@ public sealed class CatalogEndpointsTests : IClassFixture<CatalogPostgresFixture
         var remainingOnSameProp = Assert.Single(actionContext3.ModelState["IdempotencyKey"]!.Errors);
         Assert.Equal("IdempotencyKey contains invalid characters.", remainingOnSameProp.ErrorMessage);
 
-        // 4. Implicit Required error on IdempotencyKey + Required error on another property ("Code") -> only IdempotencyKey error is removed
+        // 4. Implicit Required error on IdempotencyKey + Required error on another property ("SourcePromptId") -> only IdempotencyKey error is removed
         var actionContext4 = new ActionContext(
             new Microsoft.AspNetCore.Http.DefaultHttpContext { RequestServices = sp },
             new Microsoft.AspNetCore.Routing.RouteData(),
             new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor());
-        var dtoMissingCodeAndKey = new CreateProductCategoryRequest(null, null!, "Valid Name", null, null!);
-        validator.Validate(actionContext4, validationState: null, prefix: string.Empty, model: dtoMissingCodeAndKey);
+        var dtoMissingPromptAndKey = new CanonicalProductConfigurationRequest(
+            Guid.NewGuid(), null!, null!, CatalogConfigurationAction.CreateProduct);
+        validator.Validate(actionContext4, validationState: null, prefix: string.Empty, model: dtoMissingPromptAndKey);
 
         Assert.True(actionContext4.ModelState.ContainsKey("IdempotencyKey"));
-        Assert.True(actionContext4.ModelState.ContainsKey("Code"));
+        Assert.True(actionContext4.ModelState.ContainsKey("SourcePromptId"));
 
         var execCtx4 = new Microsoft.AspNetCore.Mvc.Filters.ActionExecutingContext(
             actionContext4,
             new List<Microsoft.AspNetCore.Mvc.Filters.IFilterMetadata>(),
-            new Dictionary<string, object?> { ["request"] = dtoMissingCodeAndKey },
+            new Dictionary<string, object?> { ["request"] = dtoMissingPromptAndKey },
             controller: new object());
 
         filter.OnActionExecuting(execCtx4);
         Assert.False(actionContext4.ModelState.ContainsKey("IdempotencyKey"));
-        Assert.True(actionContext4.ModelState.ContainsKey("Code"));
+        Assert.True(actionContext4.ModelState.ContainsKey("SourcePromptId"));
         Assert.False(actionContext4.ModelState.IsValid);
     }
 

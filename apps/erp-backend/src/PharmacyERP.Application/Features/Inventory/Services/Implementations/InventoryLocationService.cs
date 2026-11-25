@@ -50,6 +50,7 @@ public class InventoryLocationService : IInventoryLocationService
         if (!_currentUser.CanAccessBranch(request.BranchId))
             return Result<InventoryLocationDto>.Failure(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
 
+        var idempotencyKey = request.IdempotencyKey!;
         Guid orgId = _tenantContext.OrganizationId.Value;
 
         await _unitOfWork.BeginTransactionAsync(ct);
@@ -58,7 +59,7 @@ public class InventoryLocationService : IInventoryLocationService
             try
             {
                 var idempotencyResult = await _idempotencyService.CheckAsync<CreateInventoryLocationRequest, InventoryLocationDto>(
-                    CreateIdempotencyScope, request.IdempotencyKey, request.BranchId, request, ct);
+                    CreateIdempotencyScope, idempotencyKey, request.BranchId, request, ct);
 
                 if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
                 {
@@ -111,7 +112,7 @@ public class InventoryLocationService : IInventoryLocationService
                 ct);
 
             await _idempotencyService.PersistResponseAsync(
-                CreateIdempotencyScope, request.IdempotencyKey, location.BranchId, request, dto, ct);
+                CreateIdempotencyScope, idempotencyKey, location.BranchId, request, dto, ct);
 
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result<InventoryLocationDto>.Success(dto);
@@ -132,6 +133,7 @@ public class InventoryLocationService : IInventoryLocationService
         if (validationErrors.Count > 0)
             return Result<InventoryLocationDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, validationErrors);
 
+        var idempotencyKey = request.IdempotencyKey!;
         Guid orgId = _tenantContext.OrganizationId.Value;
 
         await _unitOfWork.BeginTransactionAsync(ct);
@@ -154,7 +156,7 @@ public class InventoryLocationService : IInventoryLocationService
             try
             {
                 var idempotencyResult = await _idempotencyService.CheckAsync<object, InventoryLocationDto>(
-                    UpdateIdempotencyScope, request.IdempotencyKey, location.BranchId, idempotencyPayload, ct);
+                    UpdateIdempotencyScope, idempotencyKey, location.BranchId, idempotencyPayload, ct);
 
                 if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
                 {
@@ -209,7 +211,7 @@ public class InventoryLocationService : IInventoryLocationService
                 ct);
 
             await _idempotencyService.PersistResponseAsync(
-                UpdateIdempotencyScope, request.IdempotencyKey, location.BranchId, idempotencyPayload, dto, ct);
+                UpdateIdempotencyScope, idempotencyKey, location.BranchId, idempotencyPayload, dto, ct);
 
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result<InventoryLocationDto>.Success(dto);

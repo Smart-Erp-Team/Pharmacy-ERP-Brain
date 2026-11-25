@@ -94,6 +94,7 @@ public class ReorderRuleService : IReorderRuleService
         if (validationErrors.Count > 0)
             return Result<ReorderRuleDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, validationErrors);
 
+        var idempotencyKey = request.IdempotencyKey!;
         var orgId = _tenantContext.OrganizationId.Value;
 
         await _unitOfWork.BeginTransactionAsync(ct);
@@ -103,7 +104,7 @@ public class ReorderRuleService : IReorderRuleService
             try
             {
                 var idempotencyResult = await _idempotencyService.CheckAsync<object, ReorderRuleDto>(
-                    "catalog.reorderrule.upsert", request.IdempotencyKey, branchId, idempotencyPayload, ct);
+                    "catalog.reorderrule.upsert", idempotencyKey, branchId, idempotencyPayload, ct);
 
                 if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
                 {
@@ -186,7 +187,7 @@ public class ReorderRuleService : IReorderRuleService
                 ct);
 
             var dto = MapToDto(rule);
-            await _idempotencyService.PersistResponseAsync("catalog.reorderrule.upsert", request.IdempotencyKey, branchId, idempotencyPayload, dto, ct);
+            await _idempotencyService.PersistResponseAsync("catalog.reorderrule.upsert", idempotencyKey, branchId, idempotencyPayload, dto, ct);
 
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result<ReorderRuleDto>.Success(dto);

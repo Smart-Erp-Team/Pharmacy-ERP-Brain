@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using PharmacyERP.Api.Auth;
+using PharmacyERP.Api.Swagger;
 using PharmacyERP.Application.Features.Identity.Interfaces;
 
 namespace PharmacyERP.Api;
@@ -219,6 +220,7 @@ public static class DependencyInjection
             {
                 [new OpenApiSecuritySchemeReference("Bearer", document)] = []
             });
+            options.OperationFilter<IdempotencyKeyHeaderOperationFilter>();
         });
         return services;
     }

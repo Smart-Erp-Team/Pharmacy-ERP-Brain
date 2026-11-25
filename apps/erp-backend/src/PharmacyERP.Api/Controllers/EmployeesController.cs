@@ -8,7 +8,7 @@ public sealed class EmployeesController : ControllerBase
     private readonly ICurrentUser _currentUser;
     public EmployeesController(IEmployeeService service, ICurrentUser currentUser) { _service = service; _currentUser = currentUser; }
 
-    [Authorize, HttpGet]
+    [Authorize(Roles = "Admin,Pharmacist"), HttpGet]
     public async Task<IActionResult> GetPaged(
         [FromQuery(Name = "branch_id")] Guid? branchId,
         [FromQuery(Name = "include_inactive")] bool includeInactive = false,
@@ -41,7 +41,7 @@ public sealed class EmployeesController : ControllerBase
         return ApiResultMapper.ToCreatedResult(this, result, _currentUser.TraceId, locationUri);
     }
 
-    [Authorize, HttpGet("{id:guid}")]
+    [Authorize(Roles = "Admin,Pharmacist"), HttpGet("{id:guid}")]
     public async Task<IActionResult> GetById(Guid id, CancellationToken ct)
         => ApiResultMapper.ToActionResult(this, await _service.GetByIdAsync(id, ct), _currentUser.TraceId);
 

@@ -10,6 +10,7 @@ public sealed class UsersController : ControllerBase
     public UsersController(IUserService service, ICurrentUser currentUser) { _service = service; _currentUser = currentUser; }
 
     [HttpGet]
+    [ProducesResponseType(typeof(PagedResult<UserDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetPaged(
         [FromQuery(Name = "branch_id")] Guid? branchId,
         [FromQuery(Name = "role")] UserRole? role,
@@ -21,6 +22,7 @@ public sealed class UsersController : ControllerBase
 
     [AllowHeaderIdempotencyKey]
     [HttpPost]
+    [ProducesResponseType(typeof(UserDto), StatusCodes.Status201Created)]
     public async Task<IActionResult> Create(
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
         [FromBody] CreateUserRequest request,
@@ -43,11 +45,13 @@ public sealed class UsersController : ControllerBase
     }
 
     [HttpGet("{id:guid}")]
+    [ProducesResponseType(typeof(UserDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetById(Guid id, CancellationToken ct)
         => ApiResultMapper.ToActionResult(this, await _service.GetByIdAsync(id, ct), _currentUser.TraceId);
 
     [AllowHeaderIdempotencyKey]
     [HttpPatch("{id:guid}")]
+    [ProducesResponseType(typeof(UserDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> Update(
         Guid id,
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,

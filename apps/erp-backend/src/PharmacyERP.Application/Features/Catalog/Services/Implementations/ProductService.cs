@@ -58,6 +58,10 @@ public class ProductService : IProductService
         if (!IsAuthorizedForRead())
             return Result<PagedResult<ProductDto>>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
 
+        var pageErrors = ValidatePagination(page, pageSize);
+        if (pageErrors.Count > 0)
+            return Result<PagedResult<ProductDto>>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, pageErrors);
+
         var orgId = _tenantContext.OrganizationId.Value;
         var ownsTransaction = !_unitOfWork.HasActiveTransaction;
 
@@ -132,6 +136,7 @@ public class ProductService : IProductService
         if (validationErrors.Count > 0)
             return Result<ProductDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, validationErrors);
 
+        var idempotencyKey = request.IdempotencyKey!;
         var orgId = _tenantContext.OrganizationId.Value;
 
         await _unitOfWork.BeginTransactionAsync(ct);
@@ -140,7 +145,7 @@ public class ProductService : IProductService
             try
             {
                 var idempotencyResult = await _idempotencyService.CheckAsync<CreateProductRequest, ProductDto>(
-                    "catalog.product.create", request.IdempotencyKey, null, request, ct);
+                    "catalog.product.create", idempotencyKey, null, request, ct);
 
                 if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
                 {
@@ -233,7 +238,7 @@ public class ProductService : IProductService
                 ct);
 
             var dto = MapToDto(product);
-            await _idempotencyService.PersistResponseAsync("catalog.product.create", request.IdempotencyKey, null, request, dto, ct);
+            await _idempotencyService.PersistResponseAsync("catalog.product.create", idempotencyKey, null, request, dto, ct);
 
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result<ProductDto>.Success(dto);
@@ -260,6 +265,7 @@ public class ProductService : IProductService
         if (validationErrors.Count > 0)
             return Result<ProductDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, validationErrors);
 
+        var idempotencyKey = request.IdempotencyKey!;
         var orgId = _tenantContext.OrganizationId.Value;
 
         await _unitOfWork.BeginTransactionAsync(ct);
@@ -269,7 +275,7 @@ public class ProductService : IProductService
             try
             {
                 var idempotencyResult = await _idempotencyService.CheckAsync<object, ProductDto>(
-                    "catalog.product.update", request.IdempotencyKey, null, idempotencyPayload, ct);
+                    "catalog.product.update", idempotencyKey, null, idempotencyPayload, ct);
 
                 if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
                 {
@@ -391,7 +397,7 @@ public class ProductService : IProductService
                 ct);
 
             var dto = MapToDto(product);
-            await _idempotencyService.PersistResponseAsync("catalog.product.update", request.IdempotencyKey, null, idempotencyPayload, dto, ct);
+            await _idempotencyService.PersistResponseAsync("catalog.product.update", idempotencyKey, null, idempotencyPayload, dto, ct);
 
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result<ProductDto>.Success(dto);
@@ -414,6 +420,16 @@ public class ProductService : IProductService
         string.Equals(_currentUser.Role, "Admin", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(_currentUser.Role, "Pharmacist", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(_currentUser.Role, "Cashier", StringComparison.OrdinalIgnoreCase);
+
+    private static List<ApiErrorDetailDto> ValidatePagination(int page, int pageSize)
+    {
+        var errors = new List<ApiErrorDetailDto>();
+        if (page < 1)
+            errors.Add(new ApiErrorDetailDto("page", "Page must be at least 1."));
+        if (pageSize is < 1 or > 200)
+            errors.Add(new ApiErrorDetailDto("page_size", "PageSize must be between 1 and 200."));
+        return errors;
+    }
 
     private static ProductDto MapToDto(Product product) =>
         new(

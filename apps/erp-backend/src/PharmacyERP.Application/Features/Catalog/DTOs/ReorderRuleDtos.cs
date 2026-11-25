@@ -5,7 +5,7 @@ public sealed record UpsertReorderRuleRequest(
     decimal ReorderQuantityBase,
     decimal? MaxQuantityBase,
     bool IsActive,
-    string IdempotencyKey);
+    string? IdempotencyKey = null);
 
 public sealed record ReorderRuleDto(
     Guid ReorderRuleId,

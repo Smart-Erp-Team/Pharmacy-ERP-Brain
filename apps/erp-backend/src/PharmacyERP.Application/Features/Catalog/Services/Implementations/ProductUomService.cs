@@ -92,6 +92,7 @@ public class ProductUomService : IProductUomService
         if (validationErrors.Count > 0)
             return Result<ProductUomDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, validationErrors);
 
+        var idempotencyKey = request.IdempotencyKey!;
         var orgId = _tenantContext.OrganizationId.Value;
 
         await _unitOfWork.BeginTransactionAsync(ct);
@@ -101,7 +102,7 @@ public class ProductUomService : IProductUomService
             try
             {
                 var idempotencyResult = await _idempotencyService.CheckAsync<object, ProductUomDto>(
-                    "catalog.uom.create", request.IdempotencyKey, null, idempotencyPayload, ct);
+                    "catalog.uom.create", idempotencyKey, null, idempotencyPayload, ct);
 
                 if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
                 {
@@ -164,7 +165,7 @@ public class ProductUomService : IProductUomService
                 ct);
 
             var dto = MapToDto(uom);
-            await _idempotencyService.PersistResponseAsync("catalog.uom.create", request.IdempotencyKey, null, idempotencyPayload, dto, ct);
+            await _idempotencyService.PersistResponseAsync("catalog.uom.create", idempotencyKey, null, idempotencyPayload, dto, ct);
 
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result<ProductUomDto>.Success(dto);
@@ -191,6 +192,7 @@ public class ProductUomService : IProductUomService
         if (validationErrors.Count > 0)
             return Result<ProductUomDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, validationErrors);
 
+        var idempotencyKey = request.IdempotencyKey!;
         var orgId = _tenantContext.OrganizationId.Value;
 
         await _unitOfWork.BeginTransactionAsync(ct);
@@ -200,7 +202,7 @@ public class ProductUomService : IProductUomService
             try
             {
                 var idempotencyResult = await _idempotencyService.CheckAsync<object, ProductUomDto>(
-                    "catalog.uom.update", request.IdempotencyKey, null, idempotencyPayload, ct);
+                    "catalog.uom.update", idempotencyKey, null, idempotencyPayload, ct);
 
                 if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
                 {
@@ -242,8 +244,14 @@ public class ProductUomService : IProductUomService
             }
 
             var displayName = request.DisplayName ?? uom.DisplayName;
-            var saleUnitPrice = request.SaleUnitPrice.HasValue ? request.SaleUnitPrice : uom.SaleUnitPrice;
             var isSellable = request.IsSellable ?? uom.IsSellable;
+            // When explicitly disabling is_sellable without providing a sale_unit_price, clear any stale
+            // sell price to null per Blueprint §5.3/§8.9.9; otherwise preserve existing price when omitted.
+            var saleUnitPrice = request.SaleUnitPrice.HasValue
+                ? request.SaleUnitPrice
+                : request.IsSellable == false
+                    ? null
+                    : uom.SaleUnitPrice;
             var isPurchasable = request.IsPurchasable ?? uom.IsPurchasable;
 
             try
@@ -292,7 +300,7 @@ public class ProductUomService : IProductUomService
                 ct);
 
             var dto = MapToDto(uom);
-            await _idempotencyService.PersistResponseAsync("catalog.uom.update", request.IdempotencyKey, null, idempotencyPayload, dto, ct);
+            await _idempotencyService.PersistResponseAsync("catalog.uom.update", idempotencyKey, null, idempotencyPayload, dto, ct);
 
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result<ProductUomDto>.Success(dto);

@@ -80,6 +80,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
             && !string.Equals(_currentUser.Role, UserRole.Pharmacist.ToString(), StringComparison.Ordinal))
             return Result<InventoryTxnDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
 
+        var idempotencyKey = request.IdempotencyKey!;
         Guid organizationId = _tenantContext.OrganizationId.Value;
         Guid employeeId = _currentUser.EmployeeId.Value;
 
@@ -94,7 +95,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                 try
                 {
                     var idempotencyResult = await _idempotency.CheckAsync<CreateInventoryAdjustmentRequest, InventoryTxnDto>(
-                        IdempotencyScope, request.IdempotencyKey, request.BranchId, request, ct);
+                        IdempotencyScope, idempotencyKey, request.BranchId, request, ct);
 
                     if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
                     {
@@ -116,7 +117,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                     branchId: request.BranchId,
                     transactionNo: transactionNumber,
                     transactionType: request.TransactionType,
-                    idempotencyKey: request.IdempotencyKey,
+                    idempotencyKey: idempotencyKey,
                     createdByEmployeeId: employeeId,
                     now: now,
                     reasonCode: request.ReasonCode,
@@ -166,7 +167,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                     ct: ct);
 
                 await _idempotency.PersistResponseAsync(
-                    IdempotencyScope, request.IdempotencyKey, request.BranchId, request, responseDto, ct);
+                    IdempotencyScope, idempotencyKey, request.BranchId, request, responseDto, ct);
 
                 await _unitOfWork.CommitTransactionAsync(ct);
 

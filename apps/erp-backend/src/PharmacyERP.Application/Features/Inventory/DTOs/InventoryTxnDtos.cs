@@ -17,7 +17,7 @@ public record CreateInventoryAdjustmentRequest(
     string? Note,
     Guid? ReversesInventoryTxnId,
     IReadOnlyList<CreateInventoryAdjustmentLineRequest>? Lines,
-    string IdempotencyKey);
+    string? IdempotencyKey = null);
 
 public record InventoryTxnLineDto(
     Guid InventoryTxnLineId,

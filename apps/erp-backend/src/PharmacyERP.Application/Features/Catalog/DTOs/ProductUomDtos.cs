@@ -17,7 +17,7 @@ public sealed record CreateProductUomRequest(
     bool IsBase,
     bool IsSellable,
     bool IsPurchasable,
-    string IdempotencyKey);
+    string? IdempotencyKey = null);
 
 public sealed record UpdateProductUomRequest(
     string? DisplayName,
@@ -26,7 +26,7 @@ public sealed record UpdateProductUomRequest(
     bool? IsSellable,
     bool? IsPurchasable,
     bool? IsActive,
-    string IdempotencyKey);
+    string? IdempotencyKey = null);
 
 public sealed record ProductUomDto(
     Guid ProductUomId,

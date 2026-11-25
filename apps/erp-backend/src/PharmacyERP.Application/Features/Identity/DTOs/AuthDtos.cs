@@ -11,8 +11,8 @@ public sealed record RefreshTokenRequest { [Required] public string RefreshToken
 public sealed record LogoutRequest { [Required] public string RefreshToken { get; init; } = string.Empty; }
 
 public sealed record CurrentUserDto(
-    Guid UserId, Guid EmployeeId, Guid OrganizationId, string Username, string Role,
-    string BranchScope, IReadOnlyCollection<Guid> BranchIds, IReadOnlyCollection<string> Scopes);
+    Guid UserId, Guid EmployeeId, Guid OrganizationId, string Username, UserRole Role,
+    BranchScope BranchScope, IReadOnlyCollection<Guid> BranchIds, IReadOnlyCollection<string> Scopes);
 
 public sealed record LoginResponse(string AccessToken, DateTimeOffset AccessTokenExpiresAt, string RefreshToken, CurrentUserDto User);
 
@@ -22,14 +22,14 @@ public static class CurrentUserDtoMapper
         UserAccount user,
         IReadOnlyCollection<Guid> branchIds,
         IReadOnlyCollection<string> scopes,
-        string? effectiveBranchScope = null)
+        BranchScope? effectiveBranchScope = null)
         => new(
             user.UserId,
             user.EmployeeId,
             user.OrganizationId,
             user.Username,
-            user.Role.ToString(),
-            effectiveBranchScope ?? user.BranchScope.ToString(),
+            user.Role,
+            effectiveBranchScope ?? user.BranchScope,
             branchIds,
             scopes);
 }

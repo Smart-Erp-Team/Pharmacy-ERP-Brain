@@ -22,6 +22,7 @@ public sealed class EmployeeService : IEmployeeService
     public async Task<Result<PagedResult<EmployeeDto>>> GetPagedAsync(Guid? branchId, bool includeInactive, string? search, int page, int pageSize, CancellationToken ct = default)
     {
         if (_tenant.OrganizationId is not Guid organizationId) return IdentityResults.Failure<PagedResult<EmployeeDto>>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
+        if (!IsAuthorizedForRead()) return IdentityResults.Failure<PagedResult<EmployeeDto>>(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
         var pageErrors = IdentityResults.ValidatePagination(page, pageSize);
         if (pageErrors.Count > 0) return IdentityResults.Failure<PagedResult<EmployeeDto>>(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, pageErrors);
 
@@ -63,6 +64,7 @@ public sealed class EmployeeService : IEmployeeService
     public async Task<Result<EmployeeDto>> GetByIdAsync(Guid employeeId, CancellationToken ct = default)
     {
         if (_tenant.OrganizationId is not Guid organizationId) return IdentityResults.Failure<EmployeeDto>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
+        if (!IsAuthorizedForRead()) return IdentityResults.Failure<EmployeeDto>(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
         await _unitOfWork.BeginTransactionAsync(ct);
         try
         {
@@ -234,5 +236,6 @@ public sealed class EmployeeService : IEmployeeService
     }
 
     private bool IsAdmin() => string.Equals(_currentUser.Role, UserRole.Admin.ToString(), StringComparison.Ordinal);
+    private bool IsAuthorizedForRead() => IsAdmin() || string.Equals(_currentUser.Role, UserRole.Pharmacist.ToString(), StringComparison.Ordinal);
     private bool IsAllBranchAdmin() => IsAdmin() && string.Equals(_currentUser.BranchScope, BranchScope.ALL.ToString(), StringComparison.Ordinal);
 }

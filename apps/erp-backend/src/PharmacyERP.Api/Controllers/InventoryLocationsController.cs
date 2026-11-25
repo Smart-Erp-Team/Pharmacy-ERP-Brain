@@ -22,7 +22,7 @@ public class InventoryLocationsController : ControllerBase
         [FromQuery(Name = "is_sellable")] bool? isSellable,
         [FromQuery(Name = "include_inactive")] bool includeInactive = false,
         [FromQuery(Name = "page")] int page = 1,
-        [FromQuery(Name = "page_size")] int pageSize = 20,
+        [FromQuery(Name = "page_size")] int pageSize = 25,
         CancellationToken ct = default)
     {
         var result = await _locationService.GetPagedAsync(branchId, isSellable, includeInactive, page, pageSize, ct);

@@ -2,8 +2,8 @@ namespace PharmacyERP.Infrastructure.Persistence.Repositories.Catalog;
 
 public class ProductCategoryRepository : GenericRepository<ProductCategory>, IProductCategoryRepository
 {
-    private const int DefaultPageSize = 10;
-    private const int MaxPageSize = 100;
+    private const int DefaultPageSize = 25;
+    private const int MaxPageSize = 200;
 
     public ProductCategoryRepository(PharmacyDbContext dbContext) : base(dbContext)
     {

@@ -437,8 +437,248 @@ public sealed class Stage1ContractFixesUnitTests
         });
 
         Assert.True(loginResult.IsSuccess);
-        Assert.Equal("ASSIGNED", loginResult.Value!.User.BranchScope);
+        Assert.Equal(BranchScope.ASSIGNED, loginResult.Value!.User.BranchScope);
+        Assert.Equal(UserRole.Admin, loginResult.Value.User.Role);
         Assert.Equal(new[] { branchId }, loginResult.Value.User.BranchIds);
+    }
+
+    [Fact]
+    public async Task CatalogServices_RejectInvalidPageAndPageSize_With422SnakeCaseDetails()
+    {
+        var orgId = Guid.NewGuid();
+        var tenant = new Mock<ITenantContext>();
+        tenant.SetupGet(t => t.OrganizationId).Returns(orgId);
+        var currentUser = new Mock<ICurrentUser>();
+        currentUser.SetupGet(u => u.Role).Returns("Admin");
+        var uow = new Mock<IUnitOfWork>();
+
+        var categoryRepo = new Mock<IProductCategoryRepository>();
+        var categoryService = new ProductCategoryService(
+            categoryRepo.Object,
+            uow.Object,
+            tenant.Object,
+            currentUser.Object,
+            new Mock<IRuntimeModeProvider>().Object,
+            new Mock<IIdempotencyService>().Object,
+            new Mock<IAuditLogger>().Object,
+            new Mock<IOutboxService>().Object);
+
+        var badCatResult = await categoryService.GetCategoriesAsync(null, false, null, page: 0, pageSize: 201);
+        Assert.False(badCatResult.IsSuccess);
+        Assert.Equal(ErrorCode.VALIDATION_ERROR, badCatResult.ErrorCode);
+        Assert.Contains(badCatResult.ErrorDetails!, d => d.Field == "page");
+        Assert.Contains(badCatResult.ErrorDetails!, d => d.Field == "page_size");
+
+        var productRepo = new Mock<IProductRepository>();
+        var productService = new ProductService(
+            productRepo.Object,
+            categoryRepo.Object,
+            uow.Object,
+            tenant.Object,
+            currentUser.Object,
+            new Mock<IRuntimeModeProvider>().Object,
+            new Mock<IIdempotencyService>().Object,
+            new Mock<IAuditLogger>().Object,
+            new Mock<IOutboxService>().Object,
+            new Mock<INonLotBatchInitializer>().Object,
+            new Mock<IProductInventoryUsageChecker>().Object);
+
+        var badProdResult = await productService.GetProductsAsync(null, false, null, page: -1, pageSize: 0);
+        Assert.False(badProdResult.IsSuccess);
+        Assert.Equal(ErrorCode.VALIDATION_ERROR, badProdResult.ErrorCode);
+        Assert.Contains(badProdResult.ErrorDetails!, d => d.Field == "page");
+        Assert.Contains(badProdResult.ErrorDetails!, d => d.Field == "page_size");
+
+        uow.Verify(x => x.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AuthService_PharmacistScopesExcludeSalesWrite_AndCurrentUserDtoUsesTypedEnums()
+    {
+        var org = Organization.Create("SCOPEORG", "Scope Pharma", "EGP", "Africa/Cairo", new Address("1 St", null, "Cairo", null, null, "EG"));
+        var branchId = Guid.NewGuid();
+        var employee = Employee.Create(org.OrganizationId, branchId, "EMP-P", "Sarah Pharm", null, null, "Pharmacist", new Address("1 St", null, "Cairo", null, null, "EG"), new DateOnly(2025, 1, 1));
+        var pharmacist = UserAccount.Create(org.OrganizationId, employee.EmployeeId, "sarah", "hashed", UserRole.Pharmacist, BranchScope.ASSIGNED);
+        typeof(UserAccount).GetProperty(nameof(UserAccount.Employee))!.SetValue(pharmacist, employee);
+
+        var orgRepo = new Mock<IOrganizationRepository>();
+        orgRepo.Setup(r => r.GetActiveByCodeAsync("SCOPEORG", It.IsAny<CancellationToken>())).ReturnsAsync(org);
+
+        var userRepo = new Mock<IUserAccountRepository>();
+        userRepo.Setup(r => r.GetForLoginAsync(org.OrganizationId, "SARAH", It.IsAny<CancellationToken>())).ReturnsAsync(pharmacist);
+
+        var passwordHasher = new Mock<IPasswordHasherService>();
+        passwordHasher.Setup(p => p.VerifyPassword(pharmacist, "hashed", "StrongPass123!")).Returns(true);
+
+        var jwt = new Mock<IJwtTokenGenerator>();
+        jwt.Setup(j => j.GenerateAccessToken(pharmacist, It.IsAny<IReadOnlyCollection<Guid>>()))
+            .Returns(new GeneratedAccessToken("fake-jwt", Now.AddMinutes(15)));
+
+        var clock = new Mock<IDateTimeProvider>();
+        clock.SetupGet(c => c.UtcNow).Returns(Now);
+        var runtimeMode = new Mock<IRuntimeModeProvider>();
+        runtimeMode.SetupGet(r => r.CurrentMode).Returns(ErpRuntimeMode.Cloud);
+
+        var currentUser = new Mock<ICurrentUser>();
+        currentUser.SetupGet(u => u.IsAuthenticated).Returns(true);
+        currentUser.SetupGet(u => u.UserId).Returns(pharmacist.UserId);
+        currentUser.SetupGet(u => u.EmployeeId).Returns(employee.EmployeeId);
+        currentUser.SetupGet(u => u.OrganizationId).Returns(org.OrganizationId);
+        currentUser.SetupGet(u => u.Username).Returns("sarah");
+        currentUser.SetupGet(u => u.Role).Returns(nameof(UserRole.Pharmacist));
+        currentUser.SetupGet(u => u.BranchScope).Returns(nameof(BranchScope.ASSIGNED));
+        currentUser.SetupGet(u => u.AuthorizedBranchIds).Returns(new HashSet<Guid> { branchId });
+        currentUser.SetupGet(u => u.Scopes).Returns(new HashSet<string> { "inventory:read", "inventory:write", "sales:read" });
+
+        var service = new AuthService(
+            orgRepo.Object,
+            userRepo.Object,
+            new Mock<IUserRefreshTokenRepository>().Object,
+            passwordHasher.Object,
+            jwt.Object,
+            new Mock<IUnitOfWork>().Object,
+            new Mock<IAuditLogger>().Object,
+            new Mock<IOutboxService>().Object,
+            new TenantContext(),
+            currentUser.Object,
+            clock.Object,
+            runtimeMode.Object);
+
+        var loginResult = await service.LoginAsync(new LoginRequest
+        {
+            OrganizationCode = "SCOPEORG",
+            Username = "sarah",
+            Password = "StrongPass123!"
+        });
+
+        Assert.True(loginResult.IsSuccess);
+        Assert.Equal(UserRole.Pharmacist, loginResult.Value!.User.Role);
+        Assert.Equal(BranchScope.ASSIGNED, loginResult.Value.User.BranchScope);
+        Assert.Contains("inventory:read", loginResult.Value.User.Scopes);
+        Assert.Contains("inventory:write", loginResult.Value.User.Scopes);
+        Assert.Contains("sales:read", loginResult.Value.User.Scopes);
+        Assert.DoesNotContain("sales:write", loginResult.Value.User.Scopes);
+
+        var meResult = service.GetCurrentUser();
+        Assert.True(meResult.IsSuccess);
+        Assert.Equal(UserRole.Pharmacist, meResult.Value!.Role);
+        Assert.Equal(BranchScope.ASSIGNED, meResult.Value.BranchScope);
+    }
+
+    [Fact]
+    public async Task ProductUomService_UpdateToNonSellable_ClearsStaleSaleUnitPrice_WhilePreservingPriceWhenSellable()
+    {
+        var orgId = Guid.NewGuid();
+        var catId = Guid.NewGuid();
+        var product = Product.Create(
+            orgId,
+            catId,
+            "SKU-UOM",
+            null,
+            "Test Med",
+            null,
+            null,
+            "TAB",
+            0.14m,
+            null,
+            false,
+            0,
+            new[]
+            {
+                new InitialUomDefinition("TAB", "Tablet", 1m, 5m, true, true, true),
+                new InitialUomDefinition("BOX", "Box", 10m, 45m, false, true, true)
+            });
+        var boxUom = product.Uoms.Single(u => u.UomCode == "BOX");
+
+        var uomRepo = new Mock<IProductUomRepository>();
+        uomRepo.Setup(r => r.GetByIdAsync(orgId, product.ProductId, boxUom.ProductUomId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(boxUom);
+
+        var tenant = new Mock<ITenantContext>();
+        tenant.SetupGet(t => t.OrganizationId).Returns(orgId);
+        var currentUser = new Mock<ICurrentUser>();
+        currentUser.SetupGet(u => u.Role).Returns("Admin");
+        var runtimeMode = new Mock<IRuntimeModeProvider>();
+        runtimeMode.SetupGet(r => r.CurrentMode).Returns(ErpRuntimeMode.Cloud);
+        var idempotency = new Mock<IIdempotencyService>();
+        idempotency.Setup(i => i.CheckAsync<object, ProductUomDto>(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<object>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new IdempotencyCheckResult<ProductUomDto>());
+
+        var service = new ProductUomService(
+            uomRepo.Object,
+            new Mock<IProductRepository>().Object,
+            new Mock<IUnitOfWork>().Object,
+            tenant.Object,
+            currentUser.Object,
+            runtimeMode.Object,
+            idempotency.Object,
+            new Mock<IAuditLogger>().Object,
+            new Mock<IOutboxService>().Object,
+            new Mock<IProductInventoryUsageChecker>().Object);
+
+        // 1. Omitting sale_unit_price while remaining sellable preserves existing 45m price.
+        var renameResult = await service.UpdateProductUomAsync(
+            product.ProductId,
+            boxUom.ProductUomId,
+            new UpdateProductUomRequest("Box of 10", null, null, null, null, null, "uom-rename-1"));
+        Assert.True(renameResult.IsSuccess);
+        Assert.True(renameResult.Value!.IsSellable);
+        Assert.Equal(45m, renameResult.Value.SaleUnitPrice);
+
+        // 2. Setting is_sellable = false with sale_unit_price omitted/null clears stale price to null.
+        var disableResult = await service.UpdateProductUomAsync(
+            product.ProductId,
+            boxUom.ProductUomId,
+            new UpdateProductUomRequest(null, null, null, false, null, null, "uom-disable-1"));
+        Assert.True(disableResult.IsSuccess);
+        Assert.False(disableResult.Value!.IsSellable);
+        Assert.Null(disableResult.Value.SaleUnitPrice);
+    }
+
+    [Fact]
+    public async Task EmployeeService_CashierReadReturnsForbidden_AndUserDtoMapsLastLoginAndLockoutEnd()
+    {
+        var orgId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+        var tenant = new TenantContext();
+        tenant.SetTenant(orgId);
+
+        var cashierUser = new Mock<ICurrentUser>();
+        cashierUser.SetupGet(u => u.Role).Returns(nameof(UserRole.Cashier));
+        cashierUser.SetupGet(u => u.BranchScope).Returns(nameof(BranchScope.ASSIGNED));
+        cashierUser.SetupGet(u => u.AuthorizedBranchIds).Returns(new HashSet<Guid> { branchId });
+
+        var empService = new EmployeeService(
+            new Mock<IEmployeeRepository>().Object,
+            new Mock<IBranchRepository>().Object,
+            new Mock<IUnitOfWork>().Object,
+            new Mock<IAuditLogger>().Object,
+            new Mock<IOutboxService>().Object,
+            new Mock<IIdempotencyService>().Object,
+            tenant,
+            cashierUser.Object,
+            new Mock<IDateTimeProvider>().Object);
+
+        var pagedResult = await empService.GetPagedAsync(branchId, false, null, 1, 25);
+        Assert.False(pagedResult.IsSuccess);
+        Assert.Equal(ErrorCode.FORBIDDEN, pagedResult.ErrorCode);
+
+        var byIdResult = await empService.GetByIdAsync(Guid.NewGuid());
+        Assert.False(byIdResult.IsSuccess);
+        Assert.Equal(ErrorCode.FORBIDDEN, byIdResult.ErrorCode);
+
+        // UserDto exposes additive LastLoginAt and LockoutEnd from UserAccount
+        var account = UserAccount.Create(orgId, Guid.NewGuid(), "locked.user", "hashed", UserRole.Cashier, BranchScope.ASSIGNED);
+        account.RecordLoginSuccess(Now);
+        for (int i = 0; i < 5; i++)
+        {
+            account.RecordLoginFailure(Now.AddMinutes(1), 5, TimeSpan.FromMinutes(15));
+        }
+
+        var dto = UserDtoMapper.From(account);
+        Assert.Equal(Now, dto.LastLoginAt);
+        Assert.Equal(Now.AddMinutes(16), dto.LockoutEnd);
     }
 
     [Theory]

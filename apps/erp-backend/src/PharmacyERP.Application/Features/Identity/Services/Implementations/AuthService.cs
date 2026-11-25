@@ -218,9 +218,13 @@ public sealed class AuthService : IAuthService
     {
         if (!_currentUser.IsAuthenticated || _currentUser.UserId is not Guid userId || _currentUser.EmployeeId is not Guid employeeId || _currentUser.OrganizationId is not Guid organizationId)
             return IdentityResults.Failure<CurrentUserDto>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
-        var role = Enum.TryParse<UserRole>(_currentUser.Role, out var parsedRole) ? parsedRole : UserRole.Cashier;
+        if (!Enum.TryParse<UserRole>(_currentUser.Role, out var parsedRole) || !Enum.IsDefined(parsedRole))
+            return IdentityResults.Failure<CurrentUserDto>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
+        var parsedBranchScope = Enum.TryParse<BranchScope>(_currentUser.BranchScope, out var scope) && Enum.IsDefined(scope)
+            ? scope
+            : BranchScope.ASSIGNED;
         return Result<CurrentUserDto>.Success(new CurrentUserDto(userId, employeeId, organizationId, _currentUser.Username ?? string.Empty,
-            _currentUser.Role ?? string.Empty, _currentUser.BranchScope ?? BranchScope.ASSIGNED.ToString(),
+            parsedRole, parsedBranchScope,
             _currentUser.AuthorizedBranchIds.ToArray(), _currentUser.Scopes.ToArray()));
     }
 
@@ -243,8 +247,8 @@ public sealed class AuthService : IAuthService
             ? new[] { enrolledBranchId }
             : authorizedBranchIds;
         var effectiveBranchScope = isBranchLocal
-            ? BranchScope.ASSIGNED.ToString()
-            : user.BranchScope.ToString();
+            ? BranchScope.ASSIGNED
+            : user.BranchScope;
         return new LoginResponse(accessTokenResult.Token, accessTokenResult.ExpiresAt, refreshTokenText,
             CurrentUserDtoMapper.From(user, effectiveBranchIds, ScopeNames(user.Role), effectiveBranchScope));
     }
@@ -269,7 +273,8 @@ public sealed class AuthService : IAuthService
     private static string[] ScopeNames(UserRole role) => role switch
     {
         UserRole.Admin => new[] { "user:admin", "branch:admin", "employee:admin", "inventory:read", "inventory:write", "sales:read", "sales:write" },
-        UserRole.Pharmacist => new[] { "inventory:read", "inventory:write", "sales:read", "sales:write" },
+        // Blueprint §8.5/§9.1: Pharmacist is read-only on POS sales (excludes sales:write).
+        UserRole.Pharmacist => new[] { "inventory:read", "inventory:write", "sales:read" },
         UserRole.Cashier => new[] { "inventory:read", "sales:read", "sales:write" },
         _ => Array.Empty<string>()
     };

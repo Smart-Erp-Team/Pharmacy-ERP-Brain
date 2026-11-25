@@ -25,11 +25,29 @@ public sealed record ResetPasswordRequest
     [Required, MinLength(12)] public string NewPassword { get; init; } = string.Empty;
     public string? IdempotencyKey { get; init; }
 }
-public sealed record UserDto(Guid UserId, Guid EmployeeId, Guid OrganizationId, string Username, UserRole Role,
-    BranchScope BranchScope, bool IsActive, IReadOnlyCollection<Guid> BranchIds);
+public sealed record UserDto(
+    Guid UserId,
+    Guid EmployeeId,
+    Guid OrganizationId,
+    string Username,
+    UserRole Role,
+    BranchScope BranchScope,
+    bool IsActive,
+    IReadOnlyCollection<Guid> BranchIds,
+    DateTimeOffset? LastLoginAt = null,
+    DateTimeOffset? LockoutEnd = null);
 
 public static class UserDtoMapper
 {
-    public static UserDto From(UserAccount user) => new(user.UserId, user.EmployeeId, user.OrganizationId, user.Username,
-        user.Role, user.BranchScope, user.IsActive, user.BranchAccesses.Select(x => x.BranchId).ToArray());
+    public static UserDto From(UserAccount user) => new(
+        user.UserId,
+        user.EmployeeId,
+        user.OrganizationId,
+        user.Username,
+        user.Role,
+        user.BranchScope,
+        user.IsActive,
+        user.BranchAccesses.Select(x => x.BranchId).ToArray(),
+        user.LastLoginAt,
+        user.LockoutEnd);
 }

@@ -78,7 +78,8 @@ public sealed class JwtTokenGenerator : IJwtTokenGenerator
     private static string[] GetScopes(UserRole role) => role switch
     {
         UserRole.Admin => new[] { "user:admin", "branch:admin", "employee:admin", "inventory:read", "inventory:write", "sales:read", "sales:write" },
-        UserRole.Pharmacist => new[] { "inventory:read", "inventory:write", "sales:read", "sales:write" },
+        // Blueprint §8.5/§9.1: Pharmacist is read-only on POS sales (excludes sales:write).
+        UserRole.Pharmacist => new[] { "inventory:read", "inventory:write", "sales:read" },
         UserRole.Cashier => new[] { "inventory:read", "sales:read", "sales:write" },
         _ => Array.Empty<string>()
     };

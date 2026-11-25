@@ -27,7 +27,7 @@ public class InventoryController : ControllerBase
         [FromQuery(Name = "status")] BatchQualityStatus? status,
         [FromQuery(Name = "expiring_before")] DateOnly? expiringBefore,
         [FromQuery(Name = "page")] int page = 1,
-        [FromQuery(Name = "page_size")] int pageSize = 20,
+        [FromQuery(Name = "page_size")] int pageSize = 25,
         CancellationToken ct = default)
     {
         var result = await _queryService.GetBatchesAsync(productId, status, expiringBefore, page, pageSize, ct);
@@ -67,7 +67,7 @@ public class InventoryController : ControllerBase
         [FromQuery(Name = "from_date")] DateTimeOffset? fromDate = null,
         [FromQuery(Name = "to_date")] DateTimeOffset? toDate = null,
         [FromQuery(Name = "page")] int page = 1,
-        [FromQuery(Name = "page_size")] int pageSize = 20,
+        [FromQuery(Name = "page_size")] int pageSize = 25,
         CancellationToken ct = default)
     {
         var result = await _queryService.GetTransactionsAsync(

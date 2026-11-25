@@ -5,14 +5,14 @@ public sealed record CreateProductCategoryRequest(
     string Code,
     string Name,
     string? Description,
-    string IdempotencyKey);
+    string? IdempotencyKey = null);
 
 public sealed record UpdateProductCategoryRequest(
     Guid? ParentCategoryId,
     string? Name,
     string? Description,
     bool? IsActive,
-    string IdempotencyKey);
+    string? IdempotencyKey = null);
 
 public sealed record ProductCategoryDto(
     Guid CategoryId,
