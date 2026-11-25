@@ -223,9 +223,16 @@ public sealed class AuthService : IAuthService
         var parsedBranchScope = Enum.TryParse<BranchScope>(_currentUser.BranchScope, out var scope) && Enum.IsDefined(scope)
             ? scope
             : BranchScope.ASSIGNED;
-        return Result<CurrentUserDto>.Success(new CurrentUserDto(userId, employeeId, organizationId, _currentUser.Username ?? string.Empty,
-            parsedRole, parsedBranchScope,
-            _currentUser.AuthorizedBranchIds.ToArray(), _currentUser.Scopes.ToArray()));
+        return Result<CurrentUserDto>.Success(new CurrentUserDto(
+            userId,
+            employeeId,
+            organizationId,
+            _currentUser.Username ?? string.Empty,
+            parsedRole,
+            parsedBranchScope,
+            _currentUser.AuthorizedBranchIds.ToArray(),
+            _currentUser.Scopes.ToArray(),
+            _runtimeMode.CurrentMode));
     }
 
     private async Task<LoginResponse> IssueTokensAsync(UserAccount user, Guid tokenFamilyId, DateTimeOffset now, CancellationToken cancellationToken)
@@ -249,8 +256,15 @@ public sealed class AuthService : IAuthService
         var effectiveBranchScope = isBranchLocal
             ? BranchScope.ASSIGNED
             : user.BranchScope;
-        return new LoginResponse(accessTokenResult.Token, accessTokenResult.ExpiresAt, refreshTokenText,
-            CurrentUserDtoMapper.From(user, effectiveBranchIds, ScopeNames(user.Role), effectiveBranchScope));
+        return new LoginResponse(
+            accessTokenResult.Token,
+            accessTokenResult.ExpiresAt,
+            refreshTokenText,
+            CurrentUserDtoMapper.From(user, effectiveBranchIds, ScopeNames(user.Role), effectiveBranchScope, _runtimeMode.CurrentMode),
+            TokenType: "Bearer",
+            Issuer: accessTokenResult.Issuer,
+            Audience: accessTokenResult.Audience,
+            KeyId: accessTokenResult.KeyId);
     }
 
     private bool IsAuthorizedForCurrentRuntimeMode(UserAccount user)
@@ -272,7 +286,8 @@ public sealed class AuthService : IAuthService
 
     private static string[] ScopeNames(UserRole role) => role switch
     {
-        UserRole.Admin => new[] { "user:admin", "branch:admin", "employee:admin", "inventory:read", "inventory:write", "sales:read", "sales:write" },
+        // Blueprint §8.5: adhere strictly to the closed 13-scope vocabulary (no undocumented branch:admin/employee:admin).
+        UserRole.Admin => new[] { "user:admin", "inventory:read", "inventory:write", "sales:read", "sales:write" },
         // Blueprint §8.5/§9.1: Pharmacist is read-only on POS sales (excludes sales:write).
         UserRole.Pharmacist => new[] { "inventory:read", "inventory:write", "sales:read" },
         UserRole.Cashier => new[] { "inventory:read", "sales:read", "sales:write" },

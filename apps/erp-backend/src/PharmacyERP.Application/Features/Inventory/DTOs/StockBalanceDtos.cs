@@ -19,7 +19,8 @@ public record StockBalanceDto(
     decimal OnHandQtyBase,
     decimal AvailableQtyBase,
     decimal AverageUnitCost,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    long RowVersion);
 
 public record InventorySummaryDto(
     Guid OrganizationId,

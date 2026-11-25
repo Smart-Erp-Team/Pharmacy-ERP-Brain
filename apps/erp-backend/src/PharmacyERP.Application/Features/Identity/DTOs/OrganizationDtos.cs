@@ -13,8 +13,16 @@ public sealed record CreateOrganizationRequest
     public string? IdempotencyKey { get; init; }
 }
 
-public sealed record OrganizationDto(Guid OrganizationId, string OrganizationCode, string Name, string BaseCurrency, string TimeZoneId,
-    Guid InitialBranchId, Guid InitialEmployeeId, Guid InitialAdminUserId);
+public sealed record OrganizationDto(
+    Guid OrganizationId,
+    string OrganizationCode,
+    string Name,
+    string BaseCurrency,
+    string TimeZoneId,
+    Guid InitialBranchId,
+    Guid InitialEmployeeId,
+    Guid InitialAdminUserId,
+    string EnrollmentSetupState = "PENDING");
 
 public sealed record AddressDto
 {

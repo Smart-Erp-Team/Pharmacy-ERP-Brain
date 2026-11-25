@@ -96,6 +96,7 @@ public sealed class Stage1ContractFixesUnitTests
         tenant.SetupGet(t => t.OrganizationId).Returns(orgId);
 
         var currentUser = new Mock<ICurrentUser>();
+        currentUser.SetupGet(u => u.Role).Returns(UserRole.Admin.ToString());
         currentUser.Setup(u => u.CanAccessBranch(It.IsAny<Guid>())).Returns(false);
 
         var uow = new Mock<IUnitOfWork>();
@@ -110,10 +111,12 @@ public sealed class Stage1ContractFixesUnitTests
             currentUser.Object,
             dateProvider.Object);
 
-        var balancesResult = await queryService.GetBalancesAsync(Guid.Empty, null, null, null);
+        var balancesResult = await queryService.GetBalancesAsync(Guid.Empty, null, null, null, 0, 201);
         Assert.False(balancesResult.IsSuccess);
         Assert.Equal(ErrorCode.VALIDATION_ERROR, balancesResult.ErrorCode);
         Assert.Contains(balancesResult.ErrorDetails!, d => d.Field == "branch_id");
+        Assert.Contains(balancesResult.ErrorDetails!, d => d.Field == "page");
+        Assert.Contains(balancesResult.ErrorDetails!, d => d.Field == "page_size");
 
         var summaryResult = await queryService.GetProductSummaryAsync(Guid.Empty, Guid.Empty);
         Assert.False(summaryResult.IsSuccess);
@@ -169,6 +172,8 @@ public sealed class Stage1ContractFixesUnitTests
         var stockRepo = new Mock<IStockBalanceRepository>();
         stockRepo.Setup(r => r.GetBalancesWithDetailsAsync(org.OrganizationId, branch.BranchId, It.IsAny<Guid?>(), null, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<StockBalance>());
+        stockRepo.Setup(r => r.GetPagedBalancesWithDetailsAsync(org.OrganizationId, branch.BranchId, It.IsAny<Guid?>(), null, null, 1, 25, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PagedResult<StockBalance>(Array.Empty<StockBalance>(), 1, 25, 0));
         stockRepo.Setup(r => r.GetCanonicalInventoryPageAsync(org.OrganizationId, branch.BranchId, null, null, 0, 100, It.IsAny<CancellationToken>()))
             .ReturnsAsync((new List<StockBalance>(), 0, false));
 
@@ -176,6 +181,7 @@ public sealed class Stage1ContractFixesUnitTests
         tenant.SetupGet(t => t.OrganizationId).Returns(org.OrganizationId);
 
         var currentUser = new Mock<ICurrentUser>();
+        currentUser.SetupGet(u => u.Role).Returns(UserRole.Admin.ToString());
         currentUser.Setup(u => u.CanAccessBranch(branch.BranchId)).Returns(true);
 
         var uow = new Mock<IUnitOfWork>();
@@ -406,7 +412,7 @@ public sealed class Stage1ContractFixesUnitTests
 
         var jwt = new Mock<IJwtTokenGenerator>();
         jwt.Setup(j => j.GenerateAccessToken(admin, It.IsAny<IReadOnlyCollection<Guid>>()))
-            .Returns(new GeneratedAccessToken("fake-jwt", Now.AddHours(24)));
+            .Returns(new GeneratedAccessToken("fake-jwt", Now.AddHours(24), "PharmacyERP", "PharmacyERP.Api", "kid-local-1"));
 
         var clock = new Mock<IDateTimeProvider>();
         clock.SetupGet(c => c.UtcNow).Returns(Now);
@@ -437,9 +443,17 @@ public sealed class Stage1ContractFixesUnitTests
         });
 
         Assert.True(loginResult.IsSuccess);
-        Assert.Equal(BranchScope.ASSIGNED, loginResult.Value!.User.BranchScope);
+        Assert.Equal("Bearer", loginResult.Value!.TokenType);
+        Assert.Equal("PharmacyERP", loginResult.Value.Issuer);
+        Assert.Equal("PharmacyERP.Api", loginResult.Value.Audience);
+        Assert.Equal("kid-local-1", loginResult.Value.KeyId);
+        Assert.Equal(BranchScope.ASSIGNED, loginResult.Value.User.BranchScope);
         Assert.Equal(UserRole.Admin, loginResult.Value.User.Role);
+        Assert.Equal(ErpRuntimeMode.BranchLocal, loginResult.Value.User.RuntimeMode);
         Assert.Equal(new[] { branchId }, loginResult.Value.User.BranchIds);
+        Assert.DoesNotContain("branch:admin", loginResult.Value.User.Scopes);
+        Assert.DoesNotContain("employee:admin", loginResult.Value.User.Scopes);
+        Assert.Equal(new[] { "user:admin", "inventory:read", "inventory:write", "sales:read", "sales:write" }, loginResult.Value.User.Scopes);
     }
 
     [Fact]
@@ -563,6 +577,7 @@ public sealed class Stage1ContractFixesUnitTests
         Assert.True(meResult.IsSuccess);
         Assert.Equal(UserRole.Pharmacist, meResult.Value!.Role);
         Assert.Equal(BranchScope.ASSIGNED, meResult.Value.BranchScope);
+        Assert.Equal(ErpRuntimeMode.Cloud, meResult.Value.RuntimeMode);
     }
 
     [Fact]
@@ -637,39 +652,53 @@ public sealed class Stage1ContractFixesUnitTests
     }
 
     [Fact]
-    public async Task EmployeeService_CashierReadReturnsForbidden_AndUserDtoMapsLastLoginAndLockoutEnd()
+    public async Task EmployeeService_PharmacistAndCashierReadReturnForbidden_AndIdentityDtosMapAuditAndLockoutFields()
     {
         var orgId = Guid.NewGuid();
         var branchId = Guid.NewGuid();
         var tenant = new TenantContext();
         tenant.SetTenant(orgId);
 
-        var cashierUser = new Mock<ICurrentUser>();
-        cashierUser.SetupGet(u => u.Role).Returns(nameof(UserRole.Cashier));
-        cashierUser.SetupGet(u => u.BranchScope).Returns(nameof(BranchScope.ASSIGNED));
-        cashierUser.SetupGet(u => u.AuthorizedBranchIds).Returns(new HashSet<Guid> { branchId });
+        foreach (var deniedRole in new[] { UserRole.Pharmacist, UserRole.Cashier })
+        {
+            var deniedUser = new Mock<ICurrentUser>();
+            deniedUser.SetupGet(u => u.Role).Returns(deniedRole.ToString());
+            deniedUser.SetupGet(u => u.BranchScope).Returns(nameof(BranchScope.ASSIGNED));
+            deniedUser.SetupGet(u => u.AuthorizedBranchIds).Returns(new HashSet<Guid> { branchId });
 
-        var empService = new EmployeeService(
-            new Mock<IEmployeeRepository>().Object,
-            new Mock<IBranchRepository>().Object,
-            new Mock<IUnitOfWork>().Object,
-            new Mock<IAuditLogger>().Object,
-            new Mock<IOutboxService>().Object,
-            new Mock<IIdempotencyService>().Object,
-            tenant,
-            cashierUser.Object,
-            new Mock<IDateTimeProvider>().Object);
+            var empService = new EmployeeService(
+                new Mock<IEmployeeRepository>().Object,
+                new Mock<IBranchRepository>().Object,
+                new Mock<IUnitOfWork>().Object,
+                new Mock<IAuditLogger>().Object,
+                new Mock<IOutboxService>().Object,
+                new Mock<IIdempotencyService>().Object,
+                tenant,
+                deniedUser.Object,
+                new Mock<IDateTimeProvider>().Object);
 
-        var pagedResult = await empService.GetPagedAsync(branchId, false, null, 1, 25);
-        Assert.False(pagedResult.IsSuccess);
-        Assert.Equal(ErrorCode.FORBIDDEN, pagedResult.ErrorCode);
+            var pagedResult = await empService.GetPagedAsync(branchId, false, null, 1, 25);
+            Assert.False(pagedResult.IsSuccess);
+            Assert.Equal(ErrorCode.FORBIDDEN, pagedResult.ErrorCode);
 
-        var byIdResult = await empService.GetByIdAsync(Guid.NewGuid());
-        Assert.False(byIdResult.IsSuccess);
-        Assert.Equal(ErrorCode.FORBIDDEN, byIdResult.ErrorCode);
+            var byIdResult = await empService.GetByIdAsync(Guid.NewGuid());
+            Assert.False(byIdResult.IsSuccess);
+            Assert.Equal(ErrorCode.FORBIDDEN, byIdResult.ErrorCode);
+        }
 
-        // UserDto exposes additive LastLoginAt and LockoutEnd from UserAccount
-        var account = UserAccount.Create(orgId, Guid.NewGuid(), "locked.user", "hashed", UserRole.Cashier, BranchScope.ASSIGNED);
+        // BranchDto and EmployeeDto expose CreatedAt & UpdatedAt
+        var branch = Branch.Create(orgId, "BR-AUD", "Audit Branch", new Address("1 St", null, "Cairo", null, null, "EG"));
+        var branchDto = BranchDtoMapper.From(branch);
+        Assert.Equal(branch.CreatedAt, branchDto.CreatedAt);
+        Assert.Equal(branch.UpdatedAt, branchDto.UpdatedAt);
+
+        var employee = Employee.Create(orgId, branch.BranchId, "EMP-AUD", "Audit Emp", null, null, "Pharmacist", new Address("1 St", null, "Cairo", null, null, "EG"), new DateOnly(2025, 1, 1));
+        var employeeDto = EmployeeDtoMapper.From(employee);
+        Assert.Equal(employee.CreatedAt, employeeDto.CreatedAt);
+        Assert.Equal(employee.UpdatedAt, employeeDto.UpdatedAt);
+
+        // UserDto exposes additive LastLoginAt, LockoutEnd, and AccessFailedCount from UserAccount
+        var account = UserAccount.Create(orgId, employee.EmployeeId, "locked.user", "hashed", UserRole.Cashier, BranchScope.ASSIGNED);
         account.RecordLoginSuccess(Now);
         for (int i = 0; i < 5; i++)
         {
@@ -679,6 +708,7 @@ public sealed class Stage1ContractFixesUnitTests
         var dto = UserDtoMapper.From(account);
         Assert.Equal(Now, dto.LastLoginAt);
         Assert.Equal(Now.AddMinutes(16), dto.LockoutEnd);
+        Assert.Equal(5, dto.AccessFailedCount);
     }
 
     [Theory]

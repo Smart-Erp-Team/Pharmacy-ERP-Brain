@@ -48,6 +48,15 @@ public class CanonicalInventoryService : ICanonicalInventoryService
                 ErrorMessages.Unauthorized);
         }
 
+        // D-06 & #26: match /api/v1/canonical/products by denying Cashier access to canonical inventory costs.
+        if (!string.Equals(_currentUser.Role, UserRole.Admin.ToString(), StringComparison.Ordinal)
+            && !string.Equals(_currentUser.Role, UserRole.Pharmacist.ToString(), StringComparison.Ordinal))
+        {
+            return Result<PagedResult<CanonicalInventoryItemDto>>.Failure(
+                ErrorCode.FORBIDDEN,
+                ErrorMessages.Forbidden);
+        }
+
         var tenantOrganizationId = _tenantContext.OrganizationId.Value;
         if (organizationId != Guid.Empty && organizationId != tenantOrganizationId)
         {

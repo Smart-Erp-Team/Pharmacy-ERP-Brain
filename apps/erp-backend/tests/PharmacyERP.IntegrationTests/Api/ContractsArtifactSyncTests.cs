@@ -205,7 +205,8 @@ public sealed class ContractsArtifactSyncTests : IClassFixture<WebApplicationFac
             typeof(BatchQualityStatus),
             typeof(InventoryTransactionType),
             typeof(InventoryTransactionStatus),
-            typeof(CatalogConfigurationAction)
+            typeof(CatalogConfigurationAction),
+            typeof(ErpRuntimeMode)
         })
         {
             var enumSchema = schemas.GetProperty(enumType.Name);

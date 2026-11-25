@@ -8,7 +8,7 @@ public sealed class EmployeesController : ControllerBase
     private readonly ICurrentUser _currentUser;
     public EmployeesController(IEmployeeService service, ICurrentUser currentUser) { _service = service; _currentUser = currentUser; }
 
-    [Authorize(Roles = "Admin,Pharmacist"), HttpGet]
+    [Authorize(Policy = "AdminOnly"), HttpGet]
     [ProducesResponseType(typeof(PagedResult<EmployeeDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
@@ -52,7 +52,7 @@ public sealed class EmployeesController : ControllerBase
         return ApiResultMapper.ToCreatedResult(this, result, _currentUser.TraceId, locationUri);
     }
 
-    [Authorize(Roles = "Admin,Pharmacist"), HttpGet("{id:guid}")]
+    [Authorize(Policy = "AdminOnly"), HttpGet("{id:guid}")]
     [ProducesResponseType(typeof(EmployeeDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]

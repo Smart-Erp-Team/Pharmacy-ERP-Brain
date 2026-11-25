@@ -6,7 +6,7 @@
 
 | File | Description | Verification |
 | --- | --- | --- |
-| [`openapi.v1.json`](./openapi.v1.json) | Complete OpenAPI 3.0.4 specification exported directly from live `/swagger/v1/swagger.json` covering **all 48 live HTTP endpoints** (47 controller actions across 13 controllers + `GET /.well-known/jwks.json`), 74 component schemas, Bearer JWT security, and `Idempotency-Key` headers. | Asserted byte/tree-equal to live Swagger in `ContractsArtifactSyncTests`. |
+| [`openapi.v1.json`](./openapi.v1.json) | Complete OpenAPI 3.0.4 specification exported directly from live `/swagger/v1/swagger.json` covering **all 48 live HTTP endpoints** (47 controller actions across 13 controllers + `GET /.well-known/jwks.json`), 76 component schemas, Bearer JWT security, and `Idempotency-Key` headers. | Asserted byte/tree-equal to live Swagger in `ContractsArtifactSyncTests`. |
 | [`schemas/api-error-envelope.schema.json`](./schemas/api-error-envelope.schema.json) | JSON Schema (Draft 2020-12) for `ApiErrorEnvelopeDto`, enumerating all 11 `ErrorCode` values plus `"INTERNAL_SERVER_ERROR"`. | Asserted against `ErrorCode` enum in `ContractsArtifactSyncTests`. |
 | [`schemas/canonical-capabilities.schema.json`](./schemas/canonical-capabilities.schema.json) | JSON Schema (Draft 2020-12) for `GET /api/v1/canonical/capabilities` in strict `snake_case`. | Asserted against live `Cloud` and `BranchLocal` responses in `ContractsArtifactSyncTests`. |
 | [`README.md`](./README.md) | This complete developer & frontend/Brain wire-contract reference. | Synchronized with live C# code. |
@@ -42,7 +42,7 @@ Configured via `new JsonStringEnumConverter(namingPolicy: null, allowIntegerValu
 | `InventoryTransactionType` | `"OPENING_BALANCE"`, `"ADJUSTMENT_IN"`, `"ADJUSTMENT_OUT"`, `"SALE_ISSUE"`, `"SALES_RETURN_IN"`, `"PURCHASE_RECEIPT"`, `"VENDOR_RETURN_OUT"`, `"SCRAP_OUT"`, `"REVERSAL"` *(explicitly NO `TRANSFER`)* | `InventoryTxnDto.transaction_type`, `CreateInventoryAdjustmentRequest.transaction_type` *(restricted to `OPENING_BALANCE`, `ADJUSTMENT_IN`, `ADJUSTMENT_OUT`, `REVERSAL`)*, `GET /inventory/transactions?type=` |
 | `InventoryTransactionStatus` | `"DRAFT"`, `"POSTED"`, `"CANCELLED"` *(no `REVERSED`)* | `InventoryTxnDto.status` |
 | `CatalogConfigurationAction` | `"CreateProduct"`, `"UpdateProduct"`, `"AddUom"`, `"UpdateUom"`, `"DeactivateUom"` *(PascalCase)* | `CanonicalProductConfigurationRequest.action` |
-| `ErpRuntimeMode` | `"Cloud"`, `"BranchLocal"` | `CanonicalCapabilitiesDto.runtime_mode` |
+| `ErpRuntimeMode` | `"Cloud"`, `"BranchLocal"` | `CanonicalCapabilitiesDto.runtime_mode`, `CurrentUserDto.runtime_mode` |
 | `ErrorCode` | `"MALFORMED_REQUEST"`, `"UNAUTHORIZED"`, `"FORBIDDEN"`, `"FORBIDDEN_BRANCH"`, `"NOT_FOUND"`, `"CONFLICT"`, `"INVALID_STATE_TRANSITION"`, `"OUT_OF_STOCK"`, `"IDEMPOTENCY_MISMATCH"`, `"VALIDATION_ERROR"`, `"EXPIRY_POLICY_VIOLATION"` *(plus `"INTERNAL_SERVER_ERROR"` for 500s)* | `ApiErrorEnvelopeDto.error.code` |
 | `AuditActorType` *(DB-only)* | `"USER"`, `"SYSTEM"`, `"AI_ASSISTED"` | Internal audit log only (not emitted on HTTP DTOs) |
 | `CanonicalWriteStatuses` *(const)* | `"APPLIED"` *(emitted on canonical write success)* | `CanonicalWriteResultDto.status` |
@@ -114,9 +114,8 @@ All 11 resource-creation `POST` endpoints return **`201 Created`** with a `Locat
 - **Standard ERP Lists (`PagedResult<T>`):** `{ "items": T[], "page": int, "page_size": int, "total_count": int, "next_cursor": string | null }`.
   - Uniform defaults across Identity, Catalog, and Inventory: `page = 1`, `page_size = 25`.
   - Uniform bounds: `page >= 1`, `1 <= page_size <= 200`. Out-of-range values return **`422 VALIDATION_ERROR`** (`field: "page"` / `"page_size"`).
-- **Unpaginated ERP List Endpoints (Live Quirks):**
-  - `GET /api/v1/products/{id}/uoms` returns raw `ProductUomDto[]` (defaults `include_inactive=false`).
-  - `GET /api/v1/inventory/balances` returns raw `StockBalanceDto[]` (unpaginated array).
+- **Unpaginated ERP List Endpoint (Live Quirk):**
+  - `GET /api/v1/products/{id}/uoms` returns raw `ProductUomDto[]` (defaults `include_inactive=false`). All other ERP list endpoints — including `GET /api/v1/inventory/balances` — return `PagedResult<T>`.
 - **Canonical Lists (Divergent Shapes):**
   - `GET /api/v1/canonical/products`: keyset cursor (`cursor` = opaque Base64Url `UtcTicks:ProductIdN`, `limit` default `50`, clamped `1..1000`, invalid `<= 0` falls back to `50`), returns `CanonicalProductFeedPageDto` (`{ "items": CanonicalProductDto[], "next_cursor": string | null }`).
   - `GET /api/v1/canonical/inventory`: integer offset cursor (`cursor` = `long?` row offset, `limit` default `100`, clamped `1..1000`, invalid `<= 0` falls back to `100`), returns `PagedResult<CanonicalInventoryItemDto>` (`next_cursor` is stringified next offset or `null`).
@@ -150,12 +149,17 @@ All 11 resource-creation `POST` endpoints return **`201 Created`** with a `Locat
       "role": "Admin",
       "branch_scope": "ALL",
       "branch_ids": [],
-      "scopes": ["user:admin", "branch:admin", "employee:admin", "inventory:read", "inventory:write", "sales:read", "sales:write"]
-    }
+      "scopes": ["user:admin", "inventory:read", "inventory:write", "sales:read", "sales:write"],
+      "runtime_mode": "Cloud"
+    },
+    "token_type": "Bearer",
+    "issuer": "PharmacyERP",
+    "audience": "PharmacyERP.Api",
+    "key_id": "<32-hex>"
   }
   ```
-- `GET /api/v1/auth/me` returns **`CurrentUserDto`** directly at the root (flat object with the exact same 8 fields as `LoginResponse.user`, including the real `username` from the JWT `username` claim).
-- **`BranchLocal` Scope Downgrade:** When running in `BranchLocal` mode, even an `ALL`-scope Org Admin receives `branch_scope: "ASSIGNED"` and `branch_ids: [ENROLLED_BRANCH_ID]` identically in the JWT, `LoginResponse.user`, and `GET /api/v1/auth/me`. Non-`ALL` users not assigned to `ENROLLED_BRANCH_ID` receive `403 FORBIDDEN_BRANCH` on login/refresh.
+- `GET /api/v1/auth/me` returns **`CurrentUserDto`** directly at the root (flat object with the exact same 9 fields as `LoginResponse.user`, including the real `username` from the JWT `username` claim and `runtime_mode` from `IRuntimeModeProvider`).
+- **`BranchLocal` Scope Downgrade:** When running in `BranchLocal` mode, even an `ALL`-scope Org Admin receives `branch_scope: "ASSIGNED"`, `branch_ids: [ENROLLED_BRANCH_ID]`, and `runtime_mode: "BranchLocal"` identically in `LoginResponse.user` and `GET /api/v1/auth/me` (and matching claims in the JWT). Non-`ALL` users not assigned to `ENROLLED_BRANCH_ID` receive `403 FORBIDDEN_BRANCH` on login/refresh.
 
 ### 2.3 Exact JWT Claims & Emitted Scopes per Role
 - **Header:** `{ "alg": "RS256", "kid": "<32-hex>", "typ": "JWT" }`
@@ -163,9 +167,9 @@ All 11 resource-creation `POST` endpoints return **`201 Created`** with a `Locat
 
 | Role | Exact Emitted `scopes[]` (in JWT & `CurrentUserDto`) | Notes |
 | --- | --- | --- |
-| `Admin` | `["user:admin", "branch:admin", "employee:admin", "inventory:read", "inventory:write", "sales:read", "sales:write"]` | Includes additive `branch:admin`, `employee:admin`. |
-| `Pharmacist` | `["inventory:read", "inventory:write", "sales:read"]` | **Excludes `sales:write`** per Blueprint §8.5/§9.1. |
-| `Cashier` | `["inventory:read", "sales:read", "sales:write"]` | Read-only on catalog/inventory/branches; denied on `/employees` and all catalog/inventory writes. |
+| `Admin` | `["user:admin", "inventory:read", "inventory:write", "sales:read", "sales:write"]` | Strictly adheres to Blueprint §8.5 closed vocabulary (excludes undocumented `branch:admin`/`employee:admin`). |
+| `Pharmacist` | `["inventory:read", "inventory:write", "sales:read"]` | **Excludes `sales:write`** per Blueprint §8.5/§9.1; denied on `/employees` (`AdminOnly`). |
+| `Cashier` | `["inventory:read", "sales:read", "sales:write"]` | Read-only on catalog, branches, and stock balances/summary; denied (`403 FORBIDDEN`) on `/employees`, `/inventory/transactions`, `/canonical/inventory`, and all catalog/inventory writes. |
 
 ### 2.4 Hierarchical User Management Rules (`UserManagementAuthorizer.cs`)
 - Only `Admin` (`AdminOnly` policy) may call `/api/v1/users*`.
@@ -225,9 +229,9 @@ Enforced at the HTTP pipeline edge by `RuntimeModeGuardMiddleware` **before auth
 | 16 | Users | `PATCH /api/v1/users/{id}` | `AdminOnly` + hierarchy | Cloud | Header/Body | `200` `UserDto` | `400`, `401`, `403`, `404`, `409`, `422` |
 | 17 | Users | `POST /api/v1/users/{id}/password-reset` | `AdminOnly` + hierarchy | Cloud | Header/Body | `204 No Content` | `400`, `401`, `403`, `404`, `409`, `422` |
 | 18 | Users | `POST /api/v1/users/{id}/revoke-sessions` | `AdminOnly` + hierarchy | Cloud | **Header-only** | `204 No Content` | `400`, `401`, `403`, `404`, `409`, `422` |
-| 19 | Employees | `GET /api/v1/employees` | `Admin,Pharmacist` + branch scope | Both | None | `200` `PagedResult<EmployeeDto>` | `401`, `403`, `422` |
+| 19 | Employees | `GET /api/v1/employees` | `AdminOnly` + branch scope | Both | None | `200` `PagedResult<EmployeeDto>` | `401`, `403`, `422` |
 | 20 | Employees | `POST /api/v1/employees` | `AdminOnly` + branch scope | Cloud | Header/Body | `201` `EmployeeDto` + `Location` | `400`, `401`, `403`, `404`, `409`, `422` |
-| 21 | Employees | `GET /api/v1/employees/{id}` | `Admin,Pharmacist` + branch scope | Both | None | `200` `EmployeeDto` | `401`, `403`, `404` |
+| 21 | Employees | `GET /api/v1/employees/{id}` | `AdminOnly` + branch scope | Both | None | `200` `EmployeeDto` | `401`, `403`, `404` |
 | 22 | Employees | `PATCH /api/v1/employees/{id}` | `AdminOnly` + branch scope | Cloud | Header/Body | `200` `EmployeeDto` | `400`, `401`, `403`, `404`, `409`, `422` |
 | 23 | Catalog | `GET /api/v1/product-categories` | `Admin,Pharmacist,Cashier` | Both | None | `200` `PagedResult<ProductCategoryDto>` | `401`, `403`, `422` |
 | 24 | Catalog | `POST /api/v1/product-categories` | `Admin,Pharmacist` | Cloud | Header/Body | `201` `ProductCategoryDto` + `Location` | `400`, `401`, `403`, `404`, `409`, `422` |
@@ -246,15 +250,15 @@ Enforced at the HTTP pipeline edge by `RuntimeModeGuardMiddleware` **before auth
 | 37 | Inventory | `POST /api/v1/inventory/locations` | `Admin,Pharmacist` + branch | Both | Header/Body | `201` `InventoryLocationDto` + `Location` | `400`, `401`, `403`, `409`, `422` |
 | 38 | Inventory | `PATCH /api/v1/inventory/locations/{id}` | `Admin,Pharmacist` + branch | Both | Header/Body | `200` `InventoryLocationDto` | `400`, `401`, `403`, `404`, `409`, `422` |
 | 39 | Inventory | `GET /api/v1/inventory/batches` | `[Authorize]` (org-scoped) | Both | None | `200` `PagedResult<InventoryBatchDto>` | `401`, `422` |
-| 40 | Inventory | `GET /api/v1/inventory/balances` | `[Authorize]` + branch | Both | None | `200` `StockBalanceDto[]` *(array!)* | `401`, `403`, `422` |
+| 40 | Inventory | `GET /api/v1/inventory/balances` | `[Authorize]` + branch | Both | None | `200` `PagedResult<StockBalanceDto>` | `401`, `403`, `422` |
 | 41 | Inventory | `GET /api/v1/inventory/summary` | `[Authorize]` + branch | Both | None | `200` `InventorySummaryDto` | `401`, `403`, `422` |
-| 42 | Inventory | `GET /api/v1/inventory/transactions` | `[Authorize]` + branch | Both | None | `200` `PagedResult<InventoryTxnDto>` | `401`, `403`, `422` |
+| 42 | Inventory | `GET /api/v1/inventory/transactions` | `Admin,Pharmacist` + branch | Both | None | `200` `PagedResult<InventoryTxnDto>` | `401`, `403`, `422` |
 | 43 | Inventory | `POST /api/v1/inventory/adjustments` | `Admin,Pharmacist` + branch | **BranchLocal** | Header/Body | `201` `InventoryTxnDto` + `Location` | `400`, `401`, `403`, `404`, `409`, `422` |
 | 44 | Canonical | `GET /api/v1/canonical/capabilities` | Public | Both | None | `200` `CanonicalCapabilitiesDto` | — |
 | 45 | Canonical | `GET /api/v1/canonical/products` | `Admin,Pharmacist` | Cloud | None | `200` `CanonicalProductFeedPageDto` | `401`, `403`, `404`, `422` |
 | 46 | Canonical | `POST /api/v1/canonical/configuration/products` | `Admin,Pharmacist` | Cloud | Header/Body | `201`/`200` `CanonicalWriteResultDto` | `400`, `401`, `403`, `404`, `409`, `422` |
 | 47 | Canonical | `PUT /api/v1/canonical/configuration/reorder-rules` | `Admin,Pharmacist` + branch | Cloud | Header/Body | `200` `CanonicalWriteResultDto` | `400`, `401`, `403`, `404`, `409`, `422` |
-| 48 | Canonical | `GET /api/v1/canonical/inventory` | `[Authorize]` + branch | Cloud | None | `200` `PagedResult<CanonicalInventoryItemDto>` | `401`, `403`, `404`, `422` |
+| 48 | Canonical | `GET /api/v1/canonical/inventory` | `Admin,Pharmacist` + branch | Cloud | None | `200` `PagedResult<CanonicalInventoryItemDto>` | `401`, `403`, `404`, `422` |
 
 ---
 
@@ -272,7 +276,7 @@ Enforced at the HTTP pipeline edge by `RuntimeModeGuardMiddleware` **before auth
   - `organization_code`: `string`, required, maxLength `30`.
   - `username`: `string`, required, maxLength `80` (trimmed & matched case-insensitively).
   - `password`: `string`, required.
-- **Response (`200 OK`):** `LoginResponse` (`access_token`, `access_token_expires_at`, `refresh_token`, `user: CurrentUserDto`).
+- **Response (`200 OK`):** `LoginResponse` (`access_token`, `access_token_expires_at`, `refresh_token`, `user: CurrentUserDto`, `token_type: "Bearer"`, `issuer`, `audience`, `key_id`).
 - **Errors:** `400` malformed JSON; `401 UNAUTHORIZED` unknown org/user or wrong password; `403 FORBIDDEN` inactive user/employee or locked account (checked before password); `403 FORBIDDEN_BRANCH` in `BranchLocal` if user lacks access to `ENROLLED_BRANCH_ID`; `422 VALIDATION_ERROR`.
 
 #### 3. `POST /api/v1/auth/refresh`
@@ -289,7 +293,7 @@ Enforced at the HTTP pipeline edge by `RuntimeModeGuardMiddleware` **before auth
 
 #### 5. `GET /api/v1/auth/me`
 - **Auth:** `[Authorize]`. **Runtime:** Both.
-- **Response (`200 OK`):** Flat `CurrentUserDto` (`user_id`, `employee_id`, `organization_id`, `username`, `role: UserRole`, `branch_scope: BranchScope`, `branch_ids: Guid[]`, `scopes: string[]`).
+- **Response (`200 OK`):** Flat `CurrentUserDto` (`user_id`, `employee_id`, `organization_id`, `username`, `role: UserRole`, `branch_scope: BranchScope`, `branch_ids: Guid[]`, `scopes: string[]`, `runtime_mode: ErpRuntimeMode`).
 - **Errors:** `401 UNAUTHORIZED`.
 
 ---
@@ -308,7 +312,7 @@ Enforced at the HTTP pipeline edge by `RuntimeModeGuardMiddleware` **before auth
   - `initial_employee`: `CreateEmployeeRequest`, required (`employee_no`, `full_name`, `email?`, `phone?`, `job_title`, `address`, `hired_on`; note `branch_id` is ignored/overwritten with the newly created `initial_branch`).
   - `initial_admin`: `CreateUserRequest`, required (`username`, `password` minLength `12`; note `employee_id`, `role`, `branch_scope`, `branch_ids` are ignored/overwritten with `Admin` + `ALL`).
   - `idempotency_key`: `string?`, optional if header sent, maxLength `100`.
-- **Response (`201 Created`, `Location: /api/v1/organizations/{organization_id}`):** `OrganizationDto` (`organization_id`, `organization_code`, `name`, `base_currency`, `time_zone_id`, `initial_branch_id`, `initial_employee_id`, `initial_admin_user_id`). Also seeds `OUTBOX_EVENT_CURSOR` and the 3 default inventory locations on the initial branch atomically.
+- **Response (`201 Created`, `Location: /api/v1/organizations/{organization_id}`):** `OrganizationDto` (`organization_id`, `organization_code`, `name`, `base_currency`, `time_zone_id`, `initial_branch_id`, `initial_employee_id`, `initial_admin_user_id`, `enrollment_setup_state` — `"PENDING"` on newly provisioned orgs). Also seeds `OUTBOX_EVENT_CURSOR` and the 3 default inventory locations on the initial branch atomically.
 - **Errors:** `400`, `401`, `403`, `404` (BranchLocal), `409 CONFLICT` (duplicate `organization_code`) / `IDEMPOTENCY_MISMATCH`, `422`.
 
 ---
@@ -324,7 +328,7 @@ Enforced at the HTTP pipeline edge by `RuntimeModeGuardMiddleware` **before auth
 #### 8. `POST /api/v1/branches`
 - **Auth:** `OrgAdminOnly` (`Admin` + `ALL`). **Runtime:** `Cloud`-only. **Idempotency:** Header or body.
 - **Request (`CreateBranchRequest`):** `branch_code` (req, <=30), `name` (req, <=150), `address` (`AddressDto`, req), `idempotency_key` (`string?`, <=100).
-- **Response (`201 Created`, `Location: /api/v1/branches/{branch_id}`):** `BranchDto` (`branch_id`, `organization_id`, `branch_code`, `name`, `address`, `is_active`). Seeds 3 default inventory locations atomically.
+- **Response (`201 Created`, `Location: /api/v1/branches/{branch_id}`):** `BranchDto` (`branch_id`, `organization_id`, `branch_code`, `name`, `address`, `is_active`, `created_at`, `updated_at`). Seeds 3 default inventory locations atomically.
 - **Errors:** `400`, `401`, `403`, `404` (BranchLocal), `409 CONFLICT` (duplicate `branch_code`) / `IDEMPOTENCY_MISMATCH`, `422`.
 
 #### 9. `GET /api/v1/branches/{id}`
@@ -362,12 +366,12 @@ Enforced at the HTTP pipeline edge by `RuntimeModeGuardMiddleware` **before auth
 #### 14. `POST /api/v1/users`
 - **Auth:** `AdminOnly` + hierarchy. **Runtime:** `Cloud`-only. **Idempotency:** Header or body.
 - **Request (`CreateUserRequest`):** `employee_id` (`Guid`, req), `username` (req, <=80), `password` (req, **minLength `12`**), `role` (`UserRole`, req), `branch_scope` (`BranchScope`, default `ASSIGNED`; only `Admin` may use `ALL`), `branch_ids` (`Guid[]`; MUST be empty when `ALL`, MUST be non-empty distinct active org branches when `ASSIGNED`), `idempotency_key` (`string?`, <=100).
-- **Response (`201 Created`, `Location: /api/v1/users/{user_id}`):** `UserDto` (`user_id`, `employee_id`, `organization_id`, `username`, `role`, `branch_scope`, `is_active`, `branch_ids`, `last_login_at: DateTimeOffset?`, `lockout_end: DateTimeOffset?`).
+- **Response (`201 Created`, `Location: /api/v1/users/{user_id}`):** `UserDto` (`user_id`, `employee_id`, `organization_id`, `username`, `role`, `branch_scope`, `is_active`, `branch_ids`, `last_login_at: DateTimeOffset?`, `lockout_end: DateTimeOffset?`, `access_failed_count: int`).
 - **Errors:** `400`, `401`, `403`, `404` (employee not found/inactive or BranchLocal), `409 CONFLICT` (duplicate username / employee already has account) / `IDEMPOTENCY_MISMATCH`, `422`.
 
 #### 15. `GET /api/v1/users/{id}`
 - **Auth:** `AdminOnly` + hierarchy. **Runtime:** Both.
-- **Response (`200 OK`):** `UserDto` (includes `last_login_at` and `lockout_end`).
+- **Response (`200 OK`):** `UserDto` (includes `last_login_at`, `lockout_end`, and `access_failed_count`).
 - **Errors:** `401`, `403`, `404`.
 
 #### 16. `PATCH /api/v1/users/{id}`
@@ -392,20 +396,20 @@ Enforced at the HTTP pipeline edge by `RuntimeModeGuardMiddleware` **before auth
 ### 5.5 Employees
 
 #### 19. `GET /api/v1/employees`
-- **Auth:** `Admin,Pharmacist` (**`Cashier` receives `403 FORBIDDEN`**) + branch scope (multi-branch `ASSIGNED` users omitting `branch_id` receive all employees across their assigned branches). **Runtime:** Both.
+- **Auth:** `AdminOnly` (**`Pharmacist` and `Cashier` receive `403 FORBIDDEN`**) + branch scope (multi-branch `ASSIGNED` Admins omitting `branch_id` receive all employees across their assigned branches). **Runtime:** Both.
 - **Query Params:** `branch_id` (`Guid?`, empty GUID -> `422`), `include_inactive` (`bool`, default `false`), `search` (`string?`, matches `full_name`, `employee_no`, `email`), `page` (`int`, default `1`, min `1`), `page_size` (`int`, default `25`, `1..200`).
-- **Response (`200 OK`):** `PagedResult<EmployeeDto>`.
+- **Response (`200 OK`):** `PagedResult<EmployeeDto>` (each `EmployeeDto` includes `created_at` and `updated_at`).
 - **Errors:** `401`, `403 FORBIDDEN`/`FORBIDDEN_BRANCH`, `422`.
 
 #### 20. `POST /api/v1/employees`
 - **Auth:** `AdminOnly` + branch scope. **Runtime:** `Cloud`-only. **Idempotency:** Header or body.
 - **Request (`CreateEmployeeRequest`):** `branch_id` (`Guid`, non-empty req), `employee_no` (req, <=30), `full_name` (req, <=150), `email` (`string?`, EmailAddress, <=254), `phone` (`string?`, <=30), `job_title` (req, <=80), `address` (`AddressDto`, req), `hired_on` (`DateOnly`, default UTC today), `idempotency_key` (`string?`, <=100).
-- **Response (`201 Created`, `Location: /api/v1/employees/{employee_id}`):** `EmployeeDto`.
+- **Response (`201 Created`, `Location: /api/v1/employees/{employee_id}`):** `EmployeeDto` (includes `created_at`, `updated_at`).
 - **Errors:** `400`, `401`, `403`, `404` (branch not found/inactive or BranchLocal), `409 CONFLICT` (duplicate `employee_no` in branch) / `IDEMPOTENCY_MISMATCH`, `422`.
 
 #### 21. `GET /api/v1/employees/{id}`
-- **Auth:** `Admin,Pharmacist` (`Cashier` -> `403 FORBIDDEN`) + branch scope. **Runtime:** Both.
-- **Response (`200 OK`):** `EmployeeDto`.
+- **Auth:** `AdminOnly` (`Pharmacist` & `Cashier` -> `403 FORBIDDEN`) + branch scope. **Runtime:** Both.
+- **Response (`200 OK`):** `EmployeeDto` (includes `created_at`, `updated_at`).
 - **Errors:** `401`, `403`, `404`.
 
 #### 22. `PATCH /api/v1/employees/{id}`
@@ -525,9 +529,9 @@ Enforced at the HTTP pipeline edge by `RuntimeModeGuardMiddleware` **before auth
 
 #### 40. `GET /api/v1/inventory/balances`
 - **Auth:** `[Authorize]` + branch access. **Runtime:** Both.
-- **Query Params:** `branch_id` (**required** non-empty `Guid`, else `422`), `product_id` (`Guid?`), `location_id` (`Guid?`), `batch_id` (`Guid?`).
-- **Response (`200 OK`):** **Raw JSON array `StockBalanceDto[]` (unpaginated live quirk!)**. Each row exposes `organization_id`, `branch_id`, `product_id`, `product_sku`, `product_name`, `base_uom_code`, `location_id`, `location_code`, `location_type`, `is_location_sellable`, `batch_id`, `batch_number`, `manufactured_on`, `expires_on`, `quality_status`, `on_hand_qty_base`, `available_qty_base` (computed using `Organization.TimeZoneId`), `average_unit_cost`, `updated_at`. *(Zero `reserved_quantity` field.)*
-- **Errors:** `401`, `403 FORBIDDEN_BRANCH`, `422`.
+- **Query Params:** `branch_id` (**required** non-empty `Guid`, else `422`), `product_id` (`Guid?`), `location_id` (`Guid?`), `batch_id` (`Guid?`), `page` (`int`, default `1`, min `1`), `page_size` (`int`, default `25`, `1..200`).
+- **Response (`200 OK`):** `PagedResult<StockBalanceDto>`. Each row exposes `organization_id`, `branch_id`, `product_id`, `product_sku`, `product_name`, `base_uom_code`, `location_id`, `location_code`, `location_type`, `is_location_sellable`, `batch_id`, `batch_number`, `manufactured_on`, `expires_on`, `quality_status`, `on_hand_qty_base`, `available_qty_base` (computed using `Organization.TimeZoneId`), `average_unit_cost`, `updated_at`, `row_version`. *(Zero `reserved_quantity` field.)*
+- **Errors:** `401`, `403 FORBIDDEN_BRANCH`, `422` (`branch_id`, `page`, `page_size`).
 
 #### 41. `GET /api/v1/inventory/summary`
 - **Auth:** `[Authorize]` + branch access. **Runtime:** Both.
@@ -536,10 +540,10 @@ Enforced at the HTTP pipeline edge by `RuntimeModeGuardMiddleware` **before auth
 - **Errors:** `401`, `403 FORBIDDEN_BRANCH`, `422` (`branch_id`, `product_id`).
 
 #### 42. `GET /api/v1/inventory/transactions`
-- **Auth:** `[Authorize]` + branch access. **Runtime:** Both.
+- **Auth:** `Admin,Pharmacist` (**`Cashier` receives `403 FORBIDDEN`** to protect `unit_cost_base` per Blueprint §9.1) + branch access. **Runtime:** Both.
 - **Query Params:** `branch_id` (**required** non-empty `Guid`), `type` (`InventoryTransactionType?`), `product_id` (`Guid?`), `from_date` (`DateTimeOffset?`), `to_date` (`DateTimeOffset?`), `page` (`int`, default `1`, min `1`), `page_size` (`int`, default `25`, `1..200`).
 - **Response (`200 OK`):** `PagedResult<InventoryTxnDto>` (each includes `lines: InventoryTxnLineDto[]`).
-- **Errors:** `401`, `403 FORBIDDEN_BRANCH`, `422`.
+- **Errors:** `401`, `403 FORBIDDEN`/`FORBIDDEN_BRANCH`, `422`.
 
 #### 43. `POST /api/v1/inventory/adjustments`
 - **Auth:** `Admin,Pharmacist` (both roles allowed for ALL adjustment types including `OPENING_BALANCE`; `Cashier` -> `403 FORBIDDEN`) + branch access. **Runtime:** **`BranchLocal`-only** (`Cloud` returns **`404 NOT_FOUND`** before auth). **Idempotency:** Header or body.
@@ -590,7 +594,7 @@ Enforced at the HTTP pipeline edge by `RuntimeModeGuardMiddleware` **before auth
 - **Errors:** `400`, `401`, `403`, `404`, `409`, `422`.
 
 #### 48. `GET /api/v1/canonical/inventory`
-- **Auth:** `[Authorize]` (all authenticated roles) + branch access. **Runtime:** `Cloud`-only (`404` on `BranchLocal`).
+- **Auth:** `Admin,Pharmacist` (**`Cashier` receives `403 FORBIDDEN`**, matching `/api/v1/canonical/products`) + branch access. **Runtime:** `Cloud`-only (`404` on `BranchLocal`).
 - **Query Params:** `organization_id` (`Guid?`; if provided and `!= tenant`, returns `403 FORBIDDEN`), `branch_id` (**required** non-empty `Guid`), `product_id` (`Guid?`), `updated_since` (`DateTimeOffset?`), `cursor` (`long?`, non-negative integer offset), `limit` (`int`, default `100`, clamped `1..1000`).
 - **Response (`200 OK`):** `PagedResult<CanonicalInventoryItemDto>`. Each item has `schema: "canonical.InventoryItem"`, `version: "1.0"`, `organization_id`, `branch_id`, `product_id`, `location_id`, `base_uom_code`, `quantity_on_hand_base`, `available_quantity_base`, `average_unit_cost_base`, `reorder_point_base`, `lots[]` (`batch_id`, `batch_number`, `quantity_on_hand_base`, `available_quantity_base`, `manufactured_on`, `expires_on`, `quality_status`), `updated_at`. *(Zero `reserved_quantity` field; availability uses `Organization.TimeZoneId`.)*
 - **Errors:** `401`, `403 FORBIDDEN`/`FORBIDDEN_BRANCH`, `404` (branch not found or BranchLocal), `422` (empty `branch_id`).

@@ -119,8 +119,16 @@ public sealed class OrganizationProvisioningService : IOrganizationProvisioningS
             await _outbox.EnqueueAsync("identity.organization.created", branch.BranchId,
                 new { organization.OrganizationId, organization.OrganizationCode, branch.BranchId }, ct: ct);
 
-            var dto = new OrganizationDto(organization.OrganizationId, organization.OrganizationCode,
-                organization.Name, organization.BaseCurrency, organization.TimeZoneId, branch.BranchId, employee.EmployeeId, admin.UserId);
+            var dto = new OrganizationDto(
+                organization.OrganizationId,
+                organization.OrganizationCode,
+                organization.Name,
+                organization.BaseCurrency,
+                organization.TimeZoneId,
+                branch.BranchId,
+                employee.EmployeeId,
+                admin.UserId,
+                EnrollmentSetupState: "PENDING");
             await _idempotency.PersistResponseAsync("identity.organization.create", idempotencyKey, null, normalizedRequest, dto, ct);
 
             await _unitOfWork.CommitTransactionAsync(ct);

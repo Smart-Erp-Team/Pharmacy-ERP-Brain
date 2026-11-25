@@ -16,7 +16,15 @@ public sealed record UpdateBranchRequest
     public string? IdempotencyKey { get; init; }
 }
 
-public sealed record BranchDto(Guid BranchId, Guid OrganizationId, string BranchCode, string Name, AddressDto Address, bool IsActive);
+public sealed record BranchDto(
+    Guid BranchId,
+    Guid OrganizationId,
+    string BranchCode,
+    string Name,
+    AddressDto Address,
+    bool IsActive,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
 public sealed record EnrollmentTokenResponse(string Token, DateTimeOffset ExpiresAt);
 public sealed record RedeemBranchEnrollmentRequest { [Required] public string Token { get; init; } = string.Empty; }
 public sealed record RedeemBranchEnrollmentResponse(Guid OrganizationId, Guid BranchId, string RuntimeCredential,
@@ -24,5 +32,13 @@ public sealed record RedeemBranchEnrollmentResponse(Guid OrganizationId, Guid Br
 
 public static class BranchDtoMapper
 {
-    public static BranchDto From(Branch branch) => new(branch.BranchId, branch.OrganizationId, branch.BranchCode, branch.Name, AddressDto.From(branch.Address), branch.IsActive);
+    public static BranchDto From(Branch branch) => new(
+        branch.BranchId,
+        branch.OrganizationId,
+        branch.BranchCode,
+        branch.Name,
+        AddressDto.From(branch.Address),
+        branch.IsActive,
+        branch.CreatedAt,
+        branch.UpdatedAt);
 }

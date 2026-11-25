@@ -173,19 +173,19 @@ dotnet run --project src/PharmacyERP.Api
 ## 4. Recommended Frontend QA Test Checklist
 
 1. **Org Admin Login, `/auth/me` Hydration & Dashboard Overview**
-   - Log in via `POST /api/v1/auth/login` as `admin@medcare.test` (`organization_code: "MEDCARE"`, password `MedCare@2026!`).
-   - Verify `GET /api/v1/auth/me` returns a flat `CurrentUserDto` with real `username: "admin@medcare.test"`, `role: "Admin"`, `branch_scope: "ALL"` (in `Cloud` mode; `"ASSIGNED"` in `BranchLocal` mode), `branch_ids`, and `scopes`.
-   - Verify `GET /api/v1/branches` lists all 3 MedCare branches, `GET /api/v1/product-categories` shows the 11-node category hierarchy, and `GET /api/v1/products?page_size=50` returns 32 products.
+   - Log in via `POST /api/v1/auth/login` as `admin@medcare.test` (`organization_code: "MEDCARE"`, password `MedCare@2026!`) and confirm `LoginResponse` emits `token_type: "Bearer"`, `issuer`, `audience`, `key_id` (matching `/.well-known/jwks.json`), and `user.runtime_mode` (`"Cloud"` or `"BranchLocal"`).
+   - Verify `GET /api/v1/auth/me` returns a flat `CurrentUserDto` with real `username: "admin@medcare.test"`, `role: "Admin"`, `branch_scope: "ALL"` (in `Cloud` mode; `"ASSIGNED"` in `BranchLocal` mode), `branch_ids`, `runtime_mode`, and closed Blueprint §8.5 `scopes` (`["user:admin", "inventory:read", "inventory:write", "sales:read", "sales:write"]` — excluding undocumented `branch:admin`/`employee:admin`).
+   - Verify `GET /api/v1/branches` lists all 3 MedCare branches (including `created_at` & `updated_at`), `GET /api/v1/product-categories` shows the 11-node category hierarchy, and `GET /api/v1/products?page_size=50` returns 32 products.
    - Verify `GET /api/v1/inventory/transactions?branch_id=11111111-2222-4111-8111-000000000001` shows `OPENING_BALANCE`, `ADJUSTMENT_IN`, `ADJUSTMENT_OUT`, and internal replenishment transactions (`TRF-OUT-*` / `TRF-IN-*`).
 
 2. **Role, Branch-Scope (`403`), Runtime Mode (`404`) & Deactivated Account Enforcement**
    - Attempt login as `inactive.staff@medcare.test` (`MedCare@2026!`) -> confirm `403 FORBIDDEN` (`ApiErrorEnvelopeDto`, `error.code: "FORBIDDEN"`).
    - Log in as `cashier.downtown@medcare.test` (`Cashier`, `ASSIGNED` to Downtown):
      - Confirm `GET /api/v1/branches/11111111-2222-4111-8111-000000000002` (Maadi) returns `403 FORBIDDEN_BRANCH`.
-     - Confirm `GET /api/v1/employees` and `POST /api/v1/products` (on `Cloud`) return **`403 FORBIDDEN`** with standard `ApiErrorEnvelopeDto`.
+     - Confirm `GET /api/v1/employees`, `GET /api/v1/inventory/transactions?branch_id=11111111-2222-4111-8111-000000000001`, `GET /api/v1/canonical/inventory?branch_id=11111111-2222-4111-8111-000000000001` (on `Cloud`), and `POST /api/v1/products` (on `Cloud`) return **`403 FORBIDDEN`** with standard `ApiErrorEnvelopeDto`.
      - Confirm `POST /api/v1/inventory/adjustments` returns **`404 NOT_FOUND`** when the backend runs in **`Cloud`** mode (runtime-mode guard), and **`403 FORBIDDEN`** when the backend runs in **`BranchLocal`** mode (role guard).
-     - Confirm read access to Downtown balances (`GET /api/v1/inventory/balances?branch_id=11111111-2222-4111-8111-000000000001`) and product summary (`GET /api/v1/inventory/summary?branch_id=11111111-2222-4111-8111-000000000001&product_id=6dbdb1a7-c723-da4c-8e0e-b067c18bc710`) succeeds (`200 OK`).
-   - Log in as `sarah.pharm@medcare.test` (`Pharmacist`): confirm `user.scopes` includes `"inventory:write"` and `"sales:read"` and **excludes** `"sales:write"`, and confirm `GET /api/v1/employees` succeeds (`200 OK`).
+     - Confirm read access to Downtown branches (`GET /api/v1/branches`), paginated stock balances (`GET /api/v1/inventory/balances?branch_id=11111111-2222-4111-8111-000000000001&page=1&page_size=25`), and product summary (`GET /api/v1/inventory/summary?branch_id=11111111-2222-4111-8111-000000000001&product_id=6dbdb1a7-c723-da4c-8e0e-b067c18bc710`) succeeds (`200 OK`).
+   - Log in as `sarah.pharm@medcare.test` (`Pharmacist`): confirm `user.scopes` includes `"inventory:write"` and `"sales:read"` and **excludes** `"sales:write"`, confirm `GET /api/v1/employees` returns **`403 FORBIDDEN`** (`AdminOnly`), and confirm `GET /api/v1/branches`, `GET /api/v1/inventory/transactions?branch_id=11111111-2222-4111-8111-000000000001`, and `GET /api/v1/canonical/inventory?branch_id=11111111-2222-4111-8111-000000000001` (on `Cloud`) succeed (`200 OK`).
 
 3. **Header-Only `Idempotency-Key`, Partial `PATCH` & `REVERSAL` Semantics**
    - Send `POST /api/v1/product-categories` on `Cloud` with header `Idempotency-Key: qa-cat-1` and **no** `idempotency_key` in the JSON body -> confirm **`201 Created`** + `Location` header. Re-send with the same key and different payload -> confirm **`409 IDEMPOTENCY_MISMATCH`**. Omit both header and body -> confirm **`400 MALFORMED_REQUEST`**.
@@ -201,7 +201,7 @@ dotnet run --project src/PharmacyERP.Api
    - Query `GET /api/v1/inventory/batches?expiring_before=2027-02-15` -> confirm near-expiry (`MEDCARE-NEAR-*`) and expired (`MEDCARE-EXP-*`) batches with `expires_on <= 2027-02-15` (inclusive) appear.
    - Query `GET /api/v1/inventory/batches?status=EXPIRED` -> confirm `MEDCARE-EXP-2501` (Augmentin) and `MEDCARE-EXP-2508` (Cataflam) appear and are stocked only inside `MAIN-QUARANTINE`.
    - Query `GET /api/v1/inventory/summary?branch_id=11111111-2222-4111-8111-000000000001&product_id=6dbdb1a7-c723-da4c-8e0e-b067c18bc710` -> confirm `total_on_hand_qty_base`, `total_available_qty_base`, `weighted_average_unit_cost_base`, and `locations_and_lots[]`.
-   - Compare branch stock balances (`GET /api/v1/inventory/balances?branch_id=...` — returns `StockBalanceDto[]` array) against branch reorder rules (`GET /api/v1/branches/{branchId}/products/{productId}/reorder-rule`):
+   - Compare paginated branch stock balances (`GET /api/v1/inventory/balances?branch_id=...&page=1&page_size=25` — returns `PagedResult<StockBalanceDto>` with additive `row_version` on each item) against branch reorder rules (`GET /api/v1/branches/{branchId}/products/{productId}/reorder-rule`):
      - **Low-Stock:** `MED-LAN-100P` (Downtown), `MED-AUG-1000` (Maadi), `MED-CLX-040S` (Nasr City).
      - **Out-of-Stock:** `MED-VEN-100I` at Maadi (`0` on-hand), `MED-PLV-075` at Nasr City (no stock row + active reorder rule).
 

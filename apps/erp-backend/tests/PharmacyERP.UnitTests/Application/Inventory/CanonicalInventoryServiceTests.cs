@@ -13,6 +13,7 @@ public class CanonicalInventoryServiceTests
     public CanonicalInventoryServiceTests()
     {
         _currentUserMock = new Mock<ICurrentUser>();
+        _currentUserMock.SetupGet(x => x.Role).Returns(UserRole.Admin.ToString());
         _stockBalanceRepoMock = new Mock<IStockBalanceRepository>();
         _branchRepoMock = new Mock<IBranchRepository>();
         _dateTimeProviderMock = new Mock<IDateTimeProvider>();
@@ -79,6 +80,22 @@ public class CanonicalInventoryServiceTests
         _currentUserMock.Setup(x => x.CanAccessBranch(branchId)).Returns(true);
 
         var result = await _sut.GetCanonicalInventoryAsync(requestedOrgId, branchId, null, null, null, 10, CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ErrorCode.FORBIDDEN, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GetCanonicalInventoryAsync_CashierRole_ReturnsForbidden()
+    {
+        var orgId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+
+        _tenantContextMock.Setup(x => x.OrganizationId).Returns(orgId);
+        _currentUserMock.SetupGet(x => x.Role).Returns(UserRole.Cashier.ToString());
+        _currentUserMock.Setup(x => x.CanAccessBranch(branchId)).Returns(true);
+
+        var result = await _sut.GetCanonicalInventoryAsync(orgId, branchId, null, null, null, 10, CancellationToken.None);
 
         Assert.False(result.IsSuccess);
         Assert.Equal(ErrorCode.FORBIDDEN, result.ErrorCode);

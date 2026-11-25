@@ -166,8 +166,8 @@ public class InventoryApplicationServicesTests
         typeof(StockBalance).GetProperty(nameof(StockBalance.Location))!.SetValue(scrapBalance, scrapLocation);
         typeof(StockBalance).GetProperty(nameof(StockBalance.Batch))!.SetValue(scrapBalance, batch);
 
-        _stockRepoMock.Setup(s => s.GetBalancesWithDetailsAsync(_orgId, _branchId, productId, null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<StockBalance> { scrapBalance });
+        _stockRepoMock.Setup(s => s.GetPagedBalancesWithDetailsAsync(_orgId, _branchId, productId, null, null, 1, 25, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PagedResult<StockBalance>(new List<StockBalance> { scrapBalance }, 1, 25, 1));
 
         _dateTimeProviderMock.Setup(d => d.GetOrganizationBusinessDate(It.IsAny<string>()))
             .Returns(DateOnly.FromDateTime(DateTime.UtcNow));
@@ -177,9 +177,37 @@ public class InventoryApplicationServicesTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        Assert.Single(result.Value!);
-        Assert.Equal(20m, result.Value![0].OnHandQtyBase);
-        Assert.Equal(0m, result.Value[0].AvailableQtyBase); // Scrap area -> Available quantity is zero
+        Assert.Equal(1, result.Value!.TotalCount);
+        Assert.Equal(1, result.Value.Page);
+        Assert.Equal(25, result.Value.PageSize);
+        Assert.Single(result.Value.Items);
+        Assert.Equal(20m, result.Value.Items[0].OnHandQtyBase);
+        Assert.Equal(0m, result.Value.Items[0].AvailableQtyBase); // Scrap area -> Available quantity is zero
+        Assert.Equal(scrapBalance.RowVersion, result.Value.Items[0].RowVersion);
+    }
+
+    [Fact]
+    public async Task GetTransactionsAsync_CashierReturnsForbidden_WhileAdminAndPharmacistAreAllowed()
+    {
+        var queryService = new InventoryQueryService(
+            _stockRepoMock.Object, _txnRepoMock.Object, _batchRepoMock.Object, _unitOfWorkMock.Object,
+            _tenantContextMock.Object, _currentUserMock.Object, _dateTimeProviderMock.Object);
+
+        _txnRepoMock.Setup(t => t.GetPagedAsync(_orgId, _branchId, null, null, null, null, 1, 25, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PagedResult<InventoryTxn>(Array.Empty<InventoryTxn>(), 1, 25, 0));
+
+        _currentUserMock.Setup(u => u.Role).Returns(UserRole.Cashier.ToString());
+        var cashierResult = await queryService.GetTransactionsAsync(_branchId, null, null, null, null, 1, 25);
+        Assert.False(cashierResult.IsSuccess);
+        Assert.Equal(ErrorCode.FORBIDDEN, cashierResult.ErrorCode);
+
+        _currentUserMock.Setup(u => u.Role).Returns(UserRole.Pharmacist.ToString());
+        var pharmacistResult = await queryService.GetTransactionsAsync(_branchId, null, null, null, null, 1, 25);
+        Assert.True(pharmacistResult.IsSuccess);
+
+        _currentUserMock.Setup(u => u.Role).Returns(UserRole.Admin.ToString());
+        var adminResult = await queryService.GetTransactionsAsync(_branchId, null, null, null, null, 1, 25);
+        Assert.True(adminResult.IsSuccess);
     }
 
     [Fact]

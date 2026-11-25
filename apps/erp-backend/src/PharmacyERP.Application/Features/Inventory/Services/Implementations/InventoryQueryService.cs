@@ -88,19 +88,27 @@ public class InventoryQueryService : IInventoryQueryService
         }
     }
 
-    public async Task<Result<IReadOnlyList<StockBalanceDto>>> GetBalancesAsync(Guid branchId, Guid? productId, Guid? locationId, Guid? batchId, CancellationToken ct = default)
+    public async Task<Result<PagedResult<StockBalanceDto>>> GetBalancesAsync(
+        Guid branchId,
+        Guid? productId,
+        Guid? locationId,
+        Guid? batchId,
+        int page = 1,
+        int pageSize = 25,
+        CancellationToken ct = default)
     {
         if (!_tenantContext.OrganizationId.HasValue || _tenantContext.OrganizationId.Value == Guid.Empty)
-            return Result<IReadOnlyList<StockBalanceDto>>.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
+            return Result<PagedResult<StockBalanceDto>>.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
 
+        var validationErrors = new List<ApiErrorDetailDto>();
         if (branchId == Guid.Empty)
-            return Result<IReadOnlyList<StockBalanceDto>>.Failure(
-                ErrorCode.VALIDATION_ERROR,
-                ErrorMessages.ValidationError,
-                new[] { new ApiErrorDetailDto("branch_id", "BranchId is required.") });
+            validationErrors.Add(new ApiErrorDetailDto("branch_id", "BranchId is required."));
+        validationErrors.AddRange(ValidatePagination(page, pageSize));
+        if (validationErrors.Count > 0)
+            return Result<PagedResult<StockBalanceDto>>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, validationErrors);
 
         if (!_currentUser.CanAccessBranch(branchId))
-            return Result<IReadOnlyList<StockBalanceDto>>.Failure(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
+            return Result<PagedResult<StockBalanceDto>>.Failure(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
 
         Guid orgId = _tenantContext.OrganizationId.Value;
         var ownsTransaction = !_unitOfWork.HasActiveTransaction;
@@ -113,11 +121,16 @@ public class InventoryQueryService : IInventoryQueryService
             }
 
             var timeZoneId = await ResolveOrganizationTimeZoneIdAsync(orgId, ct);
-            var balances = await _stockRepo.GetBalancesWithDetailsAsync(orgId, branchId, productId, locationId, batchId, ct);
+            var pagedBalances = await _stockRepo.GetPagedBalancesWithDetailsAsync(orgId, branchId, productId, locationId, batchId, page, pageSize, ct);
             var businessDate = _dateTimeProvider.GetOrganizationBusinessDate(timeZoneId);
 
-            var balanceDtos = balances.Select(balance => MapToStockBalanceDto(balance, businessDate)).ToList();
-            return Result<IReadOnlyList<StockBalanceDto>>.Success(balanceDtos);
+            var balanceDtos = pagedBalances.Items.Select(balance => MapToStockBalanceDto(balance, businessDate)).ToList();
+            return Result<PagedResult<StockBalanceDto>>.Success(
+                new PagedResult<StockBalanceDto>(
+                    Items: balanceDtos,
+                    Page: pagedBalances.Page,
+                    PageSize: pagedBalances.PageSize,
+                    TotalCount: pagedBalances.TotalCount));
         }
         finally
         {
@@ -184,6 +197,10 @@ public class InventoryQueryService : IInventoryQueryService
     {
         if (!_tenantContext.OrganizationId.HasValue || _tenantContext.OrganizationId.Value == Guid.Empty)
             return Result<PagedResult<InventoryTxnDto>>.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
+
+        // Blueprint §9.1 & D-06: restrict ledger transaction history (which exposes unit_cost_base) to Admin and Pharmacist.
+        if (!IsAdminOrPharmacist())
+            return Result<PagedResult<InventoryTxnDto>>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
 
         var validationErrors = new List<ApiErrorDetailDto>();
         if (branchId == Guid.Empty)
@@ -270,8 +287,13 @@ public class InventoryQueryService : IInventoryQueryService
             stockBalance.OnHandQtyBase,
             availableQuantity,
             stockBalance.AverageUnitCost,
-            stockBalance.UpdatedAt);
+            stockBalance.UpdatedAt,
+            stockBalance.RowVersion);
     }
+
+    private bool IsAdminOrPharmacist() =>
+        string.Equals(_currentUser.Role, UserRole.Admin.ToString(), StringComparison.Ordinal)
+        || string.Equals(_currentUser.Role, UserRole.Pharmacist.ToString(), StringComparison.Ordinal);
 
     private static InventoryTxnDto MapToTxnDto(InventoryTxn transaction) =>
         new(

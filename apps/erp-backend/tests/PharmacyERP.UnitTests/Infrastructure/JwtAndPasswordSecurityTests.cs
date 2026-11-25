@@ -80,12 +80,16 @@ public sealed class JwtAndPasswordSecurityTests
         Assert.DoesNotContain("sales:write", scopes);
         Assert.False(root.TryGetProperty("scope", out _));
 
-        // Admin and Cashier retain sales:write per Blueprint §8.5/§9.1.
+        // Admin and Cashier retain sales:write per Blueprint §8.5/§9.1, and Admin excludes undocumented branch:admin/employee:admin scopes.
         var adminToken = generator.GenerateAccessToken(CreateUser(UserRole.Admin, BranchScope.ALL), branchIds);
         using var adminPayload = JsonDocument.Parse(JwksKeyProvider.Base64UrlDecode(adminToken.Token.Split('.')[1]));
         var adminScopes = adminPayload.RootElement.GetProperty("scopes").EnumerateArray().Select(x => x.GetString()).ToArray();
-        Assert.Contains("sales:write", adminScopes);
-        Assert.Contains("user:admin", adminScopes);
+        Assert.Equal(new[] { "user:admin", "inventory:read", "inventory:write", "sales:read", "sales:write" }, adminScopes);
+        Assert.DoesNotContain("branch:admin", adminScopes);
+        Assert.DoesNotContain("employee:admin", adminScopes);
+        Assert.Equal("https://issuer.test", adminToken.Issuer);
+        Assert.Equal("pharmacy-api", adminToken.Audience);
+        Assert.Equal(keys.KeyId, adminToken.KeyId);
 
         var cashierToken = generator.GenerateAccessToken(CreateUser(UserRole.Cashier, BranchScope.ASSIGNED), branchIds);
         using var cashierPayload = JsonDocument.Parse(JwksKeyProvider.Base64UrlDecode(cashierToken.Token.Split('.')[1]));

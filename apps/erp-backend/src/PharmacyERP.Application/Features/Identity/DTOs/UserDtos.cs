@@ -35,7 +35,8 @@ public sealed record UserDto(
     bool IsActive,
     IReadOnlyCollection<Guid> BranchIds,
     DateTimeOffset? LastLoginAt = null,
-    DateTimeOffset? LockoutEnd = null);
+    DateTimeOffset? LockoutEnd = null,
+    int AccessFailedCount = 0);
 
 public static class UserDtoMapper
 {
@@ -49,5 +50,6 @@ public static class UserDtoMapper
         user.IsActive,
         user.BranchAccesses.Select(x => x.BranchId).ToArray(),
         user.LastLoginAt,
-        user.LockoutEnd);
+        user.LockoutEnd,
+        user.AccessFailedCount);
 }

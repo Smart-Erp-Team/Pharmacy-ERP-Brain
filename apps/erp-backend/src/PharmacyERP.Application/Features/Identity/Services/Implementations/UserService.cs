@@ -156,7 +156,8 @@ public sealed class UserService : IUserService
                 ? Array.Empty<Guid>()
                 : normalizedRequest.BranchIds.Distinct().ToArray();
             var dto = new UserDto(user.UserId, user.EmployeeId, user.OrganizationId,
-                user.Username, user.Role, user.BranchScope, user.IsActive, assignedBranchIds);
+                user.Username, user.Role, user.BranchScope, user.IsActive, assignedBranchIds,
+                user.LastLoginAt, user.LockoutEnd, user.AccessFailedCount);
             await _idempotency.PersistResponseAsync("identity.user.create", idempotencyKey, null, normalizedRequest, dto, ct);
 
             await _unitOfWork.CommitTransactionAsync(ct);

@@ -52,6 +52,7 @@ public sealed class IdentityApplicationServiceTests
         var result = await service.CreateAsync(ValidOrganizationRequest());
 
         Assert.True(result.IsSuccess);
+        Assert.Equal("PENDING", result.Value!.EnrollmentSetupState);
         Assert.NotNull(createdOrganization);
         Assert.NotNull(createdCursor);
         Assert.Equal(createdOrganization.OrganizationId, createdCursor.OrganizationId);
@@ -359,6 +360,7 @@ public sealed class IdentityApplicationServiceTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal("admin@medcare.test", result.Value!.Username);
+        Assert.Equal(ErpRuntimeMode.Cloud, result.Value.RuntimeMode);
     }
 
     private static Mock<IIdempotencyService> NewIdempotencyMock()

@@ -39,7 +39,7 @@ public class InventoryController : ControllerBase
 
     [HttpGet("balances")]
     [Authorize]
-    [ProducesResponseType(typeof(IReadOnlyList<StockBalanceDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(PagedResult<StockBalanceDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
@@ -48,9 +48,11 @@ public class InventoryController : ControllerBase
         [FromQuery(Name = "product_id")] Guid? productId,
         [FromQuery(Name = "location_id")] Guid? locationId,
         [FromQuery(Name = "batch_id")] Guid? batchId,
+        [FromQuery(Name = "page")] int page = 1,
+        [FromQuery(Name = "page_size")] int pageSize = 25,
         CancellationToken ct = default)
     {
-        var result = await _queryService.GetBalancesAsync(branchId, productId, locationId, batchId, ct);
+        var result = await _queryService.GetBalancesAsync(branchId, productId, locationId, batchId, page, pageSize, ct);
         return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
     }
 
@@ -70,7 +72,7 @@ public class InventoryController : ControllerBase
     }
 
     [HttpGet("transactions")]
-    [Authorize]
+    [Authorize(Roles = "Admin,Pharmacist")]
     [ProducesResponseType(typeof(PagedResult<InventoryTxnDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]

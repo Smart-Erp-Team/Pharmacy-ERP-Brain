@@ -24,11 +24,35 @@ public sealed record UpdateEmployeeRequest
     public string? IdempotencyKey { get; init; }
 }
 
-public sealed record EmployeeDto(Guid EmployeeId, Guid OrganizationId, Guid BranchId, string EmployeeNo,
-    string FullName, string? Email, string? Phone, string JobTitle, AddressDto Address, DateOnly HiredOn, bool IsActive);
+public sealed record EmployeeDto(
+    Guid EmployeeId,
+    Guid OrganizationId,
+    Guid BranchId,
+    string EmployeeNo,
+    string FullName,
+    string? Email,
+    string? Phone,
+    string JobTitle,
+    AddressDto Address,
+    DateOnly HiredOn,
+    bool IsActive,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
 
 public static class EmployeeDtoMapper
 {
-    public static EmployeeDto From(Employee employee) => new(employee.EmployeeId, employee.OrganizationId, employee.BranchId,
-        employee.EmployeeNo, employee.FullName, employee.Email, employee.Phone, employee.JobTitle, AddressDto.From(employee.Address), employee.HiredOn, employee.IsActive);
+    public static EmployeeDto From(Employee employee) => new(
+        employee.EmployeeId,
+        employee.OrganizationId,
+        employee.BranchId,
+        employee.EmployeeNo,
+        employee.FullName,
+        employee.Email,
+        employee.Phone,
+        employee.JobTitle,
+        AddressDto.From(employee.Address),
+        employee.HiredOn,
+        employee.IsActive,
+        employee.CreatedAt,
+        employee.UpdatedAt);
 }

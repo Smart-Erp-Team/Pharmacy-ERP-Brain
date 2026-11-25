@@ -16,7 +16,7 @@ public class CanonicalInventoryController : ControllerBase
     }
 
     [HttpGet]
-    [Authorize]
+    [Authorize(Roles = "Admin,Pharmacist")]
     [ProducesResponseType(typeof(PagedResult<CanonicalInventoryItemDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]

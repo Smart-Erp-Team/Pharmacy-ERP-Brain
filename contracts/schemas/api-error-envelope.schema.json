@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ApiErrorEnvelope",
+  "type": "object",
+  "required": [
+    "error"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "error": {
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "details",
+        "trace_id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "MALFORMED_REQUEST",
+            "UNAUTHORIZED",
+            "FORBIDDEN",
+            "FORBIDDEN_BRANCH",
+            "NOT_FOUND",
+            "CONFLICT",
+            "INVALID_STATE_TRANSITION",
+            "OUT_OF_STOCK",
+            "IDEMPOTENCY_MISMATCH",
+            "VALIDATION_ERROR",
+            "EXPIRY_POLICY_VIOLATION",
+            "INTERNAL_SERVER_ERROR"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "field",
+              "issue"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "field": {
+                "type": "string",
+                "description": "Wire-format snake_case field path (e.g., \"lines[0].entered_qty\"), \"Idempotency-Key\" for missing idempotency header, or empty string for root-level payload errors."
+              },
+              "issue": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

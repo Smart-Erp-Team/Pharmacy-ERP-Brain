@@ -2840,6 +2840,24 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 25
+            }
           }
         ],
         "responses": {
@@ -2848,26 +2866,17 @@
             "content": {
               "text/plain": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/StockBalanceDto"
-                  }
+                  "$ref": "#/components/schemas/StockBalanceDtoPagedResult"
                 }
               },
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/StockBalanceDto"
-                  }
+                  "$ref": "#/components/schemas/StockBalanceDtoPagedResult"
                 }
               },
               "text/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/StockBalanceDto"
-                  }
+                  "$ref": "#/components/schemas/StockBalanceDtoPagedResult"
                 }
               }
             }
@@ -7264,6 +7273,14 @@
           },
           "is_active": {
             "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "additionalProperties": false
@@ -8299,6 +8316,13 @@
             "items": {
               "type": "string"
             }
+          },
+          "runtime_mode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ErpRuntimeMode"
+              }
+            ]
           }
         },
         "additionalProperties": false
@@ -8348,6 +8372,14 @@
           },
           "is_active": {
             "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "additionalProperties": false
@@ -8392,6 +8424,13 @@
           }
         },
         "additionalProperties": false
+      },
+      "ErpRuntimeMode": {
+        "enum": [
+          "Cloud",
+          "BranchLocal"
+        ],
+        "type": "string"
       },
       "InventoryBatchDto": {
         "type": "object",
@@ -8838,6 +8877,18 @@
                 "$ref": "#/components/schemas/CurrentUserDto"
               }
             ]
+          },
+          "token_type": {
+            "type": "string"
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "audience": {
+            "type": "string"
+          },
+          "key_id": {
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -8885,6 +8936,9 @@
           "initial_admin_user_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "enrollment_setup_state": {
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -9291,6 +9345,38 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "row_version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "StockBalanceDtoPagedResult": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StockBalanceDto"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "page_size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "total_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -9631,6 +9717,10 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          },
+          "access_failed_count": {
+            "type": "integer",
+            "format": "int32"
           }
         },
         "additionalProperties": false

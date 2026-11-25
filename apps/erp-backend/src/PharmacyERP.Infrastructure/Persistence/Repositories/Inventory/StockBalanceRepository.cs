@@ -201,19 +201,54 @@ public class StockBalanceRepository : IStockBalanceRepository
         Guid? batchId = null,
         CancellationToken ct = default)
     {
-        IQueryable<StockBalance> query = _context.StockBalances
-            .AsNoTracking()
-            .Include(sb => sb.Location)
-            .Include(sb => sb.Batch)
-                .ThenInclude(batch => batch.Product)
-                    .ThenInclude(product => product.ReorderRules.Where(r => r.BranchId == branchId && r.IsActive));
+        return await BuildDetailedBalancesQuery(organizationId, branchId, productId, locationId, batchId)
+            .OrderBy(sb => sb.Batch.ProductId)
+            .ThenBy(sb => sb.LocationId)
+            .ThenBy(sb => sb.Batch.ExpiresOn)
+            .ThenBy(sb => sb.BatchId)
+            .Take(1000)
+            .ToListAsync(ct);
+    }
 
-        if (_context.Database.IsRelational())
+    public async Task<PagedResult<StockBalance>> GetPagedBalancesWithDetailsAsync(
+        Guid organizationId,
+        Guid branchId,
+        Guid? productId = null,
+        Guid? locationId = null,
+        Guid? batchId = null,
+        int page = 1,
+        int pageSize = 25,
+        CancellationToken ct = default)
+    {
+        var countQuery = BuildFilteredBalancesQuery(organizationId, branchId, productId, locationId, batchId);
+        var totalCount = await countQuery.CountAsync(ct);
+        if (totalCount == 0)
         {
-            query = query.AsSplitQuery();
+            return new PagedResult<StockBalance>(Array.Empty<StockBalance>(), page, pageSize, 0);
         }
 
-        query = query.Where(sb => sb.OrganizationId == organizationId && sb.Location.BranchId == branchId);
+        var items = await BuildDetailedBalancesQuery(organizationId, branchId, productId, locationId, batchId)
+            .OrderBy(sb => sb.Batch.ProductId)
+            .ThenBy(sb => sb.LocationId)
+            .ThenBy(sb => sb.Batch.ExpiresOn)
+            .ThenBy(sb => sb.BatchId)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        return new PagedResult<StockBalance>(items, page, pageSize, totalCount);
+    }
+
+    private IQueryable<StockBalance> BuildFilteredBalancesQuery(
+        Guid organizationId,
+        Guid branchId,
+        Guid? productId,
+        Guid? locationId,
+        Guid? batchId)
+    {
+        IQueryable<StockBalance> query = _context.StockBalances
+            .AsNoTracking()
+            .Where(sb => sb.OrganizationId == organizationId && sb.Location.BranchId == branchId);
 
         if (productId.HasValue)
         {
@@ -230,13 +265,28 @@ public class StockBalanceRepository : IStockBalanceRepository
             query = query.Where(sb => sb.BatchId == batchId.Value);
         }
 
-        return await query
-            .OrderBy(sb => sb.Batch.ProductId)
-            .ThenBy(sb => sb.LocationId)
-            .ThenBy(sb => sb.Batch.ExpiresOn)
-            .ThenBy(sb => sb.BatchId)
-            .Take(1000)
-            .ToListAsync(ct);
+        return query;
+    }
+
+    private IQueryable<StockBalance> BuildDetailedBalancesQuery(
+        Guid organizationId,
+        Guid branchId,
+        Guid? productId,
+        Guid? locationId,
+        Guid? batchId)
+    {
+        IQueryable<StockBalance> query = BuildFilteredBalancesQuery(organizationId, branchId, productId, locationId, batchId)
+            .Include(sb => sb.Location)
+            .Include(sb => sb.Batch)
+                .ThenInclude(batch => batch.Product)
+                    .ThenInclude(product => product.ReorderRules.Where(r => r.BranchId == branchId && r.IsActive));
+
+        if (_context.Database.IsRelational())
+        {
+            query = query.AsSplitQuery();
+        }
+
+        return query;
     }
 
     public async Task<(IReadOnlyList<StockBalance> Balances, int TotalGroups, bool HasMore)> GetCanonicalInventoryPageAsync(

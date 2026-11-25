@@ -421,16 +421,16 @@ public sealed class Stage1FrontendContractFixesTests : IClassFixture<WebApplicat
         using var multiUserResp = await client.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/users", $$"""
         {
             "employee_id": "{{emp2Id}}",
-            "username": "multi.pharm",
+            "username": "multi.admin",
             "password": "StrongPassword123!",
-            "role": "Pharmacist",
+            "role": "Admin",
             "branch_scope": "ASSIGNED",
             "branch_ids": ["{{branch1Id}}", "{{branch2Id}}"]
         }
         """, "parity-multi-user"));
         Assert.Equal(HttpStatusCode.Created, multiUserResp.StatusCode);
 
-        var multiToken = await LoginAsync(client, "PARITYORG", "multi.pharm", "StrongPassword123!");
+        var multiToken = await LoginAsync(client, "PARITYORG", "multi.admin", "StrongPassword123!");
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", multiToken);
         using var multiEmpListResp = await client.GetAsync("/api/v1/employees");
         Assert.Equal(HttpStatusCode.OK, multiEmpListResp.StatusCode);
@@ -669,7 +669,7 @@ public sealed class Stage1FrontendContractFixesTests : IClassFixture<WebApplicat
         Assert.Equal(HttpStatusCode.Created, cashUserResp.StatusCode);
         var cashUserId = JsonDocument.Parse(await cashUserResp.Content.ReadAsStringAsync()).RootElement.GetProperty("user_id").GetGuid();
 
-        // Pharmacist login: wire strings preserved, sales:write excluded, GET /employees allowed
+        // Pharmacist login: wire strings preserved, sales:write excluded, GET /employees & /employees/{id} denied 403 FORBIDDEN (AdminOnly per D-06)
         client.DefaultRequestHeaders.Authorization = null;
         using var pharmLoginResp = await client.PostAsync(
             "/api/v1/auth/login",
@@ -679,14 +679,22 @@ public sealed class Stage1FrontendContractFixesTests : IClassFixture<WebApplicat
         var pharmUserEl = pharmLoginDoc.RootElement.GetProperty("user");
         Assert.Equal("Pharmacist", pharmUserEl.GetProperty("role").GetString());
         Assert.Equal("ASSIGNED", pharmUserEl.GetProperty("branch_scope").GetString());
+        Assert.Equal("Cloud", pharmUserEl.GetProperty("runtime_mode").GetString());
         var pharmScopes = pharmUserEl.GetProperty("scopes").EnumerateArray().Select(x => x.GetString()).ToArray();
         Assert.DoesNotContain("sales:write", pharmScopes);
         Assert.Contains("inventory:write", pharmScopes);
 
         var pharmToken = pharmLoginDoc.RootElement.GetProperty("access_token").GetString()!;
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", pharmToken);
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/employees")).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/api/v1/employees/{pharmEmpId}")).StatusCode);
+        using var pharmEmpListResp = await client.GetAsync("/api/v1/employees");
+        Assert.Equal(HttpStatusCode.Forbidden, pharmEmpListResp.StatusCode);
+        using var pharmEmpListDoc = JsonDocument.Parse(await pharmEmpListResp.Content.ReadAsStringAsync());
+        Assert.Equal("FORBIDDEN", pharmEmpListDoc.RootElement.GetProperty("error").GetProperty("code").GetString());
+
+        using var pharmEmpByIdResp = await client.GetAsync($"/api/v1/employees/{pharmEmpId}");
+        Assert.Equal(HttpStatusCode.Forbidden, pharmEmpByIdResp.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/branches")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/api/v1/branches/{branchId}")).StatusCode);
 
         // Cashier login: sales:write preserved, GET /employees & /employees/{id} blocked with 403 FORBIDDEN, GET /branches allowed
         client.DefaultRequestHeaders.Authorization = null;
@@ -734,6 +742,282 @@ public sealed class Stage1FrontendContractFixesTests : IClassFixture<WebApplicat
         using var getCashUserDoc = JsonDocument.Parse(await getCashUserResp.Content.ReadAsStringAsync());
         Assert.NotEqual(JsonValueKind.Null, getCashUserDoc.RootElement.GetProperty("last_login_at").ValueKind);
         Assert.NotEqual(JsonValueKind.Null, getCashUserDoc.RootElement.GetProperty("lockout_end").ValueKind);
+        Assert.Equal(5, getCashUserDoc.RootElement.GetProperty("access_failed_count").GetInt32());
+    }
+
+    [Fact]
+    public async Task FinalStage1AlignmentBatch_RbacBalancesPaginationAuthMetadataRuntimeModeAndAdditiveDtos_WorkEndToEnd()
+    {
+        var store = new IdentityApiTestStore();
+        var productId = Guid.NewGuid();
+        var locationId = Guid.NewGuid();
+        var batchId1 = Guid.NewGuid();
+        var batchId2 = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+
+        var stockRepoMock = new Mock<IStockBalanceRepository>();
+        var txnRepoMock = new Mock<IInventoryTxnRepository>();
+
+        await using var cloudFactory = CreateTestFactory(store, extraServices: services =>
+        {
+            services.RemoveAll<IStockBalanceRepository>();
+            services.RemoveAll<IInventoryTxnRepository>();
+            services.AddScoped(_ => stockRepoMock.Object);
+            services.AddScoped(_ => txnRepoMock.Object);
+        });
+        var keyProvider = cloudFactory.Services.GetRequiredService<JwksKeyProvider>();
+        using var cloudClient = cloudFactory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        // 1. Provision organization -> OrganizationDto emits enrollment_setup_state: "PENDING"
+        cloudClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", CreatePlatformProvisionerToken(keyProvider));
+        using var orgResp = await cloudClient.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/organizations", $$"""
+        {
+            "organization_code": "ALIGNORG",
+            "name": "Alignment Pharmacy",
+            "base_currency": "EGP",
+            "time_zone_id": "Africa/Cairo",
+            "address": { "line1": "Org St", "city": "Cairo", "country_code": "EG" },
+            "initial_branch": { "branch_code": "MAIN", "name": "Main Branch", "address": { "line1": "Main St", "city": "Cairo", "country_code": "EG" } },
+            "initial_employee": {
+                "branch_id": "{{Guid.Empty}}",
+                "employee_no": "EMP-001",
+                "full_name": "Initial Admin",
+                "job_title": "Admin",
+                "address": { "line1": "Emp St", "city": "Cairo", "country_code": "EG" },
+                "hired_on": "2025-01-01"
+            },
+            "initial_admin": { "username": "owner", "password": "OwnerPassword123!" }
+        }
+        """, "align-org-1"));
+        Assert.Equal(HttpStatusCode.Created, orgResp.StatusCode);
+        using var orgDoc = JsonDocument.Parse(await orgResp.Content.ReadAsStringAsync());
+        var orgId = orgDoc.RootElement.GetProperty("organization_id").GetGuid();
+        var branchId = orgDoc.RootElement.GetProperty("initial_branch_id").GetGuid();
+        Assert.Equal("PENDING", orgDoc.RootElement.GetProperty("enrollment_setup_state").GetString());
+
+        // Set up stock balance & txn mocks now that orgId & branchId are known
+        var location = InventoryLocation.CreateDefaultSellable(orgId, branchId, now);
+        typeof(InventoryLocation).GetProperty(nameof(InventoryLocation.LocationId))!.SetValue(location, locationId);
+        var product = Product.Create(orgId, Guid.NewGuid(), "SKU-BAL", null, "Balance Med", null, null, "TAB", 0m, null, true, 30,
+            new[] { new InitialUomDefinition("TAB", "Tablet", 1m, 10m, true, true, true) });
+        typeof(Product).GetProperty(nameof(Product.ProductId))!.SetValue(product, productId);
+        var batch1 = InventoryBatch.CreateDatedBatch(orgId, productId, "LOT-A", new DateOnly(2027, 6, 1));
+        typeof(InventoryBatch).GetProperty(nameof(InventoryBatch.BatchId))!.SetValue(batch1, batchId1);
+        typeof(InventoryBatch).GetProperty(nameof(InventoryBatch.Product))!.SetValue(batch1, product);
+        var batch2 = InventoryBatch.CreateDatedBatch(orgId, productId, "LOT-B", new DateOnly(2027, 9, 1));
+        typeof(InventoryBatch).GetProperty(nameof(InventoryBatch.BatchId))!.SetValue(batch2, batchId2);
+        typeof(InventoryBatch).GetProperty(nameof(InventoryBatch.Product))!.SetValue(batch2, product);
+
+        var sb1 = StockBalance.CreateInitial(orgId, locationId, batchId1, 10m, 5m, now);
+        sb1.ApplyIncomingStock(5m, 8m, now); // bumps RowVersion from 1 -> 2
+        typeof(StockBalance).GetProperty(nameof(StockBalance.Location))!.SetValue(sb1, location);
+        typeof(StockBalance).GetProperty(nameof(StockBalance.Batch))!.SetValue(sb1, batch1);
+
+        var sb2 = StockBalance.CreateInitial(orgId, locationId, batchId2, 20m, 6m, now);
+        typeof(StockBalance).GetProperty(nameof(StockBalance.Location))!.SetValue(sb2, location);
+        typeof(StockBalance).GetProperty(nameof(StockBalance.Batch))!.SetValue(sb2, batch2);
+
+        var allBalances = new[] { sb1, sb2 };
+        stockRepoMock.Setup(r => r.GetPagedBalancesWithDetailsAsync(
+                orgId, branchId, It.IsAny<Guid?>(), It.IsAny<Guid?>(), It.IsAny<Guid?>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid _, Guid _, Guid? _, Guid? _, Guid? _, int page, int pageSize, CancellationToken _) =>
+                new PagedResult<StockBalance>(allBalances.Skip((page - 1) * pageSize).Take(pageSize).ToList(), page, pageSize, allBalances.Length));
+        stockRepoMock.Setup(r => r.GetBalancesWithDetailsAsync(orgId, branchId, productId, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(allBalances);
+        stockRepoMock.Setup(r => r.GetCanonicalInventoryPageAsync(orgId, branchId, null, null, 0, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((allBalances, 1, false));
+        txnRepoMock.Setup(r => r.GetPagedAsync(orgId, branchId, null, null, null, null, 1, 25, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PagedResult<InventoryTxn>(Array.Empty<InventoryTxn>(), 1, 25, 0));
+
+        // 2. Cloud Admin login -> LoginResponse metadata (token_type, issuer, audience, key_id), runtime_mode: "Cloud", closed Admin scopes
+        cloudClient.DefaultRequestHeaders.Authorization = null;
+        using var adminLoginResp = await cloudClient.PostAsync(
+            "/api/v1/auth/login",
+            new StringContent("""{"organization_code":"ALIGNORG","username":"owner","password":"OwnerPassword123!"}""", Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, adminLoginResp.StatusCode);
+        using var adminLoginDoc = JsonDocument.Parse(await adminLoginResp.Content.ReadAsStringAsync());
+        var adminRoot = adminLoginDoc.RootElement;
+        var adminToken = adminRoot.GetProperty("access_token").GetString()!;
+        var adminRefreshToken = adminRoot.GetProperty("refresh_token").GetString()!;
+        Assert.Equal("Bearer", adminRoot.GetProperty("token_type").GetString());
+        Assert.Equal("PharmacyERP", adminRoot.GetProperty("issuer").GetString());
+        Assert.Equal("PharmacyERP.Api", adminRoot.GetProperty("audience").GetString());
+        Assert.Equal(keyProvider.KeyId, adminRoot.GetProperty("key_id").GetString());
+
+        var adminUserEl = adminRoot.GetProperty("user");
+        Assert.Equal("Cloud", adminUserEl.GetProperty("runtime_mode").GetString());
+        var adminScopes = adminUserEl.GetProperty("scopes").EnumerateArray().Select(x => x.GetString()).ToArray();
+        Assert.Equal(new[] { "user:admin", "inventory:read", "inventory:write", "sales:read", "sales:write" }, adminScopes);
+        Assert.DoesNotContain("branch:admin", adminScopes);
+        Assert.DoesNotContain("employee:admin", adminScopes);
+
+        // Verify JWT payload scopes & header kid match LoginResponse
+        using var jwtHeaderDoc = JsonDocument.Parse(JwksKeyProvider.Base64UrlDecode(adminToken.Split('.')[0]));
+        using var jwtPayloadDoc = JsonDocument.Parse(JwksKeyProvider.Base64UrlDecode(adminToken.Split('.')[1]));
+        Assert.Equal(keyProvider.KeyId, jwtHeaderDoc.RootElement.GetProperty("kid").GetString());
+        var jwtAdminScopes = jwtPayloadDoc.RootElement.GetProperty("scopes").EnumerateArray().Select(x => x.GetString()).ToArray();
+        Assert.DoesNotContain("branch:admin", jwtAdminScopes);
+        Assert.DoesNotContain("employee:admin", jwtAdminScopes);
+
+        // Verify POST /api/v1/auth/refresh also emits token_type, issuer, audience, key_id, and user.runtime_mode
+        using var refreshResp = await cloudClient.PostAsync(
+            "/api/v1/auth/refresh",
+            new StringContent($$"""{"refresh_token":"{{adminRefreshToken}}"}""", Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, refreshResp.StatusCode);
+        using var refreshDoc = JsonDocument.Parse(await refreshResp.Content.ReadAsStringAsync());
+        Assert.Equal("Bearer", refreshDoc.RootElement.GetProperty("token_type").GetString());
+        Assert.Equal("PharmacyERP", refreshDoc.RootElement.GetProperty("issuer").GetString());
+        Assert.Equal("PharmacyERP.Api", refreshDoc.RootElement.GetProperty("audience").GetString());
+        Assert.Equal(keyProvider.KeyId, refreshDoc.RootElement.GetProperty("key_id").GetString());
+        Assert.Equal("Cloud", refreshDoc.RootElement.GetProperty("user").GetProperty("runtime_mode").GetString());
+
+        // Verify GET /api/v1/auth/me emits runtime_mode: "Cloud"
+        cloudClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        using var cloudMeResp = await cloudClient.GetAsync("/api/v1/auth/me");
+        Assert.Equal(HttpStatusCode.OK, cloudMeResp.StatusCode);
+        using var cloudMeDoc = JsonDocument.Parse(await cloudMeResp.Content.ReadAsStringAsync());
+        Assert.Equal("Cloud", cloudMeDoc.RootElement.GetProperty("runtime_mode").GetString());
+
+        // 3. BranchDto & EmployeeDto emit created_at & updated_at; UserDto emits access_failed_count
+        using var getBranchResp = await cloudClient.GetAsync($"/api/v1/branches/{branchId}");
+        Assert.Equal(HttpStatusCode.OK, getBranchResp.StatusCode);
+        using var getBranchDoc = JsonDocument.Parse(await getBranchResp.Content.ReadAsStringAsync());
+        Assert.True(getBranchDoc.RootElement.TryGetProperty("created_at", out var brCreatedAt) && brCreatedAt.GetDateTimeOffset() != default);
+        Assert.True(getBranchDoc.RootElement.TryGetProperty("updated_at", out var brUpdatedAt) && brUpdatedAt.GetDateTimeOffset() != default);
+
+        using var pharmEmpResp = await cloudClient.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/employees", $$"""
+        {
+            "branch_id": "{{branchId}}",
+            "employee_no": "EMP-ALIGN-PH",
+            "full_name": "Align Pharmacist",
+            "job_title": "Pharmacist",
+            "address": { "line1": "1 St", "city": "Cairo", "country_code": "EG" }
+        }
+        """, "align-emp-ph"));
+        Assert.Equal(HttpStatusCode.Created, pharmEmpResp.StatusCode);
+        using var pharmEmpDoc = JsonDocument.Parse(await pharmEmpResp.Content.ReadAsStringAsync());
+        var pharmEmpId = pharmEmpDoc.RootElement.GetProperty("employee_id").GetGuid();
+        Assert.True(pharmEmpDoc.RootElement.TryGetProperty("created_at", out var empCreatedAt) && empCreatedAt.GetDateTimeOffset() != default);
+        Assert.True(pharmEmpDoc.RootElement.TryGetProperty("updated_at", out var empUpdatedAt) && empUpdatedAt.GetDateTimeOffset() != default);
+
+        using var cashEmpResp = await cloudClient.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/employees", $$"""
+        {
+            "branch_id": "{{branchId}}",
+            "employee_no": "EMP-ALIGN-CA",
+            "full_name": "Align Cashier",
+            "job_title": "Cashier",
+            "address": { "line1": "2 St", "city": "Cairo", "country_code": "EG" }
+        }
+        """, "align-emp-ca"));
+        Assert.Equal(HttpStatusCode.Created, cashEmpResp.StatusCode);
+        var cashEmpId = JsonDocument.Parse(await cashEmpResp.Content.ReadAsStringAsync()).RootElement.GetProperty("employee_id").GetGuid();
+
+        using var pharmUserResp = await cloudClient.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/users", $$"""
+        {
+            "employee_id": "{{pharmEmpId}}",
+            "username": "align.pharm",
+            "password": "StrongPassword123!",
+            "role": "Pharmacist",
+            "branch_scope": "ASSIGNED",
+            "branch_ids": ["{{branchId}}"]
+        }
+        """, "align-usr-ph"));
+        Assert.Equal(HttpStatusCode.Created, pharmUserResp.StatusCode);
+        using var pharmUserDoc = JsonDocument.Parse(await pharmUserResp.Content.ReadAsStringAsync());
+        Assert.Equal(0, pharmUserDoc.RootElement.GetProperty("access_failed_count").GetInt32());
+
+        using var cashUserResp = await cloudClient.SendAsync(RawJsonRequest(HttpMethod.Post, "/api/v1/users", $$"""
+        {
+            "employee_id": "{{cashEmpId}}",
+            "username": "align.cashier",
+            "password": "StrongPassword123!",
+            "role": "Cashier",
+            "branch_scope": "ASSIGNED",
+            "branch_ids": ["{{branchId}}"]
+        }
+        """, "align-usr-ca"));
+        Assert.Equal(HttpStatusCode.Created, cashUserResp.StatusCode);
+
+        // 4. GET /api/v1/inventory/balances returns PagedResult<StockBalanceDto> with row_version, respects paging, and 422 on invalid paging
+        using var balPage1Resp = await cloudClient.GetAsync($"/api/v1/inventory/balances?branch_id={branchId}&page=1&page_size=1");
+        Assert.Equal(HttpStatusCode.OK, balPage1Resp.StatusCode);
+        using var balPage1Doc = JsonDocument.Parse(await balPage1Resp.Content.ReadAsStringAsync());
+        Assert.Equal(1, balPage1Doc.RootElement.GetProperty("page").GetInt32());
+        Assert.Equal(1, balPage1Doc.RootElement.GetProperty("page_size").GetInt32());
+        Assert.Equal(2, balPage1Doc.RootElement.GetProperty("total_count").GetInt32());
+        var balPage1Items = balPage1Doc.RootElement.GetProperty("items");
+        Assert.Equal(1, balPage1Items.GetArrayLength());
+        Assert.Equal(2L, balPage1Items[0].GetProperty("row_version").GetInt64());
+
+        using var balPage2Resp = await cloudClient.GetAsync($"/api/v1/inventory/balances?branch_id={branchId}&page=2&page_size=1");
+        Assert.Equal(HttpStatusCode.OK, balPage2Resp.StatusCode);
+        using var balPage2Doc = JsonDocument.Parse(await balPage2Resp.Content.ReadAsStringAsync());
+        Assert.Equal(2, balPage2Doc.RootElement.GetProperty("page").GetInt32());
+        Assert.Equal(1L, balPage2Doc.RootElement.GetProperty("items")[0].GetProperty("row_version").GetInt64());
+
+        using var balBadPagingResp = await cloudClient.GetAsync($"/api/v1/inventory/balances?branch_id={branchId}&page=0&page_size=201");
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, balBadPagingResp.StatusCode);
+        var balBadFields = await AssertValidationErrorAndGetFieldsAsync(balBadPagingResp);
+        Assert.Contains("page", balBadFields);
+        Assert.Contains("page_size", balBadFields);
+
+        // GET /api/v1/inventory/summary preserves InventorySummaryDto and exposes row_version on locations_and_lots[]
+        using var summaryResp = await cloudClient.GetAsync($"/api/v1/inventory/summary?branch_id={branchId}&product_id={productId}");
+        Assert.Equal(HttpStatusCode.OK, summaryResp.StatusCode);
+        using var summaryDoc = JsonDocument.Parse(await summaryResp.Content.ReadAsStringAsync());
+        Assert.Equal(35m, summaryDoc.RootElement.GetProperty("total_on_hand_qty_base").GetDecimal());
+        Assert.Equal(2L, summaryDoc.RootElement.GetProperty("locations_and_lots")[0].GetProperty("row_version").GetInt64());
+
+        // 5. RBAC Hardening (D-06):
+        // Pharmacist: 403 on /employees & /employees/{id}; 200 on /inventory/transactions & /canonical/inventory & /branches
+        var pharmToken = await LoginAsync(cloudClient, "ALIGNORG", "align.pharm", "StrongPassword123!");
+        cloudClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", pharmToken);
+        Assert.Equal(HttpStatusCode.Forbidden, (await cloudClient.GetAsync("/api/v1/employees")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await cloudClient.GetAsync($"/api/v1/employees/{pharmEmpId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await cloudClient.GetAsync($"/api/v1/inventory/transactions?branch_id={branchId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await cloudClient.GetAsync($"/api/v1/canonical/inventory?branch_id={branchId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await cloudClient.GetAsync("/api/v1/branches")).StatusCode);
+
+        // Cashier: 403 FORBIDDEN on /inventory/transactions, /canonical/inventory, /employees, /employees/{id}; 200 on /inventory/balances & /branches
+        var cashToken = await LoginAsync(cloudClient, "ALIGNORG", "align.cashier", "StrongPassword123!");
+        cloudClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", cashToken);
+        foreach (var forbiddenPath in new[]
+        {
+            $"/api/v1/inventory/transactions?branch_id={branchId}",
+            $"/api/v1/canonical/inventory?branch_id={branchId}",
+            "/api/v1/employees",
+            $"/api/v1/employees/{cashEmpId}"
+        })
+        {
+            using var resp = await cloudClient.GetAsync(forbiddenPath);
+            Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+            using var errDoc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+            Assert.Equal("FORBIDDEN", errDoc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await cloudClient.GetAsync($"/api/v1/inventory/balances?branch_id={branchId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await cloudClient.GetAsync("/api/v1/branches")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await cloudClient.GetAsync($"/api/v1/branches/{branchId}")).StatusCode);
+
+        // 6. BranchLocal mode: LoginResponse.user.runtime_mode & GET /api/v1/auth/me emit "BranchLocal"
+        await using var localFactory = CreateTestFactory(store, runtimeMode: "BranchLocal", enrolledBranchId: branchId);
+        var localKeyProvider = localFactory.Services.GetRequiredService<JwksKeyProvider>();
+        using var localClient = localFactory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        using var localLoginResp = await localClient.PostAsync(
+            "/api/v1/auth/login",
+            new StringContent("""{"organization_code":"ALIGNORG","username":"owner","password":"OwnerPassword123!"}""", Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, localLoginResp.StatusCode);
+        using var localLoginDoc = JsonDocument.Parse(await localLoginResp.Content.ReadAsStringAsync());
+        Assert.Equal("Bearer", localLoginDoc.RootElement.GetProperty("token_type").GetString());
+        Assert.Equal(localKeyProvider.KeyId, localLoginDoc.RootElement.GetProperty("key_id").GetString());
+        Assert.Equal("BranchLocal", localLoginDoc.RootElement.GetProperty("user").GetProperty("runtime_mode").GetString());
+
+        var localToken = localLoginDoc.RootElement.GetProperty("access_token").GetString()!;
+        localClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", localToken);
+        using var localMeResp = await localClient.GetAsync("/api/v1/auth/me");
+        Assert.Equal(HttpStatusCode.OK, localMeResp.StatusCode);
+        using var localMeDoc = JsonDocument.Parse(await localMeResp.Content.ReadAsStringAsync());
+        Assert.Equal("BranchLocal", localMeDoc.RootElement.GetProperty("runtime_mode").GetString());
     }
 
     private WebApplicationFactory<PharmacyERP.Api.Program> CreateTestFactory(

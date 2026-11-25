@@ -72,12 +72,13 @@ public sealed class JwtTokenGenerator : IJwtTokenGenerator
 
         var jwt = new JwtSecurityToken(header, payload);
         var token = new JwtSecurityTokenHandler().WriteToken(jwt);
-        return new GeneratedAccessToken(token, expires);
+        return new GeneratedAccessToken(token, expires, _issuer, _audience, _keys.KeyId);
     }
 
     private static string[] GetScopes(UserRole role) => role switch
     {
-        UserRole.Admin => new[] { "user:admin", "branch:admin", "employee:admin", "inventory:read", "inventory:write", "sales:read", "sales:write" },
+        // Blueprint §8.5: adhere strictly to the closed 13-scope vocabulary (no undocumented branch:admin/employee:admin).
+        UserRole.Admin => new[] { "user:admin", "inventory:read", "inventory:write", "sales:read", "sales:write" },
         // Blueprint §8.5/§9.1: Pharmacist is read-only on POS sales (excludes sales:write).
         UserRole.Pharmacist => new[] { "inventory:read", "inventory:write", "sales:read" },
         UserRole.Cashier => new[] { "inventory:read", "sales:read", "sales:write" },
