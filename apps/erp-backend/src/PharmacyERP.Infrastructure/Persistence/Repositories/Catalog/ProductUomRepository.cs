@@ -55,6 +55,25 @@ public class ProductUomRepository : GenericRepository<ProductUom>, IProductUomRe
             .ToListAsync(ct);
     }
 
+    public async Task<IReadOnlyList<ProductUom>> GetActiveBaseUomsByProductIdsAsync(
+        Guid organizationId,
+        IReadOnlyCollection<Guid> productIds,
+        CancellationToken ct = default)
+    {
+        if (productIds.Count == 0)
+        {
+            return Array.Empty<ProductUom>();
+        }
+
+        return await _dbSet
+            .AsNoTracking()
+            .Where(u => u.OrganizationId == organizationId
+                     && productIds.Contains(u.ProductId)
+                     && u.IsBase
+                     && u.IsActive)
+            .ToListAsync(ct);
+    }
+
     public async Task<bool> ExistsByUomCodeAsync(
         Guid organizationId,
         Guid productId,

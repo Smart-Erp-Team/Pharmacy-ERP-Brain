@@ -45,6 +45,14 @@ internal static class ApiResultMapper
             result.ErrorDetails);
     }
 
+    public static IActionResult ToMissingIdempotencyKeyResult(ControllerBase controller, string traceId)
+        => ToErrorResult(
+            controller,
+            ErrorCode.MALFORMED_REQUEST,
+            ErrorMessages.MalformedRequest,
+            traceId,
+            new[] { new ApiErrorDetailDto("Idempotency-Key", ErrorMessages.InvalidIdempotencyKey) });
+
     public static IActionResult ToErrorResult(
         ControllerBase controller,
         ErrorCode code,

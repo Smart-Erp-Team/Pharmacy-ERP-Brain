@@ -11,11 +11,13 @@ public class CanonicalCapabilitiesService : ICanonicalCapabilitiesService
 
     public CanonicalCapabilitiesDto GetCapabilities()
     {
+        var isCloud = _runtimeModeProvider.CurrentMode == ErpRuntimeMode.Cloud;
+
         return new CanonicalCapabilitiesDto(
             Stage: 1,
             RuntimeMode: _runtimeModeProvider.CurrentMode.ToString(),
-            SupportedReads: new[] { "products", "inventory" },
-            SupportedWrites: new[] { "configuration.products", "configuration.reorder-rules" }
+            SupportedReads: isCloud ? new[] { "products", "inventory" } : Array.Empty<string>(),
+            SupportedWrites: isCloud ? new[] { "configuration.products", "configuration.reorder-rules" } : Array.Empty<string>()
         );
     }
 }

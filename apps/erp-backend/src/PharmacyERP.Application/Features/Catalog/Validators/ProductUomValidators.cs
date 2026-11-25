@@ -8,30 +8,30 @@ public static class CreateProductUomItemRequestValidator
         var fieldPrefix = string.IsNullOrEmpty(prefix) ? "" : prefix + ".";
 
         if (string.IsNullOrWhiteSpace(item.UomCode))
-            errors.Add(new ApiErrorDetailDto($"{fieldPrefix}UomCode", "UomCode is required."));
+            errors.Add(new ApiErrorDetailDto($"{fieldPrefix}uom_code", "UomCode is required."));
         else if (item.UomCode.Length > 20)
-            errors.Add(new ApiErrorDetailDto($"{fieldPrefix}UomCode", "UomCode cannot exceed 20 characters."));
+            errors.Add(new ApiErrorDetailDto($"{fieldPrefix}uom_code", "UomCode cannot exceed 20 characters."));
 
         if (string.IsNullOrWhiteSpace(item.DisplayName))
-            errors.Add(new ApiErrorDetailDto($"{fieldPrefix}DisplayName", "DisplayName is required."));
+            errors.Add(new ApiErrorDetailDto($"{fieldPrefix}display_name", "DisplayName is required."));
         else if (item.DisplayName.Length > 50)
-            errors.Add(new ApiErrorDetailDto($"{fieldPrefix}DisplayName", "DisplayName cannot exceed 50 characters."));
+            errors.Add(new ApiErrorDetailDto($"{fieldPrefix}display_name", "DisplayName cannot exceed 50 characters."));
 
         if (item.ConversionToBase <= 0m)
-            errors.Add(new ApiErrorDetailDto($"{fieldPrefix}ConversionToBase", "Conversion factor must be greater than zero."));
+            errors.Add(new ApiErrorDetailDto($"{fieldPrefix}conversion_to_base", "Conversion factor must be greater than zero."));
         else if (item.IsBase && item.ConversionToBase != 1m)
-            errors.Add(new ApiErrorDetailDto($"{fieldPrefix}ConversionToBase", "Base UOM conversion factor must be exactly 1."));
+            errors.Add(new ApiErrorDetailDto($"{fieldPrefix}conversion_to_base", "Base UOM conversion factor must be exactly 1."));
 
         if (item.IsSellable)
         {
             if (!item.SaleUnitPrice.HasValue)
-                errors.Add(new ApiErrorDetailDto($"{fieldPrefix}SaleUnitPrice", "Sale unit price is required for sellable units."));
+                errors.Add(new ApiErrorDetailDto($"{fieldPrefix}sale_unit_price", "Sale unit price is required for sellable units."));
             else if (item.SaleUnitPrice.Value < 0m)
-                errors.Add(new ApiErrorDetailDto($"{fieldPrefix}SaleUnitPrice", "Sale unit price must be non-negative."));
+                errors.Add(new ApiErrorDetailDto($"{fieldPrefix}sale_unit_price", "Sale unit price must be non-negative."));
         }
         else if (item.SaleUnitPrice.HasValue && item.SaleUnitPrice.Value < 0m)
         {
-            errors.Add(new ApiErrorDetailDto($"{fieldPrefix}SaleUnitPrice", "Sale unit price must be non-negative."));
+            errors.Add(new ApiErrorDetailDto($"{fieldPrefix}sale_unit_price", "Sale unit price must be non-negative."));
         }
 
         return errors;
@@ -56,7 +56,9 @@ public static class CreateProductUomRequestValidator
         errors.AddRange(CreateProductUomItemRequestValidator.Validate(item));
 
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
-            errors.Add(new ApiErrorDetailDto("IdempotencyKey", "IdempotencyKey is required."));
+            errors.Add(new ApiErrorDetailDto("idempotency_key", "IdempotencyKey is required."));
+        else if (request.IdempotencyKey.Length > 100)
+            errors.Add(new ApiErrorDetailDto("idempotency_key", "IdempotencyKey cannot exceed 100 characters."));
 
         return errors;
     }
@@ -71,19 +73,21 @@ public static class UpdateProductUomRequestValidator
         if (request.DisplayName != null)
         {
             if (string.IsNullOrWhiteSpace(request.DisplayName))
-                errors.Add(new ApiErrorDetailDto("DisplayName", "DisplayName cannot be empty."));
+                errors.Add(new ApiErrorDetailDto("display_name", "DisplayName cannot be empty."));
             else if (request.DisplayName.Length > 50)
-                errors.Add(new ApiErrorDetailDto("DisplayName", "DisplayName cannot exceed 50 characters."));
+                errors.Add(new ApiErrorDetailDto("display_name", "DisplayName cannot exceed 50 characters."));
         }
 
         if (request.ConversionToBase.HasValue && request.ConversionToBase.Value <= 0m)
-            errors.Add(new ApiErrorDetailDto("ConversionToBase", "Conversion factor must be greater than zero."));
+            errors.Add(new ApiErrorDetailDto("conversion_to_base", "Conversion factor must be greater than zero."));
 
         if (request.SaleUnitPrice.HasValue && request.SaleUnitPrice.Value < 0m)
-            errors.Add(new ApiErrorDetailDto("SaleUnitPrice", "Sale unit price must be non-negative."));
+            errors.Add(new ApiErrorDetailDto("sale_unit_price", "Sale unit price must be non-negative."));
 
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
-            errors.Add(new ApiErrorDetailDto("IdempotencyKey", "IdempotencyKey is required."));
+            errors.Add(new ApiErrorDetailDto("idempotency_key", "IdempotencyKey is required."));
+        else if (request.IdempotencyKey.Length > 100)
+            errors.Add(new ApiErrorDetailDto("idempotency_key", "IdempotencyKey cannot exceed 100 characters."));
 
         return errors;
     }

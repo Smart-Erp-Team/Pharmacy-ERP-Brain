@@ -109,7 +109,7 @@ public class CatalogServicesTests
     }
 
     [Fact]
-    public async Task ProductCategoryService_CreateCategory_NonCloudMode_FailsWithForbidden()
+    public async Task ProductCategoryService_CreateCategory_NonCloudMode_FailsWithNotFound()
     {
         _runtimeModeProviderMock.Setup(r => r.CurrentMode).Returns(ErpRuntimeMode.BranchLocal);
         var categoryRepoMock = new Mock<IProductCategoryRepository>();
@@ -128,7 +128,7 @@ public class CatalogServicesTests
         var result = await service.CreateCategoryAsync(request);
 
         Assert.False(result.IsSuccess);
-        Assert.Equal(ErrorCode.FORBIDDEN, result.ErrorCode);
+        Assert.Equal(ErrorCode.NOT_FOUND, result.ErrorCode);
     }
 
     [Fact]
@@ -683,7 +683,7 @@ public class CatalogServicesTests
 
         productRepoMock.Setup(r => r.GetByIdAsync(_orgId, productId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(product);
-        uomRepoMock.Setup(r => r.GetByProductIdAsync(_orgId, productId, true, It.IsAny<CancellationToken>()))
+        uomRepoMock.Setup(r => r.GetByProductIdAsync(_orgId, productId, false, It.IsAny<CancellationToken>()))
             .ReturnsAsync(product.Uoms.ToList());
 
         var service = new ProductUomService(
@@ -1376,7 +1376,7 @@ public class CatalogServicesTests
 
         productRepoMock.Setup(r => r.GetByIdAsync(_orgId, productId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(product);
-        uomRepoMock.Setup(r => r.GetByProductIdAsync(_orgId, productId, true, It.IsAny<CancellationToken>()))
+        uomRepoMock.Setup(r => r.GetByProductIdAsync(_orgId, productId, false, It.IsAny<CancellationToken>()))
             .ReturnsAsync(product.Uoms.ToList());
 
         var service = new ProductUomService(
@@ -1414,7 +1414,7 @@ public class CatalogServicesTests
 
         productRepoMock.Setup(r => r.GetByIdAsync(_orgId, productId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(product);
-        uomRepoMock.Setup(r => r.GetByProductIdAsync(_orgId, productId, true, It.IsAny<CancellationToken>()))
+        uomRepoMock.Setup(r => r.GetByProductIdAsync(_orgId, productId, false, It.IsAny<CancellationToken>()))
             .ReturnsAsync(product.Uoms.ToList());
 
         var service = new ProductUomService(
@@ -1540,7 +1540,7 @@ public class CatalogServicesTests
             _outboxServiceMock.Object,
             _usageCheckerMock.Object);
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.GetProductUomsAsync(productId, cts.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.GetProductUomsAsync(productId, ct: cts.Token));
 
         uowMock.Verify(u => u.BeginTransactionAsync(cts.Token), Times.Once);
         uowMock.Verify(u => u.RollbackTransactionAsync(CancellationToken.None), Times.Once);

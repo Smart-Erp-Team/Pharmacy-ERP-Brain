@@ -61,12 +61,12 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
 
     public async Task<Result<InventoryTxnDto>> PostAdjustmentAsync(CreateInventoryAdjustmentRequest request, CancellationToken ct = default)
     {
-        var validation = InventoryAdjustmentValidators.ValidateAdjustment(request);
-        if (!validation.IsValid)
-            return Result<InventoryTxnDto>.Failure(ErrorCode.VALIDATION_ERROR, validation.ErrorMessage!);
+        var validationErrors = InventoryAdjustmentValidators.ValidateAdjustment(request);
+        if (validationErrors.Count > 0)
+            return Result<InventoryTxnDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, validationErrors);
 
         if (_runtimeMode.CurrentMode == ErpRuntimeMode.Cloud)
-            return Result<InventoryTxnDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.CloudStockMutationForbidden);
+            return Result<InventoryTxnDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.CloudStockMutationForbidden);
 
         if (!_tenantContext.OrganizationId.HasValue || _tenantContext.OrganizationId.Value == Guid.Empty
             || !_currentUser.EmployeeId.HasValue || _currentUser.EmployeeId.Value == Guid.Empty)
@@ -75,10 +75,12 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
         if (!_currentUser.CanAccessBranch(request.BranchId))
             return Result<InventoryTxnDto>.Failure(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
 
-        if (request.TransactionType == InventoryTransactionType.OPENING_BALANCE
-            && !string.Equals(_currentUser.Role, UserRole.Admin.ToString(), StringComparison.Ordinal))
+        // Blueprint §9.1: both Admin and Pharmacist are permitted on inventory adjustments and opening balances; Cashier is denied.
+        if (!string.Equals(_currentUser.Role, UserRole.Admin.ToString(), StringComparison.Ordinal)
+            && !string.Equals(_currentUser.Role, UserRole.Pharmacist.ToString(), StringComparison.Ordinal))
             return Result<InventoryTxnDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
 
+        var idempotencyKey = request.IdempotencyKey!;
         Guid organizationId = _tenantContext.OrganizationId.Value;
         Guid employeeId = _currentUser.EmployeeId.Value;
 
@@ -93,7 +95,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                 try
                 {
                     var idempotencyResult = await _idempotency.CheckAsync<CreateInventoryAdjustmentRequest, InventoryTxnDto>(
-                        IdempotencyScope, request.IdempotencyKey, request.BranchId, request, ct);
+                        IdempotencyScope, idempotencyKey, request.BranchId, request, ct);
 
                     if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
                     {
@@ -115,7 +117,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                     branchId: request.BranchId,
                     transactionNo: transactionNumber,
                     transactionType: request.TransactionType,
-                    idempotencyKey: request.IdempotencyKey,
+                    idempotencyKey: idempotencyKey,
                     createdByEmployeeId: employeeId,
                     now: now,
                     reasonCode: request.ReasonCode,
@@ -165,7 +167,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                     ct: ct);
 
                 await _idempotency.PersistResponseAsync(
-                    IdempotencyScope, request.IdempotencyKey, request.BranchId, request, responseDto, ct);
+                    IdempotencyScope, idempotencyKey, request.BranchId, request, responseDto, ct);
 
                 await _unitOfWork.CommitTransactionAsync(ct);
 
@@ -286,31 +288,60 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
         CancellationToken cancellationToken)
     {
         // Batch-fetch all reference entities BEFORE acquiring exclusive STOCK_BALANCE FOR UPDATE locks.
-        var distinctLocationIds = request.Lines.Select(line => line.LocationId).Distinct().ToArray();
+        var requestedLines = request.Lines!;
+        var distinctLocationIds = requestedLines.Select(line => line.LocationId).Distinct().ToArray();
         var locationsById = (await _locationRepo.GetByIdsAsync(organizationId, request.BranchId, distinctLocationIds, cancellationToken))
             .ToDictionary(location => location.LocationId);
 
         Dictionary<Guid, Product>? productsById = null;
         if (_productRepo != null)
         {
-            var distinctProductIds = request.Lines.Select(line => line.ProductId).Distinct().ToArray();
+            var distinctProductIds = requestedLines.Select(line => line.ProductId).Distinct().ToArray();
             productsById = (await _productRepo.GetByIdsAsync(organizationId, distinctProductIds, cancellationToken))
                 .ToDictionary(product => product.ProductId);
         }
 
         Dictionary<(Guid ProductId, Guid ProductUomId), ProductUom>? uomsByKey = null;
+        Dictionary<Guid, Guid>? baseUomIdsByProductId = null;
         if (_productUomRepo != null)
         {
-            var distinctUomIds = request.Lines.Select(line => line.ProductUomId).Distinct().ToArray();
-            uomsByKey = (await _productUomRepo.GetByIdsAsync(organizationId, distinctUomIds, cancellationToken))
-                .ToDictionary(uom => (uom.ProductId, uom.ProductUomId));
+            var distinctUomIds = requestedLines.Select(line => line.ProductUomId).Distinct().ToArray();
+            var fetchedUoms = await _productUomRepo.GetByIdsAsync(organizationId, distinctUomIds, cancellationToken);
+            uomsByKey = fetchedUoms.ToDictionary(uom => (uom.ProductId, uom.ProductUomId));
+
+            // Seed known active base UOMs from the already-fetched set, then batch-fetch missing base UOMs
+            // for any product where the caller entered a non-base unit (e.g., BOX/STRIP).
+            baseUomIdsByProductId = fetchedUoms
+                .Where(uom => uom.IsBase && uom.IsActive)
+                .GroupBy(uom => uom.ProductId)
+                .ToDictionary(group => group.Key, group => group.First().ProductUomId);
+
+            var productIdsNeedingBaseUom = requestedLines
+                .Select(line => line.ProductId)
+                .Distinct()
+                .Where(productId => !baseUomIdsByProductId.ContainsKey(productId))
+                .ToArray();
+
+            if (productIdsNeedingBaseUom.Length > 0)
+            {
+                var fetchedBaseUoms = await _productUomRepo.GetActiveBaseUomsByProductIdsAsync(
+                    organizationId, productIdsNeedingBaseUom, cancellationToken);
+                if (fetchedBaseUoms != null)
+                {
+                    foreach (var baseUom in fetchedBaseUoms)
+                    {
+                        baseUomIdsByProductId.TryAdd(baseUom.ProductId, baseUom.ProductUomId);
+                    }
+                }
+            }
         }
 
-        var batchRequests = new List<(Guid ProductId, string BatchNumber, DateOnly? ExpiresOn, DateOnly? ManufacturedOn)>(request.Lines.Count);
-        var validatedLines = new List<(CreateInventoryAdjustmentLineRequest LineRequest, Guid ComputedBatchId, decimal ConversionFactor)>(request.Lines.Count);
+        var batchRequests = new List<(Guid ProductId, string BatchNumber, DateOnly? ExpiresOn, DateOnly? ManufacturedOn)>(requestedLines.Count);
+        var validatedLines = new List<(CreateInventoryAdjustmentLineRequest LineRequest, Guid ComputedBatchId, Guid BaseProductUomId, decimal ConversionFactor)>(requestedLines.Count);
 
-        foreach (var lineRequest in request.Lines)
+        for (int lineIndex = 0; lineIndex < requestedLines.Count; lineIndex++)
         {
+            var lineRequest = requestedLines[lineIndex];
             if (!locationsById.TryGetValue(lineRequest.LocationId, out var location) || !location.IsActive)
             {
                 return Result<InventoryTxnDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.LocationNotFound);
@@ -330,25 +361,35 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                 {
                     if (isNonLotInput)
                     {
-                        return Result<InventoryTxnDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.NonLotMisuse);
+                        return Result<InventoryTxnDto>.Failure(
+                            ErrorCode.VALIDATION_ERROR,
+                            ErrorMessages.NonLotMisuse,
+                            new[] { new ApiErrorDetailDto($"lines[{lineIndex}].batch_number", ErrorMessages.NonLotMisuse) });
                     }
 
                     if (!lineRequest.ExpiresOn.HasValue)
                     {
-                        return Result<InventoryTxnDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.InvalidBatchDates);
+                        return Result<InventoryTxnDto>.Failure(
+                            ErrorCode.VALIDATION_ERROR,
+                            ErrorMessages.InvalidBatchDates,
+                            new[] { new ApiErrorDetailDto($"lines[{lineIndex}].expires_on", ErrorMessages.InvalidBatchDates) });
                     }
                 }
                 else
                 {
                     if (!isNonLotInput || lineRequest.ExpiresOn.HasValue)
                     {
-                        return Result<InventoryTxnDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.NonLotMisuse);
+                        return Result<InventoryTxnDto>.Failure(
+                            ErrorCode.VALIDATION_ERROR,
+                            ErrorMessages.NonLotMisuse,
+                            new[] { new ApiErrorDetailDto($"lines[{lineIndex}].batch_number", ErrorMessages.NonLotMisuse) });
                     }
                 }
             }
 
             // Default conversion factor of 1m supports unit tests constructed without an optional UOM repository.
             decimal conversionFactor = 1m;
+            Guid baseProductUomId = lineRequest.ProductUomId;
             if (uomsByKey != null)
             {
                 if (!uomsByKey.TryGetValue((lineRequest.ProductId, lineRequest.ProductUomId), out var uom) || !uom.IsActive)
@@ -359,6 +400,19 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                 if (uom.ConversionToBase > 0m)
                 {
                     conversionFactor = uom.ConversionToBase;
+                }
+
+                if (uom.IsBase)
+                {
+                    baseProductUomId = uom.ProductUomId;
+                }
+                else if (baseUomIdsByProductId != null && baseUomIdsByProductId.TryGetValue(lineRequest.ProductId, out var resolvedBaseUomId))
+                {
+                    baseProductUomId = resolvedBaseUomId;
+                }
+                else
+                {
+                    return Result<InventoryTxnDto>.Failure(ErrorCode.CONFLICT, ErrorMessages.InvalidBaseUomInvariant);
                 }
             }
 
@@ -373,7 +427,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                 : DeterministicBatchIdGenerator.GenerateNonLotBatchId(organizationId, lineRequest.ProductId);
 
             batchRequests.Add((lineRequest.ProductId, effectiveBatchNumber, effectiveExpiresOn, effectiveManufacturedOn));
-            validatedLines.Add((lineRequest, computedBatchId, conversionFactor));
+            validatedLines.Add((lineRequest, computedBatchId, baseProductUomId, conversionFactor));
         }
 
         // Batch-upsert/fetch all distinct batches in one round-trip.
@@ -415,12 +469,14 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
             }
         }
 
-        foreach (var (lineRequest, batchId, conversionFactor) in orderedLines)
+        foreach (var (lineRequest, batchId, baseProductUomId, conversionFactor) in orderedLines)
         {
             var stockBalance = lockedBalances[(lineRequest.LocationId, batchId)];
 
             // Convert entered UOM quantity and unit cost into base units:
             // baseQty = enteredQty * conversionToBase, baseUnitCost = enteredUnitCost / conversionToBase.
+            // Blueprint §8.9.12: Every persisted and returned inventory ledger line is normalized to the
+            // product's active base UOM (product_uom_id = baseUomId, entered_qty = abs(quantity_delta_base), conversion_snapshot = 1).
             decimal quantityBase = Math.Round(lineRequest.EnteredQty * conversionFactor, 4, MidpointRounding.AwayFromZero);
             decimal baseUnitCost = lineRequest.UnitCostEntered.HasValue
                 ? Math.Round(lineRequest.UnitCostEntered.Value / conversionFactor, 4, MidpointRounding.AwayFromZero)
@@ -429,7 +485,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
             if (request.TransactionType == InventoryTransactionType.OPENING_BALANCE || request.TransactionType == InventoryTransactionType.ADJUSTMENT_IN)
             {
                 stockBalance.ApplyIncomingStock(quantityBase, baseUnitCost, now);
-                inventoryTransaction.AddLine(lineRequest.ProductId, lineRequest.LocationId, batchId, lineRequest.ProductUomId, lineRequest.EnteredQty, conversionFactor, quantityBase, baseUnitCost);
+                inventoryTransaction.AddLine(lineRequest.ProductId, lineRequest.LocationId, batchId, baseProductUomId, quantityBase, 1m, quantityBase, baseUnitCost);
             }
             else if (request.TransactionType == InventoryTransactionType.ADJUSTMENT_OUT)
             {
@@ -439,7 +495,7 @@ public class InventoryAdjustmentService : IInventoryAdjustmentService
                 }
 
                 baseUnitCost = stockBalance.ApplyOutgoingStock(quantityBase, now);
-                inventoryTransaction.AddLine(lineRequest.ProductId, lineRequest.LocationId, batchId, lineRequest.ProductUomId, lineRequest.EnteredQty, conversionFactor, -quantityBase, baseUnitCost);
+                inventoryTransaction.AddLine(lineRequest.ProductId, lineRequest.LocationId, batchId, baseProductUomId, quantityBase, 1m, -quantityBase, baseUnitCost);
             }
         }
 

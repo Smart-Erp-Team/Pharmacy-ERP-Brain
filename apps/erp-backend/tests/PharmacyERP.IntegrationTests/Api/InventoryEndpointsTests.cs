@@ -45,11 +45,17 @@ public class InventoryEndpointsTests : IClassFixture<CustomWebApplicationFactory
             IdempotencyKey: idempotencyKey1
         );
 
+        var snakeCaseOptions = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: false) }
+        };
+
         var requestMessage1 = new HttpRequestMessage(HttpMethod.Post, "/api/v1/inventory/adjustments");
         requestMessage1.Headers.Add("Idempotency-Key", idempotencyKey1);
-        requestMessage1.Content = JsonContent.Create(openingRequest);
+        requestMessage1.Content = JsonContent.Create(openingRequest, options: snakeCaseOptions);
 
         var openingResponse = await _client.SendAsync(requestMessage1);
-        Assert.True(openingResponse.StatusCode == HttpStatusCode.OK || openingResponse.StatusCode == HttpStatusCode.Unauthorized);
+        Assert.True(openingResponse.StatusCode == HttpStatusCode.Created || openingResponse.StatusCode == HttpStatusCode.Unauthorized);
     }
 }

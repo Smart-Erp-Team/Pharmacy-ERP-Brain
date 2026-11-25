@@ -119,7 +119,10 @@ public sealed class DevRequestErrorLogMiddleware
                 : null;
 
             var role = isAuthenticated
-                ? currentUser?.Role ?? context.User.FindFirst(ClaimTypes.Role)?.Value ?? context.User.FindFirst("role")?.Value
+                ? currentUser?.Role
+                    ?? context.User.FindFirst("roles")?.Value
+                    ?? context.User.FindFirst(ClaimTypes.Role)?.Value
+                    ?? context.User.FindFirst("role")?.Value
                 : null;
 
             var branchScope = isAuthenticated

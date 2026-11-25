@@ -1,4 +1,4 @@
-﻿namespace PharmacyERP.IntegrationTests.Api;
+namespace PharmacyERP.IntegrationTests.Api;
 
 public class CanonicalCapabilitiesEndpointTests : IClassFixture<WebApplicationFactory<PharmacyERP.Api.Program>>
 {
@@ -36,7 +36,12 @@ public class CanonicalCapabilitiesEndpointTests : IClassFixture<WebApplicationFa
         Assert.Equal("application/json; charset=utf-8", response.Content.Headers.ContentType?.ToString());
 
         var responseString = await response.Content.ReadAsStringAsync();
-        var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+        using var doc = JsonDocument.Parse(responseString);
+        Assert.True(doc.RootElement.TryGetProperty("runtime_mode", out _));
+        Assert.True(doc.RootElement.TryGetProperty("supported_reads", out _));
+        Assert.True(doc.RootElement.TryGetProperty("supported_writes", out _));
+
+        var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
         var result = JsonSerializer.Deserialize<CanonicalCapabilitiesDto>(responseString, options);
 
         Assert.NotNull(result);

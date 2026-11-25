@@ -1,83 +1,28 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$comment": "Owner: erp-frontend",
-  "$id": "https://example.com/contracts/schemas/inventory.json",
-  "title": "Pharmacy ERP — Inventory Contract (Stage 1)",
-  "description": "Locations, batches, balances, append-only ledger, adjustments. Balances are a projection; the ledger (INVENTORY_TXN + lines) is authoritative. FE never picks batch/location for returns — the server derives them from posted allocations. Initial stock is NEVER pushed by cloud; it is posted locally via OPENING_BALANCE.",
+  "$id": "https://pharmacy-erp.local/contracts/schemas/inventory.json",
+  "title": "Pharmacy ERP \u2014 Inventory Locations, Batches, Balances & Ledger Contract (Stage 1)",
+  "description": "Inventory locations (including DAMAGED), batches, paginated stock balances with row_version, product summary, immutable ledger transactions, and BranchLocal stock adjustments/reversals matching apps/erp-backend/contracts/openapi.v1.json 100% verbatim.",
   "$defs": {
     "LocationType": {
       "type": "string",
-      "enum": ["SELLABLE", "QUARANTINE", "SCRAP"],
-      "description": "is_sellable=true is permitted only for SELLABLE; QUARANTINE and SCRAP are always non-sellable. Damaged stock is tracked via batch quality_status=QUARANTINED in a quarantined batch location, not a separate location type."
+      "enum": [
+        "SELLABLE",
+        "QUARANTINE",
+        "DAMAGED",
+        "SCRAP"
+      ]
     },
     "BatchQualityStatus": {
       "type": "string",
-      "enum": ["AVAILABLE", "QUARANTINED", "EXPIRED", "RECALLED"],
-      "description": "Never sellable: expired-by-date, RECALLED, QUARANTINED, or in a non-sellable location. Date eligibility is checked independently of stored status."
+      "enum": [
+        "AVAILABLE",
+        "QUARANTINED",
+        "EXPIRED",
+        "RECALLED"
+      ]
     },
-    "InventoryLocationDto": {
-      "type": "object",
-      "required": ["location_id", "branch_id", "location_code", "name", "location_type", "is_sellable", "is_active"],
-      "properties": {
-        "location_id": { "type": "string", "format": "uuid" },
-        "branch_id": { "type": "string", "format": "uuid" },
-        "location_code": { "type": "string", "maxLength": 30 },
-        "name": { "type": "string", "maxLength": 100 },
-        "location_type": { "$ref": "#/$defs/LocationType" },
-        "is_sellable": { "type": "boolean" },
-        "is_active": { "type": "boolean" }
-      }
-    },
-    "InventoryLocationRequest": {
-      "type": "object",
-      "required": ["branch_id", "location_code", "name", "location_type"],
-      "properties": {
-        "branch_id": { "type": "string", "format": "uuid" },
-        "location_code": { "type": "string", "maxLength": 30 },
-        "name": { "type": "string", "maxLength": 100 },
-        "location_type": { "$ref": "#/$defs/LocationType" },
-        "is_active": { "type": "boolean", "default": true }
-      }
-    },
-    "InventoryLocationPatchRequest": {
-      "type": "object",
-      "properties": {
-        "name": { "type": ["string", "null"], "maxLength": 100 },
-        "location_type": { "$ref": "#/$defs/LocationType" },
-        "is_active": { "type": ["boolean", "null"] }
-      }
-    },
-    "InventoryBatchDto": {
-      "type": "object",
-      "description": "READ-ONLY via API: batch rows are created only by opening-balance/receipt ledger workflows.",
-      "required": ["batch_id", "product_id", "batch_number", "quality_status"],
-      "properties": {
-        "batch_id": { "type": "string", "format": "uuid", "description": "Deterministic UUIDv5 (RFC 4122 DNS namespace); identical for the same (organization, product, batch_number, expires_on) across ALL branches." },
-        "product_id": { "type": "string", "format": "uuid" },
-        "batch_number": { "type": "string", "maxLength": 80, "description": "Exact, case-sensitive; never trimmed/case-folded." },
-        "manufactured_on": { "type": ["string", "null"], "format": "date", "description": "Optional; when present cannot exceed expires_on." },
-        "expires_on": { "type": ["string", "null"], "format": "date", "description": "Required for lot-tracked products; NULL only for the reserved NON-LOT batch of lot_tracking_required=false products." },
-        "quality_status": { "$ref": "#/$defs/BatchQualityStatus" },
-        "is_non_lot": { "type": "boolean", "readOnly": true, "description": "True for reserved batch_number=NON-LOT with NULL dates." }
-      }
-    },
-    "InventoryBalanceDto": {
-      "type": "object",
-      "description": "Concurrency-safe projection over the ledger. Unique (organization, location, batch).",
-      "required": ["product_id", "branch_id", "location_id", "batch_id", "on_hand_qty_base", "average_unit_cost", "available_qty_base"],
-      "properties": {
-        "product_id": { "type": "string", "format": "uuid" },
-        "branch_id": { "type": "string", "format": "uuid" },
-        "location_id": { "type": "string", "format": "uuid" },
-        "batch_id": { "type": "string", "format": "uuid" },
-        "on_hand_qty_base": { "$ref": "common.json#/$defs/NonNegativeNumeric4", "description": "Always >= 0." },
-        "average_unit_cost": { "$ref": "common.json#/$defs/NonNegativeNumeric4", "description": "Location-and-batch weighted average (>=0)." },
-        "available_qty_base": { "$ref": "common.json#/$defs/NonNegativeNumeric4", "description": "Server-derived eligible quantity: sum of on_hand from SELLABLE locations for batches that are AVAILABLE, not expired by business date, and not recalled. With no reservations in MVP this normally equals eligible on_hand, not raw on_hand across all locations. Never negative." },
-        "row_version": { "type": "integer", "readOnly": true, "description": "Optimistic concurrency token." },
-        "updated_at": { "$ref": "common.json#/$defs/Timestamp" }
-      }
-    },
-    "InventoryTxnType": {
+    "InventoryTransactionType": {
       "type": "string",
       "enum": [
         "OPENING_BALANCE",
@@ -89,97 +34,600 @@
         "VENDOR_RETURN_OUT",
         "SCRAP_OUT",
         "REVERSAL"
-      ],
-      "description": "Sign convention: IN/receipt types positive, ISSUE/OUT types negative. REVERSAL exactly negates its original; the original stays POSTED and immutable."
+      ]
     },
-    "InventoryTxnStatus": {
+    "InventoryTransactionStatus": {
       "type": "string",
-      "enum": ["DRAFT", "POSTED", "CANCELLED"],
-      "description": "Edits allowed only while DRAFT. POSTED rows + lines are immutable (DB-enforced). CANCELLED is for unposted drafts only."
+      "enum": [
+        "DRAFT",
+        "POSTED",
+        "CANCELLED"
+      ]
+    },
+    "InventoryLocationDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "location_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "location_code": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "location_type": {
+          "$ref": "#/$defs/LocationType"
+        },
+        "is_sellable": {
+          "type": "boolean"
+        },
+        "is_active": {
+          "type": "boolean"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "InventoryLocationDtoPagedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InventoryLocationDto"
+          }
+        },
+        "page": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "page_size": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "total_count": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "CreateInventoryLocationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "location_code": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "location_type": {
+          "$ref": "#/$defs/LocationType"
+        },
+        "is_sellable": {
+          "type": "boolean"
+        },
+        "idempotency_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "UpdateInventoryLocationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "is_sellable": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "is_active": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "idempotency_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "InventoryBatchDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batch_number": {
+          "type": "string"
+        },
+        "manufactured_on": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "expires_on": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "quality_status": {
+          "$ref": "#/$defs/BatchQualityStatus"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "InventoryBatchDtoPagedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InventoryBatchDto"
+          }
+        },
+        "page": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "page_size": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "total_count": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "StockBalanceDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_sku": {
+          "type": "string"
+        },
+        "product_name": {
+          "type": "string"
+        },
+        "base_uom_code": {
+          "type": "string"
+        },
+        "location_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "location_code": {
+          "type": "string"
+        },
+        "location_type": {
+          "$ref": "#/$defs/LocationType"
+        },
+        "is_location_sellable": {
+          "type": "boolean"
+        },
+        "batch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batch_number": {
+          "type": "string"
+        },
+        "manufactured_on": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "expires_on": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "quality_status": {
+          "$ref": "#/$defs/BatchQualityStatus"
+        },
+        "on_hand_qty_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "available_qty_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "average_unit_cost": {
+          "type": "number",
+          "format": "double"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "row_version": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "StockBalanceDtoPagedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/StockBalanceDto"
+          }
+        },
+        "page": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "page_size": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "total_count": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "InventorySummaryDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "base_uom_code": {
+          "type": "string"
+        },
+        "total_on_hand_qty_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "total_available_qty_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "weighted_average_unit_cost_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "locations_and_lots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/StockBalanceDto"
+          }
+        }
+      }
     },
     "InventoryTxnLineDto": {
       "type": "object",
-      "required": ["inventory_txn_line_id", "product_id", "location_id", "batch_id", "product_uom_id", "entered_qty", "conversion_snapshot", "quantity_delta_base"],
+      "additionalProperties": false,
       "properties": {
-        "inventory_txn_line_id": { "type": "string", "format": "uuid" },
-        "product_id": { "type": "string", "format": "uuid" },
-        "location_id": { "type": "string", "format": "uuid" },
-        "batch_id": { "type": "string", "format": "uuid", "description": "NOT NULL; NON-LOT sentinel for non-lot-tracked products." },
-        "product_uom_id": { "type": "string", "format": "uuid", "description": "Product's BASE UOM for ledger lines." },
-        "entered_qty": { "$ref": "common.json#/$defs/PositiveNumeric4", "description": "= abs(quantity_delta_base) on ledger lines; strictly positive." },
-        "conversion_snapshot": { "$ref": "common.json#/$defs/PositiveNumeric6", "description": "= 1 on ledger lines; conversion must be >0." },
-        "quantity_delta_base": { "$ref": "common.json#/$defs/Numeric4", "description": "Signed; never 0." },
-        "unit_cost_base": { "$ref": "common.json#/$defs/NonNegativeNumeric4", "description": ">= 0." },
-        "sales_order_line_id": { "type": ["string", "null"], "format": "uuid" },
-        "sales_return_line_id": { "type": ["string", "null"], "format": "uuid" },
-        "purchase_order_line_id": { "type": ["string", "null"], "format": "uuid" },
-        "vendor_return_line_id": { "type": ["string", "null"], "format": "uuid" }
+        "inventory_txn_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "location_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batch_number": {
+          "type": "string"
+        },
+        "product_uom_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "entered_qty": {
+          "type": "number",
+          "format": "double"
+        },
+        "conversion_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "quantity_delta_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "unit_cost_base": {
+          "type": "number",
+          "format": "double"
+        }
       }
     },
     "InventoryTxnDto": {
       "type": "object",
-      "required": ["inventory_txn_id", "branch_id", "transaction_no", "transaction_type", "status", "lines"],
+      "additionalProperties": false,
       "properties": {
-        "inventory_txn_id": { "type": "string", "format": "uuid" },
-        "branch_id": { "type": "string", "format": "uuid" },
-        "transaction_no": { "type": "string", "maxLength": 40 },
-        "transaction_type": { "$ref": "#/$defs/InventoryTxnType" },
-        "status": { "$ref": "#/$defs/InventoryTxnStatus" },
-        "reason_code": { "type": ["string", "null"], "maxLength": 40 },
-        "note": { "type": ["string", "null"], "maxLength": 500 },
-        "posted_at": { "$ref": "common.json#/$defs/Timestamp" },
-        "created_by_employee_id": { "type": "string", "format": "uuid" },
-        "reverses_inventory_txn_id": { "type": ["string", "null"], "format": "uuid" },
-        "sales_order_id": { "type": ["string", "null"], "format": "uuid" },
-        "sales_return_id": { "type": ["string", "null"], "format": "uuid" },
-        "purchase_order_id": { "type": ["string", "null"], "format": "uuid" },
-        "vendor_return_id": { "type": ["string", "null"], "format": "uuid" },
-        "lines": { "type": "array", "items": { "$ref": "#/$defs/InventoryTxnLineDto" } }
-      }
-    },
-    "InventoryTxnLineRequest": {
-      "type": "object",
-      "description": "One line per FE input. Ledger stores base-UOM representation; conversion fields are snapshotted server-side.",
-      "required": ["product_id", "location_id", "batch_id", "entered_qty", "product_uom_id"],
-      "properties": {
-        "product_id": { "type": "string", "format": "uuid" },
-        "location_id": { "type": "string", "format": "uuid" },
-        "batch_id": { "type": "string", "format": "uuid", "description": "Use the system NON-LOT batch (get its id from /inventory/batches) for non-lot-tracked products." },
-        "product_uom_id": { "type": "string", "format": "uuid" },
-        "entered_qty": { "$ref": "common.json#/$defs/PositiveNumeric4", "description": ">0 in the entered UOM." },
-        "unit_cost_base": { "$ref": "common.json#/$defs/NonNegativeNumeric4", "description": "REQUIRED for ADJUSTMENT_IN / OPENING_BALANCE. Omitted for ADJUSTMENT_OUT; the server uses the current balance cost. Reversals/RESTOCK reuse the original posted cost. Never negative." }
-      }
-    },
-    "InventoryTxnRequest": {
-      "type": "object",
-      "required": ["transaction_type", "branch_id", "reason_code", "lines"],
-      "properties": {
-        "transaction_type": {
+        "inventory_txn_id": {
           "type": "string",
-          "enum": ["OPENING_BALANCE", "ADJUSTMENT_IN", "ADJUSTMENT_OUT", "REVERSAL"],
-          "description": "Adjustment endpoint only. Ledger-generated types (SALE_ISSUE, SALES_RETURN_IN, PURCHASE_RECEIPT, VENDOR_RETURN_OUT, SCRAP_OUT) are server-created by their owning workflows and cannot be posted here."
+          "format": "uuid"
         },
-        "branch_id": { "type": "string", "format": "uuid" },
-        "reason_code": { "type": "string", "maxLength": 40 },
-        "note": { "type": ["string", "null"], "maxLength": 500 },
-        "reverses_inventory_txn_id": { "type": ["string", "null"], "format": "uuid", "description": "REQUIRED when transaction_type=REVERSAL; must reference a POSTED transaction in the same branch." },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "transaction_no": {
+          "type": "string"
+        },
+        "transaction_type": {
+          "$ref": "#/$defs/InventoryTransactionType"
+        },
+        "status": {
+          "$ref": "#/$defs/InventoryTransactionStatus"
+        },
+        "reason_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "created_by_employee_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "reverses_inventory_txn_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "posted_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
         "lines": {
           "type": "array",
-          "minItems": 1,
-          "items": { "$ref": "#/$defs/InventoryTxnLineRequest" }
+          "items": {
+            "$ref": "#/$defs/InventoryTxnLineDto"
+          }
         }
       }
     },
-    "InventoryTxnPatchRequest": {
+    "InventoryTxnDtoPagedResult": {
       "type": "object",
-      "description": "Partial edit for a DRAFT adjustment only. transaction_type, branch_id, and reverses_inventory_txn_id are immutable after creation. Posted transactions are immutable and must be corrected by a new REVERSAL.",
+      "additionalProperties": false,
       "properties": {
-        "reason_code": { "type": "string", "maxLength": 40 },
-        "note": { "type": ["string", "null"], "maxLength": 500 },
-        "lines": {
+        "items": {
           "type": "array",
-          "minItems": 1,
-          "items": { "$ref": "#/$defs/InventoryTxnLineRequest" }
+          "items": {
+            "$ref": "#/$defs/InventoryTxnDto"
+          }
+        },
+        "page": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "page_size": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "total_count": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "CreateInventoryAdjustmentLineRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_uom_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "location_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batch_number": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "manufactured_on": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "expires_on": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "entered_qty": {
+          "type": "number",
+          "format": "double"
+        },
+        "unit_cost_entered": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      }
+    },
+    "CreateInventoryAdjustmentRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "transaction_type": {
+          "$ref": "#/$defs/InventoryTransactionType"
+        },
+        "reason_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reverses_inventory_txn_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "lines": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/CreateInventoryAdjustmentLineRequest"
+          }
+        },
+        "idempotency_key": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     }

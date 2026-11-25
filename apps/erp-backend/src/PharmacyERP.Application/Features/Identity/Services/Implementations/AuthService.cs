@@ -218,10 +218,21 @@ public sealed class AuthService : IAuthService
     {
         if (!_currentUser.IsAuthenticated || _currentUser.UserId is not Guid userId || _currentUser.EmployeeId is not Guid employeeId || _currentUser.OrganizationId is not Guid organizationId)
             return IdentityResults.Failure<CurrentUserDto>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
-        var role = Enum.TryParse<UserRole>(_currentUser.Role, out var parsedRole) ? parsedRole : UserRole.Cashier;
-        return Result<CurrentUserDto>.Success(new CurrentUserDto(userId, employeeId, organizationId, string.Empty,
-            _currentUser.Role ?? string.Empty, _currentUser.BranchScope ?? BranchScope.ASSIGNED.ToString(),
-            _currentUser.AuthorizedBranchIds.ToArray(), _currentUser.Scopes.ToArray()));
+        if (!Enum.TryParse<UserRole>(_currentUser.Role, out var parsedRole) || !Enum.IsDefined(parsedRole))
+            return IdentityResults.Failure<CurrentUserDto>(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
+        var parsedBranchScope = Enum.TryParse<BranchScope>(_currentUser.BranchScope, out var scope) && Enum.IsDefined(scope)
+            ? scope
+            : BranchScope.ASSIGNED;
+        return Result<CurrentUserDto>.Success(new CurrentUserDto(
+            userId,
+            employeeId,
+            organizationId,
+            _currentUser.Username ?? string.Empty,
+            parsedRole,
+            parsedBranchScope,
+            _currentUser.AuthorizedBranchIds.ToArray(),
+            _currentUser.Scopes.ToArray(),
+            _runtimeMode.CurrentMode));
     }
 
     private async Task<LoginResponse> IssueTokensAsync(UserAccount user, Guid tokenFamilyId, DateTimeOffset now, CancellationToken cancellationToken)
@@ -238,11 +249,22 @@ public sealed class AuthService : IAuthService
             now.Add(RefreshLifetime));
         await _tokens.AddAsync(refreshTokenEntity, cancellationToken);
 
-        var effectiveBranchIds = _runtimeMode.CurrentMode == ErpRuntimeMode.BranchLocal && _runtimeMode.EnrolledBranchId is Guid enrolledBranchId
+        var isBranchLocal = _runtimeMode.CurrentMode == ErpRuntimeMode.BranchLocal;
+        var effectiveBranchIds = isBranchLocal && _runtimeMode.EnrolledBranchId is Guid enrolledBranchId
             ? new[] { enrolledBranchId }
             : authorizedBranchIds;
-        return new LoginResponse(accessTokenResult.Token, accessTokenResult.ExpiresAt, refreshTokenText,
-            CurrentUserDtoMapper.From(user, effectiveBranchIds, ScopeNames(user.Role)));
+        var effectiveBranchScope = isBranchLocal
+            ? BranchScope.ASSIGNED
+            : user.BranchScope;
+        return new LoginResponse(
+            accessTokenResult.Token,
+            accessTokenResult.ExpiresAt,
+            refreshTokenText,
+            CurrentUserDtoMapper.From(user, effectiveBranchIds, ScopeNames(user.Role), effectiveBranchScope, _runtimeMode.CurrentMode),
+            TokenType: "Bearer",
+            Issuer: accessTokenResult.Issuer,
+            Audience: accessTokenResult.Audience,
+            KeyId: accessTokenResult.KeyId);
     }
 
     private bool IsAuthorizedForCurrentRuntimeMode(UserAccount user)
@@ -264,8 +286,10 @@ public sealed class AuthService : IAuthService
 
     private static string[] ScopeNames(UserRole role) => role switch
     {
-        UserRole.Admin => new[] { "user:admin", "branch:admin", "employee:admin", "inventory:read", "inventory:write", "sales:read", "sales:write" },
-        UserRole.Pharmacist => new[] { "inventory:read", "inventory:write", "sales:read", "sales:write" },
+        // Blueprint §8.5: adhere strictly to the closed 13-scope vocabulary (no undocumented branch:admin/employee:admin).
+        UserRole.Admin => new[] { "user:admin", "inventory:read", "inventory:write", "sales:read", "sales:write" },
+        // Blueprint §8.5/§9.1: Pharmacist is read-only on POS sales (excludes sales:write).
+        UserRole.Pharmacist => new[] { "inventory:read", "inventory:write", "sales:read" },
         UserRole.Cashier => new[] { "inventory:read", "sales:read", "sales:write" },
         _ => Array.Empty<string>()
     };

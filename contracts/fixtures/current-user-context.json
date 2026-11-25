@@ -1,40 +1,17 @@
 {
-  "user": {
-    "user_id": "550e8400-e29b-41d4-a716-446655440000",
-    "employee_id": "fa567890-1234-4def-9fbe-fa12345678de",
-    "username": "fa.pharmacist",
-    "role": "Pharmacist",
-    "branch_scope": "ASSIGNED",
-    "is_active": true,
-    "access_failed_count": 0,
-    "lockout_end": null,
-    "last_login_at": "2026-10-17T08:30:00Z"
-  },
-  "organization_id": "b1c2d3e4-2222-4b33-8c44-aabbccddeeff",
-  "organization_code": "PHARMAPLUS",
-  "branch_scope": "ASSIGNED",
-  "branch_ids": [
-    "d4e5f6a7-3333-4c44-9d55-bbccddeeffaa"
-  ],
-  "roles": [
-    "Admin"
-  ],
+  "user_id": "11111111-4444-4111-8111-000000000001",
+  "employee_id": "11111111-3333-4111-8111-000000000001",
+  "organization_id": "11111111-1111-4111-8111-111111111101",
+  "username": "admin@medcare.test",
+  "role": "Admin",
+  "branch_scope": "ALL",
+  "branch_ids": [],
   "scopes": [
+    "user:admin",
     "inventory:read",
     "inventory:write",
     "sales:read",
-    "purchase-order:read",
-    "purchase-order:draft",
-    "purchase-order:approve",
-    "purchase-order:receive",
-    "supplier-payment:write",
-    "return:read",
-    "return:write",
-    "user:admin"
+    "sales:write"
   ],
-  "runtime": "Cloud",
-  "issuance_context": {
-    "terminal_id": "POS-TERM-01",
-    "branch_code": "BR-CAI-01"
-  }
+  "runtime_mode": "Cloud"
 }

@@ -13,7 +13,7 @@ public sealed record CreateProductRequest(
     bool LotTrackingRequired,
     int ExpiryAlertDays,
     IReadOnlyList<CreateProductUomItemRequest> Uoms,
-    string IdempotencyKey);
+    string? IdempotencyKey = null);
 
 public sealed record UpdateProductRequest(
     Guid? CategoryId,
@@ -28,7 +28,7 @@ public sealed record UpdateProductRequest(
     bool? LotTrackingRequired,
     int? ExpiryAlertDays,
     bool? IsActive,
-    string IdempotencyKey);
+    string? IdempotencyKey = null);
 
 public sealed record ProductDto(
     Guid ProductId,

@@ -25,4 +25,19 @@ public sealed class EmployeeRepository : GenericRepository<Employee>, IEmployeeR
             .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
         return new PagedResult<Employee>(items, page, pageSize, total);
     }
+
+    public async Task<PagedResult<Employee>> GetPagedByBranchIdsAsync(Guid organizationId, IReadOnlyCollection<Guid> branchIds, bool includeInactive, string? search, int page, int pageSize, CancellationToken ct = default)
+    {
+        var query = _dbSet.AsNoTracking().Where(x => x.OrganizationId == organizationId && branchIds.Contains(x.BranchId));
+        if (!includeInactive) query = query.Where(x => x.IsActive);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            query = query.Where(x => x.FullName.Contains(term) || x.EmployeeNo.Contains(term) || (x.Email != null && x.Email.Contains(term)));
+        }
+        var total = await query.CountAsync(ct);
+        var items = await query.OrderBy(x => x.FullName).ThenBy(x => x.EmployeeId)
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        return new PagedResult<Employee>(items, page, pageSize, total);
+    }
 }

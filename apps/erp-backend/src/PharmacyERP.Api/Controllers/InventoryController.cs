@@ -22,12 +22,15 @@ public class InventoryController : ControllerBase
 
     [HttpGet("batches")]
     [Authorize]
+    [ProducesResponseType(typeof(PagedResult<InventoryBatchDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> GetBatches(
-        [FromQuery] Guid? productId,
-        [FromQuery] BatchQualityStatus? status,
-        [FromQuery] DateOnly? expiringBefore,
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
+        [FromQuery(Name = "product_id")] Guid? productId,
+        [FromQuery(Name = "status")] BatchQualityStatus? status,
+        [FromQuery(Name = "expiring_before")] DateOnly? expiringBefore,
+        [FromQuery(Name = "page")] int page = 1,
+        [FromQuery(Name = "page_size")] int pageSize = 25,
         CancellationToken ct = default)
     {
         var result = await _queryService.GetBatchesAsync(productId, status, expiringBefore, page, pageSize, ct);
@@ -36,27 +39,52 @@ public class InventoryController : ControllerBase
 
     [HttpGet("balances")]
     [Authorize]
+    [ProducesResponseType(typeof(PagedResult<StockBalanceDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> GetBalances(
-        [FromQuery] Guid branchId,
-        [FromQuery] Guid? productId,
-        [FromQuery] Guid? locationId,
-        [FromQuery] Guid? batchId,
+        [FromQuery(Name = "branch_id")] Guid branchId,
+        [FromQuery(Name = "product_id")] Guid? productId,
+        [FromQuery(Name = "location_id")] Guid? locationId,
+        [FromQuery(Name = "batch_id")] Guid? batchId,
+        [FromQuery(Name = "page")] int page = 1,
+        [FromQuery(Name = "page_size")] int pageSize = 25,
         CancellationToken ct = default)
     {
-        var result = await _queryService.GetBalancesAsync(branchId, productId, locationId, batchId, ct);
+        var result = await _queryService.GetBalancesAsync(branchId, productId, locationId, batchId, page, pageSize, ct);
+        return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
+    }
+
+    [HttpGet("summary")]
+    [Authorize]
+    [ProducesResponseType(typeof(InventorySummaryDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> GetProductSummary(
+        [FromQuery(Name = "branch_id")] Guid branchId,
+        [FromQuery(Name = "product_id")] Guid productId,
+        CancellationToken ct = default)
+    {
+        var result = await _queryService.GetProductSummaryAsync(branchId, productId, ct);
         return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
     }
 
     [HttpGet("transactions")]
-    [Authorize]
+    [Authorize(Roles = "Admin,Pharmacist")]
+    [ProducesResponseType(typeof(PagedResult<InventoryTxnDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> GetTransactions(
-        [FromQuery] Guid branchId,
-        [FromQuery] InventoryTransactionType? type = null,
-        [FromQuery] Guid? productId = null,
-        [FromQuery] DateTimeOffset? fromDate = null,
-        [FromQuery] DateTimeOffset? toDate = null,
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
+        [FromQuery(Name = "branch_id")] Guid branchId,
+        [FromQuery(Name = "type")] InventoryTransactionType? type = null,
+        [FromQuery(Name = "product_id")] Guid? productId = null,
+        [FromQuery(Name = "from_date")] DateTimeOffset? fromDate = null,
+        [FromQuery(Name = "to_date")] DateTimeOffset? toDate = null,
+        [FromQuery(Name = "page")] int page = 1,
+        [FromQuery(Name = "page_size")] int pageSize = 25,
         CancellationToken ct = default)
     {
         var result = await _queryService.GetTransactionsAsync(
@@ -67,6 +95,13 @@ public class InventoryController : ControllerBase
     [AllowHeaderIdempotencyKey]
     [HttpPost("adjustments")]
     [Authorize(Roles = "Admin,Pharmacist")]
+    [ProducesResponseType(typeof(InventoryTxnDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> PostAdjustment(
         [FromBody] CreateInventoryAdjustmentRequest request,
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
@@ -77,9 +112,15 @@ public class InventoryController : ControllerBase
             return ApiResultMapper.ToErrorResult(this, ErrorCode.MALFORMED_REQUEST, ErrorMessages.MalformedRequest, _currentUser.TraceId);
         }
 
-        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey : request.IdempotencyKey ?? string.Empty;
+        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey.Trim() : request.IdempotencyKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(effectiveKey))
+        {
+            return ApiResultMapper.ToMissingIdempotencyKeyResult(this, _currentUser.TraceId);
+        }
+
         var requestWithKey = request with { IdempotencyKey = effectiveKey };
         var result = await _adjustmentService.PostAdjustmentAsync(requestWithKey, ct);
-        return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
+        var locationUri = result.IsSuccess ? $"/api/v1/inventory/transactions/{result.Value!.InventoryTxnId}" : null;
+        return ApiResultMapper.ToCreatedResult(this, result, _currentUser.TraceId, locationUri);
     }
 }

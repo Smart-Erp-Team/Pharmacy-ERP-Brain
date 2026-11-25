@@ -43,13 +43,14 @@ public class InventoryLocationService : IInventoryLocationService
         if (!_tenantContext.OrganizationId.HasValue || _tenantContext.OrganizationId.Value == Guid.Empty)
             return Result<InventoryLocationDto>.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
 
-        var validation = InventoryLocationValidators.ValidateCreate(request);
-        if (!validation.IsValid)
-            return Result<InventoryLocationDto>.Failure(ErrorCode.VALIDATION_ERROR, validation.ErrorMessage!);
+        var validationErrors = InventoryLocationValidators.ValidateCreate(request);
+        if (validationErrors.Count > 0)
+            return Result<InventoryLocationDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, validationErrors);
 
         if (!_currentUser.CanAccessBranch(request.BranchId))
             return Result<InventoryLocationDto>.Failure(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);
 
+        var idempotencyKey = request.IdempotencyKey!;
         Guid orgId = _tenantContext.OrganizationId.Value;
 
         await _unitOfWork.BeginTransactionAsync(ct);
@@ -58,7 +59,7 @@ public class InventoryLocationService : IInventoryLocationService
             try
             {
                 var idempotencyResult = await _idempotencyService.CheckAsync<CreateInventoryLocationRequest, InventoryLocationDto>(
-                    CreateIdempotencyScope, request.IdempotencyKey, request.BranchId, request, ct);
+                    CreateIdempotencyScope, idempotencyKey, request.BranchId, request, ct);
 
                 if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
                 {
@@ -111,7 +112,7 @@ public class InventoryLocationService : IInventoryLocationService
                 ct);
 
             await _idempotencyService.PersistResponseAsync(
-                CreateIdempotencyScope, request.IdempotencyKey, location.BranchId, request, dto, ct);
+                CreateIdempotencyScope, idempotencyKey, location.BranchId, request, dto, ct);
 
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result<InventoryLocationDto>.Success(dto);
@@ -128,10 +129,11 @@ public class InventoryLocationService : IInventoryLocationService
         if (!_tenantContext.OrganizationId.HasValue || _tenantContext.OrganizationId.Value == Guid.Empty)
             return Result<InventoryLocationDto>.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
 
-        var validation = InventoryLocationValidators.ValidateUpdate(request);
-        if (!validation.IsValid)
-            return Result<InventoryLocationDto>.Failure(ErrorCode.VALIDATION_ERROR, validation.ErrorMessage!);
+        var validationErrors = InventoryLocationValidators.ValidateUpdate(request);
+        if (validationErrors.Count > 0)
+            return Result<InventoryLocationDto>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, validationErrors);
 
+        var idempotencyKey = request.IdempotencyKey!;
         Guid orgId = _tenantContext.OrganizationId.Value;
 
         await _unitOfWork.BeginTransactionAsync(ct);
@@ -154,7 +156,7 @@ public class InventoryLocationService : IInventoryLocationService
             try
             {
                 var idempotencyResult = await _idempotencyService.CheckAsync<object, InventoryLocationDto>(
-                    UpdateIdempotencyScope, request.IdempotencyKey, location.BranchId, idempotencyPayload, ct);
+                    UpdateIdempotencyScope, idempotencyKey, location.BranchId, idempotencyPayload, ct);
 
                 if (idempotencyResult.IsReplay && idempotencyResult.ReplayedResponse != null)
                 {
@@ -170,11 +172,22 @@ public class InventoryLocationService : IInventoryLocationService
 
             var beforeData = ToDto(location);
 
-            location.UpdateDetails(
-                request.Name ?? location.Name,
-                request.IsSellable ?? location.IsSellable,
-                request.IsActive ?? location.IsActive,
-                _dateTimeProvider.UtcNow);
+            try
+            {
+                location.UpdateDetails(
+                    request.Name ?? location.Name,
+                    request.IsSellable ?? location.IsSellable,
+                    request.IsActive ?? location.IsActive,
+                    _dateTimeProvider.UtcNow);
+            }
+            catch (InvalidLocationSellableFlagException)
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                return Result<InventoryLocationDto>.Failure(
+                    ErrorCode.VALIDATION_ERROR,
+                    ErrorMessages.InvalidLocationSellableFlag,
+                    new[] { new ApiErrorDetailDto("is_sellable", ErrorMessages.InvalidLocationSellableFlag) });
+            }
 
             await _unitOfWork.SaveChangesAsync(ct);
 
@@ -198,7 +211,7 @@ public class InventoryLocationService : IInventoryLocationService
                 ct);
 
             await _idempotencyService.PersistResponseAsync(
-                UpdateIdempotencyScope, request.IdempotencyKey, location.BranchId, idempotencyPayload, dto, ct);
+                UpdateIdempotencyScope, idempotencyKey, location.BranchId, idempotencyPayload, dto, ct);
 
             await _unitOfWork.CommitTransactionAsync(ct);
             return Result<InventoryLocationDto>.Success(dto);
@@ -247,6 +260,16 @@ public class InventoryLocationService : IInventoryLocationService
     {
         if (!_tenantContext.OrganizationId.HasValue || _tenantContext.OrganizationId.Value == Guid.Empty)
             return Result<PagedResult<InventoryLocationDto>>.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
+
+        var validationErrors = new List<ApiErrorDetailDto>();
+        if (branchId == Guid.Empty)
+            validationErrors.Add(new ApiErrorDetailDto("branch_id", "BranchId is required."));
+        if (page < 1)
+            validationErrors.Add(new ApiErrorDetailDto("page", "Page must be at least 1."));
+        if (pageSize is < 1 or > 200)
+            validationErrors.Add(new ApiErrorDetailDto("page_size", "PageSize must be between 1 and 200."));
+        if (validationErrors.Count > 0)
+            return Result<PagedResult<InventoryLocationDto>>.Failure(ErrorCode.VALIDATION_ERROR, ErrorMessages.ValidationError, validationErrors);
 
         if (!_currentUser.CanAccessBranch(branchId))
             return Result<PagedResult<InventoryLocationDto>>.Failure(ErrorCode.FORBIDDEN_BRANCH, ErrorMessages.ForbiddenBranch);

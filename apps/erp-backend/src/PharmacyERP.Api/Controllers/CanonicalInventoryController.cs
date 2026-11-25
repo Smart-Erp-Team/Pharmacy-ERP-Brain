@@ -16,7 +16,12 @@ public class CanonicalInventoryController : ControllerBase
     }
 
     [HttpGet]
-    [Authorize]
+    [Authorize(Roles = "Admin,Pharmacist")]
+    [ProducesResponseType(typeof(PagedResult<CanonicalInventoryItemDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> GetCanonicalInventory(
         [FromQuery(Name = "organization_id")] Guid? organizationId,
         [FromQuery(Name = "branch_id")] Guid branchId,

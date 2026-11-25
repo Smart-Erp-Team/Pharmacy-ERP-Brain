@@ -1,4 +1,4 @@
-﻿namespace PharmacyERP.Application.Common.Interfaces.Integration;
+namespace PharmacyERP.Application.Common.Interfaces.Integration;
 
 public class IdempotencyCheckResult<TResponse>
 {
@@ -9,5 +9,6 @@ public class IdempotencyCheckResult<TResponse>
 public interface IIdempotencyService
 {
     Task<IdempotencyCheckResult<TResponse>> CheckAsync<TRequest, TResponse>(string operationScope, string idempotencyKey, Guid? branchId, TRequest requestPayload, CancellationToken ct = default);
+    Task<IdempotencyCheckResult<TResponse>> CheckGlobalAsync<TRequest, TResponse>(string operationScope, string idempotencyKey, TRequest requestPayload, CancellationToken ct = default);
     Task PersistResponseAsync<TRequest, TResponse>(string operationScope, string idempotencyKey, Guid? branchId, TRequest requestPayload, TResponse responseBody, CancellationToken ct = default);
 }

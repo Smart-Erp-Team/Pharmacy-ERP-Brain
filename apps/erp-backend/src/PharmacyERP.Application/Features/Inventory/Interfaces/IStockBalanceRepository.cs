@@ -10,6 +10,15 @@ public interface IStockBalanceRepository
         DateTimeOffset now,
         CancellationToken ct = default);
     Task<IReadOnlyList<StockBalance>> GetBalancesWithDetailsAsync(Guid organizationId, Guid branchId, Guid? productId = null, Guid? locationId = null, Guid? batchId = null, CancellationToken ct = default);
+    Task<PagedResult<StockBalance>> GetPagedBalancesWithDetailsAsync(
+        Guid organizationId,
+        Guid branchId,
+        Guid? productId = null,
+        Guid? locationId = null,
+        Guid? batchId = null,
+        int page = 1,
+        int pageSize = 25,
+        CancellationToken ct = default);
     Task<(IReadOnlyList<StockBalance> Balances, int TotalGroups, bool HasMore)> GetCanonicalInventoryPageAsync(
         Guid organizationId,
         Guid branchId,

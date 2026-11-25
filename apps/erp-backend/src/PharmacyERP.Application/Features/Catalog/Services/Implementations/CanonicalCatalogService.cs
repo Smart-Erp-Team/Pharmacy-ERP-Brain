@@ -78,7 +78,10 @@ public class CanonicalCatalogService : ICanonicalCatalogService
         {
             if (!TryDecodeCursor(cursor, out var decodedTime, out var decodedId))
             {
-                return Result<CanonicalProductFeedPageDto>.Failure(ErrorCode.VALIDATION_ERROR, "Invalid cursor format.");
+                return Result<CanonicalProductFeedPageDto>.Failure(
+                    ErrorCode.VALIDATION_ERROR,
+                    "Invalid cursor format.",
+                    new[] { new ApiErrorDetailDto("cursor", "Invalid cursor format.") });
             }
 
             cursorUpdatedAt = decodedTime;
@@ -131,7 +134,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
             return Result<CanonicalWriteResultDto>.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
 
         if (!IsCloudRuntimeMode())
-            return Result<CanonicalWriteResultDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
+            return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.CloudOnlyOperationUnavailable);
 
         if (!IsAuthorized())
             return Result<CanonicalWriteResultDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
@@ -591,7 +594,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
             return Result<CanonicalWriteResultDto>.Failure(ErrorCode.UNAUTHORIZED, ErrorMessages.Unauthorized);
 
         if (!IsCloudRuntimeMode())
-            return Result<CanonicalWriteResultDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
+            return Result<CanonicalWriteResultDto>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.CloudOnlyOperationUnavailable);
 
         if (!IsAuthorized())
             return Result<CanonicalWriteResultDto>.Failure(ErrorCode.FORBIDDEN, ErrorMessages.Forbidden);
@@ -824,41 +827,50 @@ public class CanonicalCatalogService : ICanonicalCatalogService
         var errors = new List<ApiErrorDetailDto>();
 
         if (request.RequestId == Guid.Empty)
-            errors.Add(new ApiErrorDetailDto("RequestId", ErrorMessages.InvalidRequestId));
+            errors.Add(new ApiErrorDetailDto("request_id", ErrorMessages.InvalidRequestId));
 
         if (string.IsNullOrWhiteSpace(request.SourcePromptId) || request.SourcePromptId.Length > 100)
-            errors.Add(new ApiErrorDetailDto("SourcePromptId", ErrorMessages.InvalidSourcePromptId));
+            errors.Add(new ApiErrorDetailDto("source_prompt_id", ErrorMessages.InvalidSourcePromptId));
 
+        var hasIdempotencyError = false;
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
-            errors.Add(new ApiErrorDetailDto("IdempotencyKey", ErrorMessages.InvalidIdempotencyKey));
+        {
+            errors.Add(new ApiErrorDetailDto("idempotency_key", ErrorMessages.InvalidIdempotencyKey));
+            hasIdempotencyError = true;
+        }
+        else if (request.IdempotencyKey.Length > 100)
+        {
+            errors.Add(new ApiErrorDetailDto("idempotency_key", "IdempotencyKey cannot exceed 100 characters."));
+            hasIdempotencyError = true;
+        }
 
         switch (request.Action)
         {
             case CatalogConfigurationAction.CreateProduct:
             {
                 if (!request.CategoryId.HasValue || request.CategoryId.Value == Guid.Empty)
-                    errors.Add(new ApiErrorDetailDto("CategoryId", "CategoryId is required."));
+                    errors.Add(new ApiErrorDetailDto("category_id", "CategoryId is required."));
 
                 if (string.IsNullOrWhiteSpace(request.Sku))
-                    errors.Add(new ApiErrorDetailDto("Sku", "Sku is required."));
+                    errors.Add(new ApiErrorDetailDto("sku", "Sku is required."));
 
                 if (string.IsNullOrWhiteSpace(request.Name))
-                    errors.Add(new ApiErrorDetailDto("Name", "Name is required."));
+                    errors.Add(new ApiErrorDetailDto("name", "Name is required."));
 
                 if (string.IsNullOrWhiteSpace(request.BaseUomCode))
-                    errors.Add(new ApiErrorDetailDto("BaseUomCode", "BaseUomCode is required."));
+                    errors.Add(new ApiErrorDetailDto("base_uom_code", "BaseUomCode is required."));
 
                 if (!request.LotTrackingRequired.HasValue)
-                    errors.Add(new ApiErrorDetailDto("LotTrackingRequired", "LotTrackingRequired is required for product creation."));
+                    errors.Add(new ApiErrorDetailDto("lot_tracking_required", "LotTrackingRequired is required for product creation."));
 
                 if (!request.TaxRate.HasValue)
-                    errors.Add(new ApiErrorDetailDto("TaxRate", "TaxRate is required for product creation."));
+                    errors.Add(new ApiErrorDetailDto("tax_rate", "TaxRate is required for product creation."));
 
                 if (!request.ExpiryAlertDays.HasValue)
-                    errors.Add(new ApiErrorDetailDto("ExpiryAlertDays", "ExpiryAlertDays is required for product creation."));
+                    errors.Add(new ApiErrorDetailDto("expiry_alert_days", "ExpiryAlertDays is required for product creation."));
 
                 if (request.Uoms == null || request.Uoms.Count == 0)
-                    errors.Add(new ApiErrorDetailDto("Uoms", "At least one UOM is required."));
+                    errors.Add(new ApiErrorDetailDto("uoms", "At least one UOM is required."));
 
                 if (errors.Count == 0)
                 {
@@ -896,7 +908,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
             case CatalogConfigurationAction.UpdateProduct:
             {
                 if (!request.ProductId.HasValue || request.ProductId.Value == Guid.Empty)
-                    errors.Add(new ApiErrorDetailDto("ProductId", "ProductId is required."));
+                    errors.Add(new ApiErrorDetailDto("product_id", "ProductId is required."));
 
                 var updateDto = new UpdateProductRequest(
                     request.CategoryId,
@@ -914,14 +926,14 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                     request.IdempotencyKey);
 
                 var validatorErrors = UpdateProductRequestValidator.Validate(updateDto);
-                errors.AddRange(validatorErrors);
+                errors.AddRange(hasIdempotencyError ? validatorErrors.Where(e => e.Field != "idempotency_key") : validatorErrors);
                 break;
             }
 
             case CatalogConfigurationAction.AddUom:
             {
                 if (!request.ProductId.HasValue || request.ProductId.Value == Guid.Empty)
-                    errors.Add(new ApiErrorDetailDto("ProductId", "ProductId is required."));
+                    errors.Add(new ApiErrorDetailDto("product_id", "ProductId is required."));
 
                 var addUomDto = new CreateProductUomRequest(
                     request.UomCode ?? string.Empty,
@@ -934,17 +946,17 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                     request.IdempotencyKey);
 
                 var validatorErrors = CreateProductUomRequestValidator.Validate(addUomDto);
-                errors.AddRange(validatorErrors);
+                errors.AddRange(hasIdempotencyError ? validatorErrors.Where(e => e.Field != "idempotency_key") : validatorErrors);
                 break;
             }
 
             case CatalogConfigurationAction.UpdateUom:
             {
                 if (!request.ProductId.HasValue || request.ProductId.Value == Guid.Empty)
-                    errors.Add(new ApiErrorDetailDto("ProductId", "ProductId is required."));
+                    errors.Add(new ApiErrorDetailDto("product_id", "ProductId is required."));
 
                 if (!request.ProductUomId.HasValue || request.ProductUomId.Value == Guid.Empty)
-                    errors.Add(new ApiErrorDetailDto("ProductUomId", "ProductUomId is required."));
+                    errors.Add(new ApiErrorDetailDto("product_uom_id", "ProductUomId is required."));
 
                 var updateUomDto = new UpdateProductUomRequest(
                     request.DisplayName,
@@ -956,22 +968,22 @@ public class CanonicalCatalogService : ICanonicalCatalogService
                     request.IdempotencyKey);
 
                 var validatorErrors = UpdateProductUomRequestValidator.Validate(updateUomDto);
-                errors.AddRange(validatorErrors);
+                errors.AddRange(hasIdempotencyError ? validatorErrors.Where(e => e.Field != "idempotency_key") : validatorErrors);
                 break;
             }
 
             case CatalogConfigurationAction.DeactivateUom:
             {
                 if (!request.ProductId.HasValue || request.ProductId.Value == Guid.Empty)
-                    errors.Add(new ApiErrorDetailDto("ProductId", "ProductId is required."));
+                    errors.Add(new ApiErrorDetailDto("product_id", "ProductId is required."));
 
                 if (!request.ProductUomId.HasValue || request.ProductUomId.Value == Guid.Empty)
-                    errors.Add(new ApiErrorDetailDto("ProductUomId", "ProductUomId is required."));
+                    errors.Add(new ApiErrorDetailDto("product_uom_id", "ProductUomId is required."));
                 break;
             }
 
             default:
-                errors.Add(new ApiErrorDetailDto("Action", ErrorMessages.InvalidConfigurationAction));
+                errors.Add(new ApiErrorDetailDto("action", ErrorMessages.InvalidConfigurationAction));
                 break;
         }
 
@@ -983,19 +995,28 @@ public class CanonicalCatalogService : ICanonicalCatalogService
         var errors = new List<ApiErrorDetailDto>();
 
         if (request.RequestId == Guid.Empty)
-            errors.Add(new ApiErrorDetailDto("RequestId", ErrorMessages.InvalidRequestId));
+            errors.Add(new ApiErrorDetailDto("request_id", ErrorMessages.InvalidRequestId));
 
         if (string.IsNullOrWhiteSpace(request.SourcePromptId) || request.SourcePromptId.Length > 100)
-            errors.Add(new ApiErrorDetailDto("SourcePromptId", ErrorMessages.InvalidSourcePromptId));
+            errors.Add(new ApiErrorDetailDto("source_prompt_id", ErrorMessages.InvalidSourcePromptId));
 
+        var hasIdempotencyError = false;
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
-            errors.Add(new ApiErrorDetailDto("IdempotencyKey", ErrorMessages.InvalidIdempotencyKey));
+        {
+            errors.Add(new ApiErrorDetailDto("idempotency_key", ErrorMessages.InvalidIdempotencyKey));
+            hasIdempotencyError = true;
+        }
+        else if (request.IdempotencyKey.Length > 100)
+        {
+            errors.Add(new ApiErrorDetailDto("idempotency_key", "IdempotencyKey cannot exceed 100 characters."));
+            hasIdempotencyError = true;
+        }
 
         if (request.BranchId == Guid.Empty)
-            errors.Add(new ApiErrorDetailDto("BranchId", ErrorMessages.InvalidBranchId));
+            errors.Add(new ApiErrorDetailDto("branch_id", ErrorMessages.InvalidBranchId));
 
         if (request.ProductId == Guid.Empty)
-            errors.Add(new ApiErrorDetailDto("ProductId", "ProductId is required."));
+            errors.Add(new ApiErrorDetailDto("product_id", "ProductId is required."));
 
         var upsertDto = new UpsertReorderRuleRequest(
             request.ReorderPointBase,
@@ -1005,7 +1026,7 @@ public class CanonicalCatalogService : ICanonicalCatalogService
             request.IdempotencyKey);
 
         var validatorErrors = UpsertReorderRuleRequestValidator.Validate(upsertDto);
-        errors.AddRange(validatorErrors);
+        errors.AddRange(hasIdempotencyError ? validatorErrors.Where(e => e.Field != "idempotency_key") : validatorErrors);
 
         return errors;
     }

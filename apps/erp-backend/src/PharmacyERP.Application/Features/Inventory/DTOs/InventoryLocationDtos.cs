@@ -6,13 +6,13 @@ public record CreateInventoryLocationRequest(
     string Name,
     LocationType LocationType,
     bool IsSellable,
-    string IdempotencyKey);
+    string? IdempotencyKey = null);
 
 public record UpdateInventoryLocationRequest(
     string? Name,
     bool? IsSellable,
     bool? IsActive,
-    string IdempotencyKey);
+    string? IdempotencyKey = null);
 
 public record InventoryLocationDto(
     Guid LocationId,

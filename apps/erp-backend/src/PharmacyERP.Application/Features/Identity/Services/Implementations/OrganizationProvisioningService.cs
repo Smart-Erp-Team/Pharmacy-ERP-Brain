@@ -16,6 +16,7 @@ public sealed class OrganizationProvisioningService : IOrganizationProvisioningS
     private readonly IUnitOfWork _unitOfWork;
     private readonly IAuditLogger _audit;
     private readonly IOutboxService _outbox;
+    private readonly IIdempotencyService _idempotency;
     private readonly ITenantContext _tenant;
     private readonly ICurrentUser _currentUser;
     private readonly IDateTimeProvider _clock;
@@ -23,11 +24,11 @@ public sealed class OrganizationProvisioningService : IOrganizationProvisioningS
     public OrganizationProvisioningService(IOrganizationRepository organizations, IBranchRepository branches,
         IEmployeeRepository employees, IUserAccountRepository users, IGenericRepository<OutboxEventCursor> cursors,
         IPasswordHasherService passwords, IBranchDefaultLocationSeeder locationSeeder, IUnitOfWork unitOfWork,
-        IAuditLogger audit, IOutboxService outbox, ITenantContext tenant, ICurrentUser currentUser, IDateTimeProvider clock)
+        IAuditLogger audit, IOutboxService outbox, IIdempotencyService idempotency, ITenantContext tenant, ICurrentUser currentUser, IDateTimeProvider clock)
     {
         _organizations = organizations; _branches = branches; _employees = employees; _users = users; _cursors = cursors;
         _passwords = passwords; _locationSeeder = locationSeeder; _unitOfWork = unitOfWork; _audit = audit;
-        _outbox = outbox; _tenant = tenant; _currentUser = currentUser; _clock = clock;
+        _outbox = outbox; _idempotency = idempotency; _tenant = tenant; _currentUser = currentUser; _clock = clock;
     }
 
     public async Task<Result<OrganizationDto>> CreateAsync(CreateOrganizationRequest request, CancellationToken ct = default)
@@ -35,24 +36,36 @@ public sealed class OrganizationProvisioningService : IOrganizationProvisioningS
         if (!string.Equals(_currentUser.Role, "PlatformProvisioner", StringComparison.Ordinal))
             return IdentityResults.Failure<OrganizationDto>(ErrorCode.FORBIDDEN, "Only a platform provisioner may create organizations.");
 
+        if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
+            return IdentityResults.MissingIdempotencyKey<OrganizationDto>();
+
+        var idempotencyKey = request.IdempotencyKey.Trim();
+        if (idempotencyKey.Length > 100)
+            return IdentityResults.Failure<OrganizationDto>(
+                ErrorCode.VALIDATION_ERROR,
+                ErrorMessages.ValidationError,
+                new[] { new ApiErrorDetailDto("idempotency_key", "IdempotencyKey cannot exceed 100 characters.") });
+
+        var normalizedRequest = request with { IdempotencyKey = idempotencyKey };
+
         Organization organization;
         Branch branch;
         Employee employee;
         UserAccount admin;
         try
         {
-            organization = Organization.Create(request.OrganizationCode, request.Name, request.BaseCurrency, request.TimeZoneId, request.Address.ToValueObject());
-            branch = Branch.Create(organization.OrganizationId, request.InitialBranch.BranchCode, request.InitialBranch.Name, request.InitialBranch.Address.ToValueObject());
+            organization = Organization.Create(normalizedRequest.OrganizationCode, normalizedRequest.Name, normalizedRequest.BaseCurrency, normalizedRequest.TimeZoneId, normalizedRequest.Address.ToValueObject());
+            branch = Branch.Create(organization.OrganizationId, normalizedRequest.InitialBranch.BranchCode, normalizedRequest.InitialBranch.Name, normalizedRequest.InitialBranch.Address.ToValueObject());
             employee = Employee.Create(organization.OrganizationId, branch.BranchId,
-                request.InitialEmployee.EmployeeNo, request.InitialEmployee.FullName, request.InitialEmployee.Email,
-                request.InitialEmployee.Phone, request.InitialEmployee.JobTitle, request.InitialEmployee.Address.ToValueObject(), request.InitialEmployee.HiredOn);
+                normalizedRequest.InitialEmployee.EmployeeNo, normalizedRequest.InitialEmployee.FullName, normalizedRequest.InitialEmployee.Email,
+                normalizedRequest.InitialEmployee.Phone, normalizedRequest.InitialEmployee.JobTitle, normalizedRequest.InitialEmployee.Address.ToValueObject(), normalizedRequest.InitialEmployee.HiredOn);
             admin = UserAccount.Create(organization.OrganizationId, employee.EmployeeId,
-                request.InitialAdmin.Username, "pending-hash", UserRole.Admin, BranchScope.ALL);
-            admin.UpdatePasswordHash(_passwords.HashPassword(admin, request.InitialAdmin.Password), _clock.UtcNow);
+                normalizedRequest.InitialAdmin.Username, "pending-hash", UserRole.Admin, BranchScope.ALL);
+            admin.UpdatePasswordHash(_passwords.HashPassword(admin, normalizedRequest.InitialAdmin.Password), _clock.UtcNow);
         }
         catch (Exception exception) when (exception is ArgumentException or PharmacyERP.Domain.Exceptions.IdentityDomainException)
         {
-            return IdentityResults.Failure<OrganizationDto>(ErrorCode.VALIDATION_ERROR, exception.Message);
+            return IdentityResults.ValidationFailure<OrganizationDto>(exception);
         }
 
         try
@@ -63,7 +76,23 @@ public sealed class OrganizationProvisioningService : IOrganizationProvisioningS
             bool exists;
             try
             {
-                exists = await _organizations.ExistsByCodeAsync(request.OrganizationCode, ct);
+                try
+                {
+                    var idempotencyCheck = await _idempotency.CheckGlobalAsync<CreateOrganizationRequest, OrganizationDto>(
+                        "identity.organization.create", idempotencyKey, normalizedRequest, ct);
+                    if (idempotencyCheck.IsReplay && idempotencyCheck.ReplayedResponse is not null)
+                    {
+                        await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                        return Result<OrganizationDto>.Success(idempotencyCheck.ReplayedResponse);
+                    }
+                }
+                catch (IntegrationDomainException ex) when (string.Equals(ex.Message, "IDEMPOTENCY_MISMATCH", StringComparison.OrdinalIgnoreCase))
+                {
+                    await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+                    return IdentityResults.Failure<OrganizationDto>(ErrorCode.IDEMPOTENCY_MISMATCH, ErrorMessages.IdempotencyMismatch);
+                }
+
+                exists = await _organizations.ExistsByCodeAsync(normalizedRequest.OrganizationCode, ct);
             }
             catch
             {
@@ -89,10 +118,22 @@ public sealed class OrganizationProvisioningService : IOrganizationProvisioningS
                 branch.BranchId, AuditActorType.SYSTEM, ct: ct);
             await _outbox.EnqueueAsync("identity.organization.created", branch.BranchId,
                 new { organization.OrganizationId, organization.OrganizationCode, branch.BranchId }, ct: ct);
+
+            var dto = new OrganizationDto(
+                organization.OrganizationId,
+                organization.OrganizationCode,
+                organization.Name,
+                organization.BaseCurrency,
+                organization.TimeZoneId,
+                branch.BranchId,
+                employee.EmployeeId,
+                admin.UserId,
+                EnrollmentSetupState: "PENDING");
+            await _idempotency.PersistResponseAsync("identity.organization.create", idempotencyKey, null, normalizedRequest, dto, ct);
+
             await _unitOfWork.CommitTransactionAsync(ct);
 
-            return Result<OrganizationDto>.Success(new OrganizationDto(organization.OrganizationId, organization.OrganizationCode,
-                organization.Name, organization.BaseCurrency, organization.TimeZoneId, branch.BranchId, employee.EmployeeId, admin.UserId));
+            return Result<OrganizationDto>.Success(dto);
         }
         catch
         {
@@ -102,8 +143,65 @@ public sealed class OrganizationProvisioningService : IOrganizationProvisioningS
     }
 }
 
+internal sealed record IdempotencyVoidResult(bool Completed);
+
 internal static class IdentityResults
 {
-    public static Result<T> Failure<T>(ErrorCode code, string message) => Result<T>.Failure(code, message);
-    public static Result Failure(ErrorCode code, string message) => Result.Failure(code, message);
+    public static Result<T> Failure<T>(ErrorCode code, string message, IReadOnlyList<ApiErrorDetailDto>? details = null)
+        => Result<T>.Failure(code, message, details);
+
+    public static Result Failure(ErrorCode code, string message, IReadOnlyList<ApiErrorDetailDto>? details = null)
+        => Result.Failure(code, message, details);
+
+    public static Result<T> ValidationFailure<T>(Exception exception)
+    {
+        var field = ResolveFieldName(exception);
+        return Result<T>.Failure(
+            ErrorCode.VALIDATION_ERROR,
+            exception.Message,
+            new[] { new ApiErrorDetailDto(field, exception.Message) });
+    }
+
+    public static IReadOnlyList<ApiErrorDetailDto> ValidatePagination(int page, int pageSize)
+    {
+        var errors = new List<ApiErrorDetailDto>();
+        if (page < 1)
+            errors.Add(new ApiErrorDetailDto("page", "Page must be at least 1."));
+        if (pageSize is < 1 or > 200)
+            errors.Add(new ApiErrorDetailDto("page_size", "PageSize must be between 1 and 200."));
+        return errors;
+    }
+
+    public static Result<T> MissingIdempotencyKey<T>()
+        => Result<T>.Failure(
+            ErrorCode.MALFORMED_REQUEST,
+            ErrorMessages.MalformedRequest,
+            new[] { new ApiErrorDetailDto("Idempotency-Key", ErrorMessages.InvalidIdempotencyKey) });
+
+    public static Result MissingIdempotencyKey()
+        => Result.Failure(
+            ErrorCode.MALFORMED_REQUEST,
+            ErrorMessages.MalformedRequest,
+            new[] { new ApiErrorDetailDto("Idempotency-Key", ErrorMessages.InvalidIdempotencyKey) });
+
+    private static string ResolveFieldName(Exception exception)
+    {
+        if (exception is InvalidBranchScopeForRoleException)
+        {
+            return "branch_scope";
+        }
+
+        if (exception is ArgumentException argumentException && !string.IsNullOrWhiteSpace(argumentException.ParamName))
+        {
+            var paramName = argumentException.ParamName;
+            if (string.Equals(paramName, "scope", StringComparison.OrdinalIgnoreCase))
+            {
+                return "branch_scope";
+            }
+
+            return JsonNamingPolicy.SnakeCaseLower.ConvertName(paramName);
+        }
+
+        return "request";
+    }
 }

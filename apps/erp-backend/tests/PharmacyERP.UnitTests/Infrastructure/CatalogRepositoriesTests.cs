@@ -257,17 +257,17 @@ public class CatalogRepositoriesTests
         await context.SaveChangesAsync();
         context.ChangeTracker.Clear();
 
-        // 1. PageSize exceeding MaxPageSize (100) is clamped to 100
+        // 1. PageSize exceeding MaxPageSize (200) is clamped to 200
         var clampedResult = await repository.GetPagedAsync(orgId, categoryId: null, includeInactive: true, search: null, page: 1, pageSize: 500);
-        Assert.Equal(100, clampedResult.PageSize);
+        Assert.Equal(200, clampedResult.PageSize);
         Assert.Equal(1, clampedResult.Page);
 
-        // 2. Non-positive PageSize (0 or negative) defaults to DefaultPageSize (10)
+        // 2. Non-positive PageSize (0 or negative) defaults to DefaultPageSize (25)
         var defaultZeroResult = await repository.GetPagedAsync(orgId, categoryId: null, includeInactive: true, search: null, page: 1, pageSize: 0);
-        Assert.Equal(10, defaultZeroResult.PageSize);
+        Assert.Equal(25, defaultZeroResult.PageSize);
 
         var defaultNegResult = await repository.GetPagedAsync(orgId, categoryId: null, includeInactive: true, search: null, page: 1, pageSize: -5);
-        Assert.Equal(10, defaultNegResult.PageSize);
+        Assert.Equal(25, defaultNegResult.PageSize);
 
         // 3. Invalid page (< 1) defaults to 1
         var invalidPageResult = await repository.GetPagedAsync(orgId, categoryId: null, includeInactive: true, search: null, page: -2, pageSize: 20);
@@ -405,17 +405,17 @@ public class CatalogRepositoriesTests
         await context.SaveChangesAsync();
         context.ChangeTracker.Clear();
 
-        // 1. PageSize exceeding MaxPageSize (100) is clamped to 100
+        // 1. PageSize exceeding MaxPageSize (200) is clamped to 200
         var clampedResult = await repository.GetPagedAsync(orgId, parentCategoryId: null, includeInactive: true, search: null, page: 1, pageSize: 250);
-        Assert.Equal(100, clampedResult.PageSize);
+        Assert.Equal(200, clampedResult.PageSize);
         Assert.Equal(1, clampedResult.Page);
 
-        // 2. Non-positive PageSize (0 or negative) defaults to DefaultPageSize (10)
+        // 2. Non-positive PageSize (0 or negative) defaults to DefaultPageSize (25)
         var defaultZeroResult = await repository.GetPagedAsync(orgId, parentCategoryId: null, includeInactive: true, search: null, page: 1, pageSize: 0);
-        Assert.Equal(10, defaultZeroResult.PageSize);
+        Assert.Equal(25, defaultZeroResult.PageSize);
 
         var defaultNegResult = await repository.GetPagedAsync(orgId, parentCategoryId: null, includeInactive: true, search: null, page: 1, pageSize: -10);
-        Assert.Equal(10, defaultNegResult.PageSize);
+        Assert.Equal(25, defaultNegResult.PageSize);
 
         // 3. Invalid page (< 1) defaults to 1
         var invalidPageResult = await repository.GetPagedAsync(orgId, parentCategoryId: null, includeInactive: true, search: null, page: 0, pageSize: 15);

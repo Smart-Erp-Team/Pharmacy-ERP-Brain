@@ -19,6 +19,7 @@ public sealed class IdentityApplicationServiceTests
         var unitOfWork = NewUnitOfWorkMock();
         var audit = new Mock<IAuditLogger>();
         var outbox = new Mock<IOutboxService>();
+        var idempotency = new PassThroughIdempotencyService();
         var tenant = new TenantContext();
         var currentUser = new Mock<ICurrentUser>();
         var clock = new Mock<IDateTimeProvider>();
@@ -46,11 +47,12 @@ public sealed class IdentityApplicationServiceTests
         var service = new OrganizationProvisioningService(
             organizations.Object, branches.Object, employees.Object, users.Object, cursors.Object,
             passwordHasher.Object, locationSeeder.Object, unitOfWork.Object, audit.Object, outbox.Object,
-            tenant, currentUser.Object, clock.Object);
+            idempotency, tenant, currentUser.Object, clock.Object);
 
         var result = await service.CreateAsync(ValidOrganizationRequest());
 
         Assert.True(result.IsSuccess);
+        Assert.Equal("PENDING", result.Value!.EnrollmentSetupState);
         Assert.NotNull(createdOrganization);
         Assert.NotNull(createdCursor);
         Assert.Equal(createdOrganization.OrganizationId, createdCursor.OrganizationId);
@@ -78,6 +80,7 @@ public sealed class IdentityApplicationServiceTests
         var unitOfWork = NewUnitOfWorkMock();
         var audit = new Mock<IAuditLogger>();
         var outbox = new Mock<IOutboxService>();
+        var idempotency = new PassThroughIdempotencyService();
         var tenant = new TenantContext();
         var currentUser = new Mock<ICurrentUser>();
         var clock = new Mock<IDateTimeProvider>();
@@ -95,7 +98,7 @@ public sealed class IdentityApplicationServiceTests
         var service = new OrganizationProvisioningService(
             organizations.Object, branches.Object, employees.Object, users.Object, cursors.Object,
             passwordHasher.Object, locationSeeder.Object, unitOfWork.Object, audit.Object, outbox.Object,
-            tenant, currentUser.Object, clock.Object);
+            idempotency, tenant, currentUser.Object, clock.Object);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateAsync(ValidOrganizationRequest()));
 
@@ -160,6 +163,7 @@ public sealed class IdentityApplicationServiceTests
         var unitOfWork = NewUnitOfWorkMock();
         var audit = new Mock<IAuditLogger>();
         var outbox = new Mock<IOutboxService>();
+        var idempotency = new PassThroughIdempotencyService();
         var tenant = new TenantContext();
         tenant.SetTenant(organizationId);
         var currentUser = new Mock<ICurrentUser>();
@@ -175,10 +179,10 @@ public sealed class IdentityApplicationServiceTests
         outbox.SetReturnsDefault(Task.CompletedTask);
 
         var service = new UserService(users.Object, employees.Object, branches.Object, tokens.Object, passwordHasher.Object,
-            unitOfWork.Object, audit.Object, outbox.Object, tenant, currentUser.Object, clock.Object,
+            unitOfWork.Object, audit.Object, outbox.Object, idempotency, tenant, currentUser.Object, clock.Object,
             new UserManagementAuthorizer(currentUser.Object));
 
-        var result = await service.ResetPasswordAsync(user.UserId, new ResetPasswordRequest { NewPassword = "NewPassword123!" });
+        var result = await service.ResetPasswordAsync(user.UserId, new ResetPasswordRequest { NewPassword = "NewPassword123!", IdempotencyKey = "reset-1" });
 
         Assert.True(result.IsSuccess);
         Assert.Equal("new-password-hash", user.PasswordHash);
@@ -210,6 +214,7 @@ public sealed class IdentityApplicationServiceTests
         var unitOfWork = NewUnitOfWorkMock();
         var audit = new Mock<IAuditLogger>();
         var outbox = new Mock<IOutboxService>();
+        var idempotency = new PassThroughIdempotencyService();
         var tenant = new TenantContext();
         tenant.SetTenant(organizationId);
         var currentUser = new Mock<ICurrentUser>();
@@ -225,7 +230,7 @@ public sealed class IdentityApplicationServiceTests
         users.Setup(x => x.GetByIdWithAccessAsync(organizationId, owner.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(owner);
 
         var service = new UserService(users.Object, employees.Object, branches.Object, tokens.Object, passwordHasher.Object,
-            unitOfWork.Object, audit.Object, outbox.Object, tenant, currentUser.Object, clock.Object,
+            unitOfWork.Object, audit.Object, outbox.Object, idempotency, tenant, currentUser.Object, clock.Object,
             new UserManagementAuthorizer(currentUser.Object));
 
         // 1. Self-promotion to ALL scope is forbidden
@@ -233,13 +238,14 @@ public sealed class IdentityApplicationServiceTests
         {
             Role = UserRole.Admin,
             BranchScope = BranchScope.ALL,
-            BranchIds = Array.Empty<Guid>()
+            BranchIds = Array.Empty<Guid>(),
+            IdempotencyKey = "self-promote-1"
         });
         Assert.False(selfPromote.IsSuccess);
         Assert.Equal(ErrorCode.FORBIDDEN, selfPromote.ErrorCode);
 
         // 2. Taking over org owner via password reset is forbidden
-        var ownerReset = await service.ResetPasswordAsync(owner.UserId, new ResetPasswordRequest { NewPassword = "AttackerPassword123!" });
+        var ownerReset = await service.ResetPasswordAsync(owner.UserId, new ResetPasswordRequest { NewPassword = "AttackerPassword123!", IdempotencyKey = "owner-reset-1" });
         Assert.False(ownerReset.IsSuccess);
         Assert.Equal(ErrorCode.FORBIDDEN, ownerReset.ErrorCode);
 
@@ -249,13 +255,14 @@ public sealed class IdentityApplicationServiceTests
             Role = UserRole.Admin,
             BranchScope = BranchScope.ALL,
             BranchIds = Array.Empty<Guid>(),
-            IsActive = false
+            IsActive = false,
+            IdempotencyKey = "owner-deactivate-1"
         });
         Assert.False(ownerDeactivate.IsSuccess);
         Assert.Equal(ErrorCode.FORBIDDEN, ownerDeactivate.ErrorCode);
 
         // 4. Revoking org owner sessions is forbidden
-        var ownerRevoke = await service.RevokeSessionsAsync(owner.UserId);
+        var ownerRevoke = await service.RevokeSessionsAsync(owner.UserId, "owner-revoke-1");
         Assert.False(ownerRevoke.IsSuccess);
         Assert.Equal(ErrorCode.FORBIDDEN, ownerRevoke.ErrorCode);
 
@@ -283,6 +290,7 @@ public sealed class IdentityApplicationServiceTests
         var unitOfWork = NewUnitOfWorkMock();
         var audit = new Mock<IAuditLogger>();
         var outbox = new Mock<IOutboxService>();
+        var idempotency = new PassThroughIdempotencyService();
         var tenant = new TenantContext();
         tenant.SetTenant(organizationId);
         var currentUser = new Mock<ICurrentUser>();
@@ -301,19 +309,80 @@ public sealed class IdentityApplicationServiceTests
         outbox.SetReturnsDefault(Task.CompletedTask);
 
         var service = new UserService(users.Object, employees.Object, branches.Object, tokens.Object, passwordHasher.Object,
-            unitOfWork.Object, audit.Object, outbox.Object, tenant, currentUser.Object, clock.Object,
+            unitOfWork.Object, audit.Object, outbox.Object, idempotency, tenant, currentUser.Object, clock.Object,
             new UserManagementAuthorizer(currentUser.Object));
 
         var result = await service.UpdateAsync(target.UserId, new UpdateUserRequest
         {
             Role = UserRole.Pharmacist,
             BranchScope = BranchScope.ASSIGNED,
-            BranchIds = new[] { branchA }
+            BranchIds = new[] { branchA },
+            IdempotencyKey = "role-change-1"
         });
 
         Assert.True(result.IsSuccess);
         tokens.Verify(x => x.RevokeAllUserTokensAsync(organizationId, target.UserId, Now, It.IsAny<CancellationToken>()), Times.Once);
         unitOfWork.Verify(x => x.CommitTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public void GetCurrentUser_ReturnsAuthenticatedUsernameFromCurrentUser()
+    {
+        var currentUser = new Mock<ICurrentUser>();
+        currentUser.SetupGet(x => x.IsAuthenticated).Returns(true);
+        currentUser.SetupGet(x => x.UserId).Returns(Guid.NewGuid());
+        currentUser.SetupGet(x => x.EmployeeId).Returns(Guid.NewGuid());
+        currentUser.SetupGet(x => x.OrganizationId).Returns(Guid.NewGuid());
+        currentUser.SetupGet(x => x.Username).Returns("admin@medcare.test");
+        currentUser.SetupGet(x => x.Role).Returns(nameof(UserRole.Admin));
+        currentUser.SetupGet(x => x.BranchScope).Returns(nameof(BranchScope.ALL));
+        currentUser.SetupGet(x => x.AuthorizedBranchIds).Returns(new HashSet<Guid>());
+        currentUser.SetupGet(x => x.Scopes).Returns(new HashSet<string> { "user:admin" });
+
+        var runtimeMode = new Mock<IRuntimeModeProvider>();
+        runtimeMode.SetupGet(x => x.CurrentMode).Returns(ErpRuntimeMode.Cloud);
+
+        var service = new AuthService(
+            new Mock<IOrganizationRepository>().Object,
+            new Mock<IUserAccountRepository>().Object,
+            new Mock<IUserRefreshTokenRepository>().Object,
+            new Mock<IPasswordHasherService>().Object,
+            new Mock<IJwtTokenGenerator>().Object,
+            NewUnitOfWorkMock().Object,
+            new Mock<IAuditLogger>().Object,
+            new Mock<IOutboxService>().Object,
+            new TenantContext(),
+            currentUser.Object,
+            new Mock<IDateTimeProvider>().Object,
+            runtimeMode.Object);
+
+        var result = service.GetCurrentUser();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("admin@medcare.test", result.Value!.Username);
+        Assert.Equal(ErpRuntimeMode.Cloud, result.Value.RuntimeMode);
+    }
+
+    private static Mock<IIdempotencyService> NewIdempotencyMock()
+    {
+        var mock = new Mock<IIdempotencyService>();
+        mock.SetReturnsDefault(Task.CompletedTask);
+        return mock;
+    }
+
+    private sealed class PassThroughIdempotencyService : IIdempotencyService
+    {
+        public Task<IdempotencyCheckResult<TResponse>> CheckAsync<TRequest, TResponse>(
+            string operationScope, string idempotencyKey, Guid? branchId, TRequest requestPayload, CancellationToken ct = default)
+            => Task.FromResult(new IdempotencyCheckResult<TResponse> { IsReplay = false });
+
+        public Task<IdempotencyCheckResult<TResponse>> CheckGlobalAsync<TRequest, TResponse>(
+            string operationScope, string idempotencyKey, TRequest requestPayload, CancellationToken ct = default)
+            => Task.FromResult(new IdempotencyCheckResult<TResponse> { IsReplay = false });
+
+        public Task PersistResponseAsync<TRequest, TResponse>(
+            string operationScope, string idempotencyKey, Guid? branchId, TRequest requestPayload, TResponse responseBody, CancellationToken ct = default)
+            => Task.CompletedTask;
     }
 
     private static Mock<IUnitOfWork> NewUnitOfWorkMock()
@@ -340,7 +409,8 @@ public sealed class IdentityApplicationServiceTests
             HiredOn = new DateOnly(2020, 1, 1),
             Address = AddressDto()
         },
-        InitialAdmin = new CreateUserRequest { Username = "admin", Password = "StrongPassword123!" }
+        InitialAdmin = new CreateUserRequest { Username = "admin", Password = "StrongPassword123!" },
+        IdempotencyKey = "org-prov-1"
     };
 
     private static AddressDto AddressDto() => new()

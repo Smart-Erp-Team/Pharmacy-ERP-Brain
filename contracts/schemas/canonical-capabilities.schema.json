@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CanonicalCapabilities",
+  "type": "object",
+  "required": [
+    "stage",
+    "runtime_mode",
+    "supported_reads",
+    "supported_writes"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "stage": {
+      "type": "integer",
+      "const": 1
+    },
+    "runtime_mode": {
+      "type": "string",
+      "enum": [
+        "Cloud",
+        "BranchLocal"
+      ]
+    },
+    "supported_reads": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "supported_writes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

@@ -1,10 +1,11 @@
-﻿namespace PharmacyERP.Application.Common.Interfaces.Context
+namespace PharmacyERP.Application.Common.Interfaces.Context
 {
     public interface ICurrentUser
     {
         Guid? UserId { get; }
         Guid? EmployeeId { get; }
         Guid? OrganizationId { get; }
+        string? Username { get; }
         string? Role { get; }
         string? BranchScope { get; }
         IReadOnlySet<Guid> AuthorizedBranchIds { get; }

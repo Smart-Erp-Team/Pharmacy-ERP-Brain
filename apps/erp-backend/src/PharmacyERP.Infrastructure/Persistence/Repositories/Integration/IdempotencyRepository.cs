@@ -26,6 +26,18 @@ public class IdempotencyRepository : IIdempotencyRepository
             $"SELECT pg_advisory_xact_lock(hashtextextended({lockKey}, 0));", ct);
     }
 
+    public async Task AcquireGlobalLockAsync(string operationScope, string idempotencyKey, CancellationToken ct = default)
+    {
+        if (!_dbContext.Database.IsRelational())
+        {
+            return;
+        }
+
+        var lockKey = $"global:{operationScope}:{idempotencyKey}";
+        await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({lockKey}, 0));", ct);
+    }
+
     public Task<IdempotencyRecord?> GetAsync(Guid organizationId, Guid? branchId, string operationScope, string idempotencyKey, CancellationToken ct = default)
     {
         var query = _dbContext.IdempotencyRecords
@@ -40,6 +52,16 @@ public class IdempotencyRepository : IIdempotencyRepository
             : query.Where(x => x.BranchId == null);
 
         return query.FirstOrDefaultAsync(ct);
+    }
+
+    public Task<IdempotencyRecord?> FindByScopeAndKeyAsync(string operationScope, string idempotencyKey, CancellationToken ct = default)
+    {
+        return _dbContext.IdempotencyRecords
+            .AsNoTracking()
+            .Where(x => x.BranchId == null
+                     && x.OperationScope == operationScope
+                     && x.IdempotencyKey == idempotencyKey)
+            .FirstOrDefaultAsync(ct);
     }
 
     public async Task AddAsync(IdempotencyRecord record, CancellationToken ct = default)

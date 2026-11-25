@@ -13,11 +13,11 @@ public record CreateInventoryAdjustmentLineRequest(
 public record CreateInventoryAdjustmentRequest(
     Guid BranchId,
     InventoryTransactionType TransactionType,
-    string ReasonCode,
+    string? ReasonCode,
     string? Note,
     Guid? ReversesInventoryTxnId,
-    IReadOnlyList<CreateInventoryAdjustmentLineRequest> Lines,
-    string IdempotencyKey);
+    IReadOnlyList<CreateInventoryAdjustmentLineRequest>? Lines,
+    string? IdempotencyKey = null);
 
 public record InventoryTxnLineDto(
     Guid InventoryTxnLineId,

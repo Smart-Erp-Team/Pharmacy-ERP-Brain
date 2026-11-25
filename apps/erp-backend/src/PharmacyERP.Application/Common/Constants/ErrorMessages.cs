@@ -29,6 +29,7 @@ public static class ErrorMessages
     public const string InvalidBatchDates = "Manufactured date cannot be after the expiration date, or expiration date is missing.";
     public const string NonLotMisuse = "NON-LOT batch cannot be used for products that require lot tracking.";
     public const string CloudStockMutationForbidden = "Inventory adjustments cannot be performed on the Cloud environment. They must be done on the local branch.";
+    public const string CloudOnlyOperationUnavailable = "Cloud-only endpoints are not available on the BranchLocal runtime.";
 
     // The same constant values as ErrorCode enum for easier mapping in service responses
     public const string ForbiddenBranchAccess = ForbiddenBranch;

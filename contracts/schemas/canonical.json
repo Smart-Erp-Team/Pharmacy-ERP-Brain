@@ -1,0 +1,560 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pharmacy-erp.local/contracts/schemas/canonical.json",
+  "title": "Pharmacy ERP \u2014 Canonical Integration Contract (Stage 1)",
+  "description": "Canonical capabilities, product/inventory read feeds, and idempotent catalog/reorder-rule configuration writes matching apps/erp-backend/contracts/openapi.v1.json 100% verbatim.",
+  "$defs": {
+    "CatalogConfigurationAction": {
+      "type": "string",
+      "enum": [
+        "CreateProduct",
+        "UpdateProduct",
+        "AddUom",
+        "UpdateUom",
+        "DeactivateUom"
+      ]
+    },
+    "CanonicalCapabilitiesDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "stage": {
+          "type": "integer",
+          "format": "int32",
+          "const": 1
+        },
+        "runtime_mode": {
+          "$ref": "common.json#/$defs/ErpRuntimeMode"
+        },
+        "supported_reads": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "supported_writes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "CanonicalUomConversionDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "product_uom_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "uom_code": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "conversion_to_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "sale_unit_price": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "is_base": {
+          "type": "boolean"
+        },
+        "is_sellable": {
+          "type": "boolean"
+        },
+        "is_purchasable": {
+          "type": "boolean"
+        },
+        "is_active": {
+          "type": "boolean"
+        }
+      }
+    },
+    "CanonicalProductDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sku": {
+          "type": "string"
+        },
+        "barcode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "category_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "category_name": {
+          "type": "string"
+        },
+        "base_uom_code": {
+          "type": "string"
+        },
+        "tax_rate": {
+          "type": "number",
+          "format": "double"
+        },
+        "lot_tracking_required": {
+          "type": "boolean"
+        },
+        "is_active": {
+          "type": "boolean"
+        },
+        "supported_conversions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CanonicalUomConversionDto"
+          }
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "CanonicalProductFeedPageDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CanonicalProductDto"
+          }
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "CanonicalUomItemDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "uom_code": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "conversion_to_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "sale_unit_price": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "is_base": {
+          "type": "boolean"
+        },
+        "is_sellable": {
+          "type": "boolean"
+        },
+        "is_purchasable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "CanonicalProductConfigurationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "source_prompt_id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Optional when the Idempotency-Key HTTP header is provided (max 100 characters).",
+          "maxLength": 100
+        },
+        "action": {
+          "$ref": "#/$defs/CatalogConfigurationAction"
+        },
+        "product_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "product_uom_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "category_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "sku": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "barcode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "generic_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "brand_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "base_uom_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tax_rate": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "image_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lot_tracking_required": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "expiry_alert_days": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        },
+        "is_active": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "uoms": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/CanonicalUomItemDto"
+          }
+        },
+        "uom_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversion_to_base": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "sale_unit_price": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "is_base": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "is_sellable": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "is_purchasable": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "CanonicalReorderRuleConfigurationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "source_prompt_id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Optional when the Idempotency-Key HTTP header is provided (max 100 characters).",
+          "maxLength": 100
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "reorder_point_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "reorder_quantity_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "max_quantity_base": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "is_active": {
+          "type": "boolean"
+        }
+      }
+    },
+    "CanonicalWriteResultDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "status": {
+          "type": "string"
+        },
+        "target_entity_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "executed_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "CanonicalInventoryLotDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batch_number": {
+          "type": "string"
+        },
+        "quantity_on_hand_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "available_quantity_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "manufactured_on": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "expires_on": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "quality_status": {
+          "$ref": "inventory.json#/$defs/BatchQualityStatus"
+        }
+      }
+    },
+    "CanonicalInventoryItemDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "location_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "base_uom_code": {
+          "type": "string"
+        },
+        "quantity_on_hand_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "available_quantity_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "average_unit_cost_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "reorder_point_base": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "lots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CanonicalInventoryLotDto"
+          }
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "CanonicalInventoryItemDtoPagedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CanonicalInventoryItemDto"
+          }
+        },
+        "page": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "page_size": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "total_count": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

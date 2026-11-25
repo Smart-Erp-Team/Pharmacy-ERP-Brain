@@ -166,8 +166,8 @@ public class InventoryApplicationServicesTests
         typeof(StockBalance).GetProperty(nameof(StockBalance.Location))!.SetValue(scrapBalance, scrapLocation);
         typeof(StockBalance).GetProperty(nameof(StockBalance.Batch))!.SetValue(scrapBalance, batch);
 
-        _stockRepoMock.Setup(s => s.GetBalancesWithDetailsAsync(_orgId, _branchId, productId, null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<StockBalance> { scrapBalance });
+        _stockRepoMock.Setup(s => s.GetPagedBalancesWithDetailsAsync(_orgId, _branchId, productId, null, null, 1, 25, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PagedResult<StockBalance>(new List<StockBalance> { scrapBalance }, 1, 25, 1));
 
         _dateTimeProviderMock.Setup(d => d.GetOrganizationBusinessDate(It.IsAny<string>()))
             .Returns(DateOnly.FromDateTime(DateTime.UtcNow));
@@ -177,38 +177,91 @@ public class InventoryApplicationServicesTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        Assert.Single(result.Value!);
-        Assert.Equal(20m, result.Value![0].OnHandQtyBase);
-        Assert.Equal(0m, result.Value[0].AvailableQtyBase); // Scrap area -> Available quantity is zero
+        Assert.Equal(1, result.Value!.TotalCount);
+        Assert.Equal(1, result.Value.Page);
+        Assert.Equal(25, result.Value.PageSize);
+        Assert.Single(result.Value.Items);
+        Assert.Equal(20m, result.Value.Items[0].OnHandQtyBase);
+        Assert.Equal(0m, result.Value.Items[0].AvailableQtyBase); // Scrap area -> Available quantity is zero
+        Assert.Equal(scrapBalance.RowVersion, result.Value.Items[0].RowVersion);
     }
 
     [Fact]
-    public async Task PostAdjustmentAsync_OpeningBalance_NonAdminReturnsForbidden()
+    public async Task GetTransactionsAsync_CashierReturnsForbidden_WhileAdminAndPharmacistAreAllowed()
     {
-        _currentUserMock.Setup(u => u.Role).Returns(UserRole.Pharmacist.ToString());
+        var queryService = new InventoryQueryService(
+            _stockRepoMock.Object, _txnRepoMock.Object, _batchRepoMock.Object, _unitOfWorkMock.Object,
+            _tenantContextMock.Object, _currentUserMock.Object, _dateTimeProviderMock.Object);
 
+        _txnRepoMock.Setup(t => t.GetPagedAsync(_orgId, _branchId, null, null, null, null, 1, 25, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PagedResult<InventoryTxn>(Array.Empty<InventoryTxn>(), 1, 25, 0));
+
+        _currentUserMock.Setup(u => u.Role).Returns(UserRole.Cashier.ToString());
+        var cashierResult = await queryService.GetTransactionsAsync(_branchId, null, null, null, null, 1, 25);
+        Assert.False(cashierResult.IsSuccess);
+        Assert.Equal(ErrorCode.FORBIDDEN, cashierResult.ErrorCode);
+
+        _currentUserMock.Setup(u => u.Role).Returns(UserRole.Pharmacist.ToString());
+        var pharmacistResult = await queryService.GetTransactionsAsync(_branchId, null, null, null, null, 1, 25);
+        Assert.True(pharmacistResult.IsSuccess);
+
+        _currentUserMock.Setup(u => u.Role).Returns(UserRole.Admin.ToString());
+        var adminResult = await queryService.GetTransactionsAsync(_branchId, null, null, null, null, 1, 25);
+        Assert.True(adminResult.IsSuccess);
+    }
+
+    [Fact]
+    public async Task PostAdjustmentAsync_OpeningBalance_PharmacistIsAllowedPerBlueprint91_AndCashierReturnsForbidden()
+    {
         var service = new InventoryAdjustmentService(
             _txnRepoMock.Object, _stockRepoMock.Object, _batchRepoMock.Object, _locationRepoMock.Object,
             _tenantContextMock.Object, _currentUserMock.Object, _runtimeModeMock.Object,
             _dateTimeProviderMock.Object, _unitOfWorkMock.Object, _idempotencyMock.Object,
             _outboxMock.Object, _auditLoggerMock.Object);
 
-        var request = new CreateInventoryAdjustmentRequest(
+        var productId = Guid.NewGuid();
+        var uomId = Guid.NewGuid();
+        var location = InventoryLocation.CreateDefaultSellable(_orgId, _branchId, DateTimeOffset.UtcNow);
+        var batch = InventoryBatch.CreateNonLotSystemBatch(_orgId, productId);
+        var initialBalance = StockBalance.CreateInitial(_orgId, location.LocationId, batch.BatchId, 0m, 0m, DateTimeOffset.UtcNow);
+
+        _locationRepoMock.Setup(l => l.GetByIdsAsync(_orgId, _branchId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<InventoryLocation> { location });
+        _batchRepoMock.Setup(b => b.GetOrCreateBatchesAsync(
+                _orgId,
+                It.IsAny<IReadOnlyCollection<(Guid ProductId, string BatchNumber, DateOnly? ExpiresOn, DateOnly? ManufacturedOn)>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, InventoryBatch> { [batch.BatchId] = batch });
+        _stockRepoMock.Setup(s => s.GetOrCreateForUpdateBatchAsync(
+                _orgId,
+                It.IsAny<IReadOnlyCollection<(Guid LocationId, Guid BatchId)>>(),
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<(Guid LocationId, Guid BatchId), StockBalance> { [(location.LocationId, batch.BatchId)] = initialBalance });
+
+        // Pharmacist is allowed on OPENING_BALANCE per Blueprint §9.1
+        _currentUserMock.Setup(u => u.Role).Returns(UserRole.Pharmacist.ToString());
+        var pharmacistRequest = new CreateInventoryAdjustmentRequest(
             _branchId,
             InventoryTransactionType.OPENING_BALANCE,
             "INIT",
-            "Opening Stock",
+            "Opening Stock by Pharmacist",
             null,
             new List<CreateInventoryAdjustmentLineRequest>
             {
-                new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "NON-LOT", null, null, 10m, 15m)
+                new(productId, uomId, location.LocationId, "NON-LOT", null, null, 10m, 15m)
             },
-            "IDEM-OPENING-FORBIDDEN");
+            "IDEM-OPENING-PHARM");
 
-        var result = await service.PostAdjustmentAsync(request);
+        var pharmacistResult = await service.PostAdjustmentAsync(pharmacistRequest);
+        Assert.True(pharmacistResult.IsSuccess);
+        Assert.Equal(InventoryTransactionStatus.POSTED, pharmacistResult.Value!.Status);
 
-        Assert.False(result.IsSuccess);
-        Assert.Equal(ErrorCode.FORBIDDEN, result.ErrorCode);
+        // Cashier is denied with FORBIDDEN
+        _currentUserMock.Setup(u => u.Role).Returns(UserRole.Cashier.ToString());
+        var cashierResult = await service.PostAdjustmentAsync(pharmacistRequest with { IdempotencyKey = "IDEM-OPENING-CASHIER" });
+        Assert.False(cashierResult.IsSuccess);
+        Assert.Equal(ErrorCode.FORBIDDEN, cashierResult.ErrorCode);
     }
 
     [Fact]
@@ -346,5 +399,98 @@ public class InventoryApplicationServicesTests
         Assert.False(result.IsSuccess);
         Assert.Equal(ErrorCode.NOT_FOUND, result.ErrorCode);
         _unitOfWorkMock.Verify(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task PostAdjustmentAsync_MultiUomInput_NormalizesLedgerLineToBaseUomPerBlueprint8912()
+    {
+        var uomRepoMock = new Mock<IProductUomRepository>();
+        var productRepoMock = new Mock<IProductRepository>();
+        InventoryTxn? capturedTxn = null;
+        _txnRepoMock.Setup(t => t.AddAsync(It.IsAny<InventoryTxn>(), It.IsAny<CancellationToken>()))
+            .Callback<InventoryTxn, CancellationToken>((txn, _) => capturedTxn = txn)
+            .Returns(Task.CompletedTask);
+
+        var service = new InventoryAdjustmentService(
+            _txnRepoMock.Object, _stockRepoMock.Object, _batchRepoMock.Object, _locationRepoMock.Object,
+            _tenantContextMock.Object, _currentUserMock.Object, _runtimeModeMock.Object,
+            _dateTimeProviderMock.Object, _unitOfWorkMock.Object, _idempotencyMock.Object,
+            _outboxMock.Object, _auditLoggerMock.Object,
+            productUomRepo: uomRepoMock.Object, productRepo: productRepoMock.Object);
+
+        var product = Product.Create(
+            _orgId,
+            Guid.NewGuid(),
+            "MED-AUG-1000",
+            null,
+            "Augmentin 1g",
+            null,
+            null,
+            "TAB",
+            0m,
+            null,
+            true,
+            30,
+            new[] { new InitialUomDefinition("TAB", "Tablet", 1m, 10.50m, true, true, true) });
+        var baseUom = product.Uoms.Single(u => u.IsBase);
+        var boxUom = product.AddUom("BOX", "Box of 14", 14m, 138.00m, false, true, true);
+
+        var location = InventoryLocation.CreateDefaultSellable(_orgId, _branchId, DateTimeOffset.UtcNow);
+        var expiresOn = new DateOnly(2027, 1, 28);
+        var batch = InventoryBatch.CreateDatedBatch(_orgId, product.ProductId, "LOT-2601", expiresOn);
+        var stockBalance = StockBalance.CreateInitial(_orgId, location.LocationId, batch.BatchId, 0m, 0m, DateTimeOffset.UtcNow);
+
+        _locationRepoMock.Setup(l => l.GetByIdsAsync(_orgId, _branchId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<InventoryLocation> { location });
+        productRepoMock.Setup(p => p.GetByIdsAsync(_orgId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Product> { product });
+        uomRepoMock.Setup(u => u.GetByIdsAsync(_orgId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ProductUom> { boxUom });
+        uomRepoMock.Setup(u => u.GetActiveBaseUomsByProductIdsAsync(_orgId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ProductUom> { baseUom });
+        _batchRepoMock.Setup(b => b.GetOrCreateBatchesAsync(
+                _orgId,
+                It.IsAny<IReadOnlyCollection<(Guid ProductId, string BatchNumber, DateOnly? ExpiresOn, DateOnly? ManufacturedOn)>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, InventoryBatch> { [batch.BatchId] = batch });
+        _stockRepoMock.Setup(s => s.GetOrCreateForUpdateBatchAsync(
+                _orgId,
+                It.IsAny<IReadOnlyCollection<(Guid LocationId, Guid BatchId)>>(),
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<(Guid LocationId, Guid BatchId), StockBalance> { [(location.LocationId, batch.BatchId)] = stockBalance });
+
+        // Caller submits 2 Boxes (14 Tabs/Box) at 100.80/Box -> 28 Tabs at 7.20/Tab
+        var request = new CreateInventoryAdjustmentRequest(
+            _branchId,
+            InventoryTransactionType.ADJUSTMENT_IN,
+            "COUNT",
+            "Multi-UOM restock",
+            null,
+            new List<CreateInventoryAdjustmentLineRequest>
+            {
+                new(product.ProductId, boxUom.ProductUomId, location.LocationId, "LOT-2601", null, expiresOn, 2m, 100.80m)
+            },
+            "IDEM-MULTI-UOM");
+
+        var result = await service.PostAdjustmentAsync(request);
+
+        Assert.True(result.IsSuccess);
+        var responseLine = Assert.Single(result.Value!.Lines);
+        Assert.Equal(baseUom.ProductUomId, responseLine.ProductUomId);
+        Assert.Equal(28m, responseLine.EnteredQty);
+        Assert.Equal(1m, responseLine.ConversionSnapshot);
+        Assert.Equal(28m, responseLine.QuantityDeltaBase);
+        Assert.Equal(7.20m, responseLine.UnitCostBase);
+
+        Assert.NotNull(capturedTxn);
+        var persistedLine = Assert.Single(capturedTxn!.Lines);
+        Assert.Equal(baseUom.ProductUomId, persistedLine.ProductUomId);
+        Assert.Equal(28m, persistedLine.EnteredQty);
+        Assert.Equal(1m, persistedLine.ConversionSnapshot);
+        Assert.Equal(28m, persistedLine.QuantityDeltaBase);
+        Assert.Equal(7.20m, persistedLine.UnitCostBase);
+        Assert.Equal(28m, stockBalance.OnHandQtyBase);
+        Assert.Equal(7.20m, stockBalance.AverageUnitCost);
     }
 }

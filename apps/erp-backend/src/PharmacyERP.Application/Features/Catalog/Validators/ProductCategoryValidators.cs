@@ -7,20 +7,22 @@ public static class CreateProductCategoryRequestValidator
         var errors = new List<ApiErrorDetailDto>();
 
         if (string.IsNullOrWhiteSpace(request.Code))
-            errors.Add(new ApiErrorDetailDto("Code", "Code is required."));
+            errors.Add(new ApiErrorDetailDto("code", "Code is required."));
         else if (request.Code.Length > 30)
-            errors.Add(new ApiErrorDetailDto("Code", "Code cannot exceed 30 characters."));
+            errors.Add(new ApiErrorDetailDto("code", "Code cannot exceed 30 characters."));
 
         if (string.IsNullOrWhiteSpace(request.Name))
-            errors.Add(new ApiErrorDetailDto("Name", "Name is required."));
+            errors.Add(new ApiErrorDetailDto("name", "Name is required."));
         else if (request.Name.Length > 100)
-            errors.Add(new ApiErrorDetailDto("Name", "Name cannot exceed 100 characters."));
+            errors.Add(new ApiErrorDetailDto("name", "Name cannot exceed 100 characters."));
 
         if (request.Description != null && request.Description.Length > 250)
-            errors.Add(new ApiErrorDetailDto("Description", "Description cannot exceed 250 characters."));
+            errors.Add(new ApiErrorDetailDto("description", "Description cannot exceed 250 characters."));
 
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
-            errors.Add(new ApiErrorDetailDto("IdempotencyKey", "IdempotencyKey is required."));
+            errors.Add(new ApiErrorDetailDto("idempotency_key", "IdempotencyKey is required."));
+        else if (request.IdempotencyKey.Length > 100)
+            errors.Add(new ApiErrorDetailDto("idempotency_key", "IdempotencyKey cannot exceed 100 characters."));
 
         return errors;
     }
@@ -32,16 +34,21 @@ public static class UpdateProductCategoryRequestValidator
     {
         var errors = new List<ApiErrorDetailDto>();
 
-        if (string.IsNullOrWhiteSpace(request.Name))
-            errors.Add(new ApiErrorDetailDto("Name", "Name is required."));
-        else if (request.Name.Length > 100)
-            errors.Add(new ApiErrorDetailDto("Name", "Name cannot exceed 100 characters."));
+        if (request.Name != null)
+        {
+            if (string.IsNullOrWhiteSpace(request.Name))
+                errors.Add(new ApiErrorDetailDto("name", "Name cannot be empty."));
+            else if (request.Name.Length > 100)
+                errors.Add(new ApiErrorDetailDto("name", "Name cannot exceed 100 characters."));
+        }
 
         if (request.Description != null && request.Description.Length > 250)
-            errors.Add(new ApiErrorDetailDto("Description", "Description cannot exceed 250 characters."));
+            errors.Add(new ApiErrorDetailDto("description", "Description cannot exceed 250 characters."));
 
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
-            errors.Add(new ApiErrorDetailDto("IdempotencyKey", "IdempotencyKey is required."));
+            errors.Add(new ApiErrorDetailDto("idempotency_key", "IdempotencyKey is required."));
+        else if (request.IdempotencyKey.Length > 100)
+            errors.Add(new ApiErrorDetailDto("idempotency_key", "IdempotencyKey cannot exceed 100 characters."));
 
         return errors;
     }

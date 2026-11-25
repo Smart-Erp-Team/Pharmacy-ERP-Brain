@@ -6,6 +6,10 @@ public sealed class OrganizationRepository : IOrganizationRepository
 
     public OrganizationRepository(PharmacyDbContext db) => _db = db;
 
+    public Task<Organization?> GetByIdAsync(Guid organizationId, CancellationToken ct = default)
+        => _db.Organizations.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.OrganizationId == organizationId, ct);
+
     public Task<Organization?> GetActiveByCodeAsync(string organizationCode, CancellationToken ct = default)
     {
         var code = organizationCode.Trim();

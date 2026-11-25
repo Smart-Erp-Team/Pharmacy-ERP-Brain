@@ -11,13 +11,42 @@ public sealed record RefreshTokenRequest { [Required] public string RefreshToken
 public sealed record LogoutRequest { [Required] public string RefreshToken { get; init; } = string.Empty; }
 
 public sealed record CurrentUserDto(
-    Guid UserId, Guid EmployeeId, Guid OrganizationId, string Username, string Role,
-    string BranchScope, IReadOnlyCollection<Guid> BranchIds, IReadOnlyCollection<string> Scopes);
+    Guid UserId,
+    Guid EmployeeId,
+    Guid OrganizationId,
+    string Username,
+    UserRole Role,
+    BranchScope BranchScope,
+    IReadOnlyCollection<Guid> BranchIds,
+    IReadOnlyCollection<string> Scopes,
+    ErpRuntimeMode RuntimeMode);
 
-public sealed record LoginResponse(string AccessToken, DateTimeOffset AccessTokenExpiresAt, string RefreshToken, CurrentUserDto User);
+public sealed record LoginResponse(
+    string AccessToken,
+    DateTimeOffset AccessTokenExpiresAt,
+    string RefreshToken,
+    CurrentUserDto User,
+    string TokenType,
+    string Issuer,
+    string Audience,
+    string KeyId);
 
 public static class CurrentUserDtoMapper
 {
-    public static CurrentUserDto From(UserAccount user, IReadOnlyCollection<Guid> branchIds, IReadOnlyCollection<string> scopes)
-        => new(user.UserId, user.EmployeeId, user.OrganizationId, user.Username, user.Role.ToString(), user.BranchScope.ToString(), branchIds, scopes);
+    public static CurrentUserDto From(
+        UserAccount user,
+        IReadOnlyCollection<Guid> branchIds,
+        IReadOnlyCollection<string> scopes,
+        BranchScope? effectiveBranchScope = null,
+        ErpRuntimeMode runtimeMode = ErpRuntimeMode.Cloud)
+        => new(
+            user.UserId,
+            user.EmployeeId,
+            user.OrganizationId,
+            user.Username,
+            user.Role,
+            effectiveBranchScope ?? user.BranchScope,
+            branchIds,
+            scopes,
+            runtimeMode);
 }

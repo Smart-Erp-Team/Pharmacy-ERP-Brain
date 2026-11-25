@@ -576,7 +576,7 @@ public class CanonicalCatalogServiceTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal(ErrorCode.VALIDATION_ERROR, result.ErrorCode);
-        Assert.Contains(result.ErrorDetails!, d => d.Field == "LotTrackingRequired");
+        Assert.Contains(result.ErrorDetails!, d => d.Field == "lot_tracking_required");
 
         _unitOfWorkMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
         _nonLotBatchInitializerMock.Verify(n => n.EnsureNonLotBatchExistsAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -597,8 +597,8 @@ public class CanonicalCatalogServiceTests
         var result = await _service.ConfigureProductAsync(request);
 
         Assert.False(result.IsSuccess);
-        Assert.Contains(result.ErrorDetails!, d => d.Field == "TaxRate");
-        Assert.Contains(result.ErrorDetails!, d => d.Field == "ExpiryAlertDays");
+        Assert.Contains(result.ErrorDetails!, d => d.Field == "tax_rate");
+        Assert.Contains(result.ErrorDetails!, d => d.Field == "expiry_alert_days");
     }
 
     // =========================================================================
@@ -840,7 +840,7 @@ public class CanonicalCatalogServiceTests
         );
         var resProduct = await _service.ConfigureProductAsync(productRequest);
         Assert.False(resProduct.IsSuccess);
-        Assert.Equal(ErrorCode.FORBIDDEN, resProduct.ErrorCode);
+        Assert.Equal(ErrorCode.NOT_FOUND, resProduct.ErrorCode);
 
         var reorderRequest = new CanonicalReorderRuleConfigurationRequest(
             RequestId: Guid.NewGuid(), SourcePromptId: "prompt-mode-rule", IdempotencyKey: "k-mode-rule",
@@ -849,7 +849,7 @@ public class CanonicalCatalogServiceTests
         );
         var resRule = await _service.ConfigureReorderRuleAsync(reorderRequest);
         Assert.False(resRule.IsSuccess);
-        Assert.Equal(ErrorCode.FORBIDDEN, resRule.ErrorCode);
+        Assert.Equal(ErrorCode.NOT_FOUND, resRule.ErrorCode);
     }
 
     [Fact]
@@ -874,21 +874,21 @@ public class CanonicalCatalogServiceTests
             Action: CatalogConfigurationAction.UpdateProduct, ProductId: Guid.NewGuid(), Name: "N");
         var resNull = await _service.ConfigureProductAsync(reqNull);
         Assert.False(resNull.IsSuccess);
-        Assert.Contains(resNull.ErrorDetails!, d => d.Field == "SourcePromptId");
+        Assert.Contains(resNull.ErrorDetails!, d => d.Field == "source_prompt_id");
 
         var reqEmpty = new CanonicalProductConfigurationRequest(
             RequestId: Guid.NewGuid(), SourcePromptId: "", IdempotencyKey: "k2",
             Action: CatalogConfigurationAction.UpdateProduct, ProductId: Guid.NewGuid(), Name: "N");
         var resEmpty = await _service.ConfigureProductAsync(reqEmpty);
         Assert.False(resEmpty.IsSuccess);
-        Assert.Contains(resEmpty.ErrorDetails!, d => d.Field == "SourcePromptId");
+        Assert.Contains(resEmpty.ErrorDetails!, d => d.Field == "source_prompt_id");
 
         var reqWs = new CanonicalProductConfigurationRequest(
             RequestId: Guid.NewGuid(), SourcePromptId: "    ", IdempotencyKey: "k3",
             Action: CatalogConfigurationAction.UpdateProduct, ProductId: Guid.NewGuid(), Name: "N");
         var resWs = await _service.ConfigureProductAsync(reqWs);
         Assert.False(resWs.IsSuccess);
-        Assert.Contains(resWs.ErrorDetails!, d => d.Field == "SourcePromptId");
+        Assert.Contains(resWs.ErrorDetails!, d => d.Field == "source_prompt_id");
     }
 
     [Fact]
@@ -908,14 +908,14 @@ public class CanonicalCatalogServiceTests
             Action: CatalogConfigurationAction.UpdateProduct, ProductId: product.ProductId, Name: "N");
         var res101 = await _service.ConfigureProductAsync(req101);
         Assert.False(res101.IsSuccess);
-        Assert.Contains(res101.ErrorDetails!, d => d.Field == "SourcePromptId");
+        Assert.Contains(res101.ErrorDetails!, d => d.Field == "source_prompt_id");
 
         var req100PlusSpace = new CanonicalProductConfigurationRequest(
             RequestId: Guid.NewGuid(), SourcePromptId: new string('p', 100) + " ", IdempotencyKey: "k-100-sp",
             Action: CatalogConfigurationAction.UpdateProduct, ProductId: product.ProductId, Name: "N");
         var res100PlusSpace = await _service.ConfigureProductAsync(req100PlusSpace);
         Assert.False(res100PlusSpace.IsSuccess);
-        Assert.Contains(res100PlusSpace.ErrorDetails!, d => d.Field == "SourcePromptId");
+        Assert.Contains(res100PlusSpace.ErrorDetails!, d => d.Field == "source_prompt_id");
     }
 
     // =========================================================================

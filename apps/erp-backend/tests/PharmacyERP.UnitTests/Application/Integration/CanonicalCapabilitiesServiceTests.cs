@@ -15,7 +15,7 @@ public class CanonicalCapabilitiesServiceTests
     }
 
     [Fact]
-    public void GetCapabilities_WhenModeIsBranchLocal_ReturnsBranchLocalRuntimeMode()
+    public void GetCapabilities_WhenModeIsBranchLocal_ReturnsBranchLocalRuntimeModeWithEmptyCapabilities()
     {
         var runtimeModeProviderMock = new Mock<IRuntimeModeProvider>();
         runtimeModeProviderMock.Setup(x => x.CurrentMode).Returns(ErpRuntimeMode.BranchLocal);
@@ -24,6 +24,8 @@ public class CanonicalCapabilitiesServiceTests
         var result = service.GetCapabilities();
 
         Assert.Equal("BranchLocal", result.RuntimeMode);
+        Assert.Empty(result.SupportedReads);
+        Assert.Empty(result.SupportedWrites);
     }
 
     [Fact]

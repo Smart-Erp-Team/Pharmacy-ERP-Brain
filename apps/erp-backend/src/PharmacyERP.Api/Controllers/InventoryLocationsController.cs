@@ -17,12 +17,16 @@ public class InventoryLocationsController : ControllerBase
 
     [HttpGet]
     [Authorize(Roles = "Admin,Pharmacist,Cashier")]
+    [ProducesResponseType(typeof(PagedResult<InventoryLocationDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> GetLocations(
-        [FromQuery] Guid branchId,
-        [FromQuery] bool? isSellable,
-        [FromQuery] bool includeInactive = false,
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
+        [FromQuery(Name = "branch_id")] Guid branchId,
+        [FromQuery(Name = "is_sellable")] bool? isSellable,
+        [FromQuery(Name = "include_inactive")] bool includeInactive = false,
+        [FromQuery(Name = "page")] int page = 1,
+        [FromQuery(Name = "page_size")] int pageSize = 25,
         CancellationToken ct = default)
     {
         var result = await _locationService.GetPagedAsync(branchId, isSellable, includeInactive, page, pageSize, ct);
@@ -32,6 +36,12 @@ public class InventoryLocationsController : ControllerBase
     [AllowHeaderIdempotencyKey]
     [HttpPost]
     [Authorize(Roles = "Admin,Pharmacist")]
+    [ProducesResponseType(typeof(InventoryLocationDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> CreateLocation(
         [FromBody] CreateInventoryLocationRequest request,
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
@@ -42,15 +52,28 @@ public class InventoryLocationsController : ControllerBase
             return ApiResultMapper.ToErrorResult(this, ErrorCode.MALFORMED_REQUEST, ErrorMessages.MalformedRequest, _currentUser.TraceId);
         }
 
-        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey : request.IdempotencyKey ?? string.Empty;
+        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey.Trim() : request.IdempotencyKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(effectiveKey))
+        {
+            return ApiResultMapper.ToMissingIdempotencyKeyResult(this, _currentUser.TraceId);
+        }
+
         var requestWithKey = request with { IdempotencyKey = effectiveKey };
         var result = await _locationService.CreateAsync(requestWithKey, ct);
-        return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
+        var locationUri = result.IsSuccess ? $"/api/v1/inventory/locations/{result.Value!.LocationId}" : null;
+        return ApiResultMapper.ToCreatedResult(this, result, _currentUser.TraceId, locationUri);
     }
 
     [AllowHeaderIdempotencyKey]
     [HttpPatch("{id:guid}")]
     [Authorize(Roles = "Admin,Pharmacist")]
+    [ProducesResponseType(typeof(InventoryLocationDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> UpdateLocation(
         Guid id,
         [FromBody] UpdateInventoryLocationRequest request,
@@ -62,7 +85,12 @@ public class InventoryLocationsController : ControllerBase
             return ApiResultMapper.ToErrorResult(this, ErrorCode.MALFORMED_REQUEST, ErrorMessages.MalformedRequest, _currentUser.TraceId);
         }
 
-        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey : request.IdempotencyKey ?? string.Empty;
+        var effectiveKey = !string.IsNullOrWhiteSpace(idempotencyKey) ? idempotencyKey.Trim() : request.IdempotencyKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(effectiveKey))
+        {
+            return ApiResultMapper.ToMissingIdempotencyKeyResult(this, _currentUser.TraceId);
+        }
+
         var requestWithKey = request with { IdempotencyKey = effectiveKey };
         var result = await _locationService.UpdateAsync(id, requestWithKey, ct);
         return ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId);
