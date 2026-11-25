@@ -9,6 +9,9 @@ public sealed class BranchesController : ControllerBase
     public BranchesController(IBranchService service, ICurrentUser currentUser) { _service = service; _currentUser = currentUser; }
 
     [Authorize, HttpGet("branches")]
+    [ProducesResponseType(typeof(PagedResult<BranchDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> GetPaged(
         [FromQuery(Name = "include_inactive")] bool includeInactive = false,
         [FromQuery(Name = "search")] string? search = null,
@@ -19,6 +22,13 @@ public sealed class BranchesController : ControllerBase
 
     [AllowHeaderIdempotencyKey]
     [Authorize(Policy = "OrgAdminOnly"), HttpPost("branches")]
+    [ProducesResponseType(typeof(BranchDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> Create(
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
         [FromBody] CreateBranchRequest request,
@@ -41,11 +51,22 @@ public sealed class BranchesController : ControllerBase
     }
 
     [Authorize, HttpGet("branches/{id:guid}")]
+    [ProducesResponseType(typeof(BranchDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById(Guid id, CancellationToken ct)
         => ApiResultMapper.ToActionResult(this, await _service.GetByIdAsync(id, ct), _currentUser.TraceId);
 
     [AllowHeaderIdempotencyKey]
     [Authorize(Policy = "AdminOnly"), HttpPatch("branches/{id:guid}")]
+    [ProducesResponseType(typeof(BranchDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> Update(
         Guid id,
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
@@ -68,6 +89,13 @@ public sealed class BranchesController : ControllerBase
     }
 
     [Authorize(Policy = "AdminOnly"), HttpPost("branches/{branchId:guid}/enrollment-tokens")]
+    [ProducesResponseType(typeof(EnrollmentTokenResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> IssueEnrollmentToken(
         Guid branchId,
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
@@ -85,6 +113,11 @@ public sealed class BranchesController : ControllerBase
     }
 
     [AllowAnonymous, HttpPost("branch-enrollment")]
+    [ProducesResponseType(typeof(RedeemBranchEnrollmentResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> RedeemEnrollment([FromBody] RedeemBranchEnrollmentRequest request, CancellationToken ct)
         => ApiResultMapper.ToActionResult(this, await _service.RedeemEnrollmentAsync(request, ct), _currentUser.TraceId);
 }

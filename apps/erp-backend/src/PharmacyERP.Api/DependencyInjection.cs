@@ -207,6 +207,8 @@ public static class DependencyInjection
         services.AddSwaggerGen(options =>
         {
             options.SwaggerDoc("v1", new OpenApiInfo { Title = "Pharmacy ERP API", Version = "v1" });
+            options.SupportNonNullableReferenceTypes();
+            options.UseAllOfToExtendReferenceSchemas();
             options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
             {
                 Type = SecuritySchemeType.Http,
@@ -221,6 +223,7 @@ public static class DependencyInjection
                 [new OpenApiSecuritySchemeReference("Bearer", document)] = []
             });
             options.OperationFilter<IdempotencyKeyHeaderOperationFilter>();
+            options.DocumentFilter<Stage1OpenApiDocumentFilter>();
         });
         return services;
     }

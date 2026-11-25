@@ -19,6 +19,10 @@ public sealed class ProductCategoriesController : ControllerBase
 
     [Authorize(Roles = "Admin,Pharmacist,Cashier")]
     [HttpGet]
+    [ProducesResponseType(typeof(PagedResult<ProductCategoryDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> GetCategories(
         [FromQuery(Name = "parent_category_id")] Guid? parentCategoryId,
         [FromQuery(Name = "include_inactive")] bool includeInactive = false,
@@ -34,6 +38,13 @@ public sealed class ProductCategoriesController : ControllerBase
     [AllowHeaderIdempotencyKey]
     [Authorize(Roles = "Admin,Pharmacist")]
     [HttpPost]
+    [ProducesResponseType(typeof(ProductCategoryDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> CreateCategory(
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
         [FromBody] CreateProductCategoryRequest request,
@@ -58,6 +69,10 @@ public sealed class ProductCategoriesController : ControllerBase
 
     [Authorize(Roles = "Admin,Pharmacist,Cashier")]
     [HttpGet("{id:guid}")]
+    [ProducesResponseType(typeof(ProductCategoryDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetCategoryById(Guid id, CancellationToken ct = default)
     {
         var result = await _service.GetCategoryByIdAsync(id, ct);
@@ -67,6 +82,13 @@ public sealed class ProductCategoriesController : ControllerBase
     [AllowHeaderIdempotencyKey]
     [Authorize(Roles = "Admin,Pharmacist")]
     [HttpPatch("{id:guid}")]
+    [ProducesResponseType(typeof(ProductCategoryDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> UpdateCategory(
         Guid id,
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,

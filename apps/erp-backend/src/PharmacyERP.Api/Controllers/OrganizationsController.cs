@@ -11,6 +11,13 @@ public sealed class OrganizationsController : ControllerBase
 
     [AllowHeaderIdempotencyKey]
     [HttpPost]
+    [ProducesResponseType(typeof(OrganizationDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> Create(
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
         [FromBody] CreateOrganizationRequest request,

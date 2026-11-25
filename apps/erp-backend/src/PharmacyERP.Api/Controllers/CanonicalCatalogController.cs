@@ -19,6 +19,11 @@ public sealed class CanonicalCatalogController : ControllerBase
 
     [Authorize(Roles = "Admin,Pharmacist")]
     [HttpGet("products")]
+    [ProducesResponseType(typeof(CanonicalProductFeedPageDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> GetProductsFeed(
         [FromQuery(Name = "updated_since")] DateTimeOffset? updatedSince,
         [FromQuery(Name = "cursor")] string? cursor,
@@ -32,6 +37,14 @@ public sealed class CanonicalCatalogController : ControllerBase
     [AllowHeaderIdempotencyKey]
     [Authorize(Roles = "Admin,Pharmacist")]
     [HttpPost("configuration/products")]
+    [ProducesResponseType(typeof(CanonicalWriteResultDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(CanonicalWriteResultDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> ConfigureProduct(
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
         [FromBody] CanonicalProductConfigurationRequest request,
@@ -67,6 +80,13 @@ public sealed class CanonicalCatalogController : ControllerBase
     [AllowHeaderIdempotencyKey]
     [Authorize(Roles = "Admin,Pharmacist")]
     [HttpPut("configuration/reorder-rules")]
+    [ProducesResponseType(typeof(CanonicalWriteResultDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> ConfigureReorderRule(
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
         [FromBody] CanonicalReorderRuleConfigurationRequest request,

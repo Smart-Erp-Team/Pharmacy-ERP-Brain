@@ -22,6 +22,10 @@ public sealed class ProductsController : ControllerBase
 
     [Authorize(Roles = "Admin,Pharmacist,Cashier")]
     [HttpGet]
+    [ProducesResponseType(typeof(PagedResult<ProductDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> GetProducts(
         [FromQuery(Name = "category_id")] Guid? categoryId,
         [FromQuery(Name = "include_inactive")] bool includeInactive = false,
@@ -37,6 +41,13 @@ public sealed class ProductsController : ControllerBase
     [AllowHeaderIdempotencyKey]
     [Authorize(Roles = "Admin,Pharmacist")]
     [HttpPost]
+    [ProducesResponseType(typeof(ProductDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> CreateProduct(
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
         [FromBody] CreateProductRequest request,
@@ -61,6 +72,10 @@ public sealed class ProductsController : ControllerBase
 
     [Authorize(Roles = "Admin,Pharmacist,Cashier")]
     [HttpGet("{id:guid}")]
+    [ProducesResponseType(typeof(ProductDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetProductById(Guid id, CancellationToken ct = default)
     {
         var result = await _productService.GetProductByIdAsync(id, ct);
@@ -70,6 +85,13 @@ public sealed class ProductsController : ControllerBase
     [AllowHeaderIdempotencyKey]
     [Authorize(Roles = "Admin,Pharmacist")]
     [HttpPatch("{id:guid}")]
+    [ProducesResponseType(typeof(ProductDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> UpdateProduct(
         Guid id,
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
@@ -94,6 +116,10 @@ public sealed class ProductsController : ControllerBase
 
     [Authorize(Roles = "Admin,Pharmacist,Cashier")]
     [HttpGet("{id:guid}/uoms")]
+    [ProducesResponseType(typeof(IReadOnlyList<ProductUomDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetProductUoms(
         Guid id,
         [FromQuery(Name = "include_inactive")] bool includeInactive = false,
@@ -106,6 +132,13 @@ public sealed class ProductsController : ControllerBase
     [AllowHeaderIdempotencyKey]
     [Authorize(Roles = "Admin,Pharmacist")]
     [HttpPost("{id:guid}/uoms")]
+    [ProducesResponseType(typeof(ProductUomDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> CreateProductUom(
         Guid id,
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
@@ -132,6 +165,13 @@ public sealed class ProductsController : ControllerBase
     [AllowHeaderIdempotencyKey]
     [Authorize(Roles = "Admin,Pharmacist")]
     [HttpPatch("{id:guid}/uoms/{uomId:guid}")]
+    [ProducesResponseType(typeof(ProductUomDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> UpdateProductUom(
         Guid id,
         Guid uomId,

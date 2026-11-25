@@ -3,6 +3,8 @@
 This guide documents the realistic, English-only multi-tenant dataset automatically seeded into local `erp_db` by `DevDatabaseSeeder` when running the API in `Development` mode (`DevSeed:Enabled = true` in `appsettings.Development.json`).
 
 > **Idempotency & Determinism:** All Organization IDs, Branch IDs, Location IDs, Product IDs, UOM IDs, Batch IDs, and Enrollment Tokens below are deterministic. Running the API multiple times skips re-seeding cleanly once `MEDCARE` exists (`"Development seed data already exists; skipping."`).
+>
+> **Wire Format (`snake_case` & String-Only Enums):** All Stage 1 HTTP request/response JSON properties and query parameters strictly use **`snake_case`** (`JsonNamingPolicy.SnakeCaseLower`), and all enums serialize/deserialize as **strings only** (`allowIntegerValues: false`). See [`contracts/README.md`](./contracts/README.md) and [`contracts/openapi.v1.json`](./contracts/openapi.v1.json) for the authoritative contract.
 
 ---
 
@@ -12,7 +14,7 @@ This guide documents the realistic, English-only multi-tenant dataset automatica
 
 ```json
 {
-  "organizationCode": "MEDCARE",
+  "organization_code": "MEDCARE",
   "username": "admin@medcare.test",
   "password": "MedCare@2026!"
 }
@@ -61,7 +63,9 @@ This guide documents the realistic, English-only multi-tenant dataset automatica
 
 ## 2. Branch Enrollment Tokens & `BranchLocal` Runtime Mode Testing
 
-In Stage 1, inventory stock mutations (`POST /api/v1/inventory/adjustments`) are only permitted when the backend runs in `BranchLocal` mode (`Cloud` mode returns `403 FORBIDDEN`).
+In Stage 1, inventory stock mutations (`POST /api/v1/inventory/adjustments`) are only permitted when the backend runs in `BranchLocal` mode:
+- On **`Cloud`** mode, `RuntimeModeGuardMiddleware` short-circuits `POST /api/v1/inventory/adjustments` **before authentication/authorization** and returns **`404 NOT_FOUND`** (`ApiErrorEnvelopeDto`).
+- On **`BranchLocal`** mode, `POST /api/v1/inventory/adjustments` is enabled for `Admin` and `Pharmacist` (returning **`201 Created`** + `Location`), while `Cashier` receives **`403 FORBIDDEN`** (`ApiErrorEnvelopeDto`). Conversely, Cloud-only administration & canonical routes (`/api/v1/organizations`, `/api/v1/canonical/*` except `/capabilities`, `/api/v1/branch-enrollment`, and write methods on `/branches`, `/users`, `/employees`, `/product-categories`, `/products`, and `*/reorder-rule`) return **`404 NOT_FOUND`** on `BranchLocal`.
 
 ### How to Start the Backend in `BranchLocal` Mode (e.g., MedCare Downtown)
 ```powershell
@@ -81,17 +85,17 @@ dotnet run --project src/PharmacyERP.Api
 | `ALNOUR` | `AN-SZ` | Al-Nour - Sheikh Zayed Clinic | `22222222-2222-4222-8222-000000000002` | `alnour-sheikhzayed-enroll-dev-2026` | `1dcf4d6e-8ad1-924c-98fd-f45080b1b26e` | `b70099b8-8a0c-cb45-9059-2fab82c99f13` | `e23305d0-8a47-0d4a-b09b-0e484f5f9362` |
 | `GREENLEAF` | `GL-DK` | GreenLeaf - Dokki Central | `33333333-2222-4333-8333-000000000001` | `greenleaf-dokki-enroll-dev-2026` | `2eceb0e6-b281-3f4a-a5c6-777c524be943` | `9d7abcb8-d849-c54d-b4e1-ed4d11a284cf` | `6ad86ebd-424d-0d44-bd9a-5ca828e41d8f` |
 
-*(Each branch also has a `BACKROOM-BULK` sellable location. One-time enrollment tokens are valid for 365 days from seed time; once redeemed via `POST /api/v1/branch-enrollment`, an Admin can issue fresh tokens via `POST /api/v1/branches/{branchId}/enrollment-tokens`.)*
+*(Each branch also has a `BACKROOM-BULK` sellable location. One-time enrollment tokens are valid for 365 days from seed time; once redeemed via `POST /api/v1/branch-enrollment`, an Admin can issue fresh tokens via `POST /api/v1/branches/{branchId}/enrollment-tokens` with required header `Idempotency-Key`.)*
 
 ---
 
 ## 3. Sample Catalog SKUs, EAN-13 Barcodes, UOMs & Batches
 
-> **Barcode Search Endpoint:** In Stage 1, barcode and SKU lookups use `GET /api/v1/products?search={barcode_or_sku}` (matches `Name`, `Sku`, and `Barcode` case-insensitively and returns full `uoms[]` conversions & prices).
+> **Barcode Search Endpoint:** In Stage 1, barcode and SKU lookups use `GET /api/v1/products?search={barcode_or_sku}` (matches `name`, `sku`, and `barcode` case-insensitively and returns full `uoms[]` conversions & prices).
 
 ### MedCare Wellness Pharmacies (`MEDCARE`) — Key Test Products
 
-| SKU | EAN-13 Barcode | Product Name | Product ID | Lot Tracked | UOMs (`Code = Factor`, Price EGP, `productUomId`) | Test Scenario Highlight |
+| SKU | EAN-13 Barcode | Product Name | Product ID | Lot Tracked | UOMs (`code = factor`, Price EGP, `product_uom_id`) | Test Scenario Highlight |
 | --- | --- | --- | --- | --- | --- | --- |
 | `MED-AUG-1000` | `6221001000019` | Augmentin 1g Film-Coated Tablets | `6dbdb1a7-c723-da4c-8e0e-b067c18bc710` | `true` | `TAB=1` (10.50, `9d28eb00-b850-564b-a237-ea00d077d047`) · `STRIP=7` (70.00, `b554caea-c8f3-f349-902e-8bc2049041bd`) · `BOX=14` (138.00, `db06a376-50a7-224c-b9c5-4f342c45debb`) | Multi-UOM, internal transfer history (DT), **Low Stock** at Maadi, **Near-Expiry** + **Expired** batch in Quarantine (DT) |
 | `MED-PAN-500X` | `6221001000026` | Panadol Extra Advance 500mg | `686a214e-cbab-394b-b9df-8be2d07f6da2` | `true` | `TAB=1` (2.75, `d1e85af3-ab2d-eb4c-8fea-7913e8ccd278`) · `STRIP=8` (21.00, `1b18c116-e103-ef41-827a-2fd4fdd22ffe`) · `BOX=24` (60.00, `5d26d24a-9bda-3848-9ea7-0fa5f786451a`) | High-volume OTC, `ADJUSTMENT_IN` surplus history, **Near-Expiry** batch |
@@ -101,7 +105,7 @@ dotnet run --project src/PharmacyERP.Api
 | `MED-VEN-100I` | `6221001000101` | Ventolin Evohaler 100mcg | `a6f05eea-f1f7-6746-8741-0e00e818f3ca` | `true` | `INH=1` (82.00, `063dec04-204e-a54a-a695-c936cc9d9c71`) | **Out-of-Stock (`0` on-hand)** at Maadi (depleted via `ADJUSTMENT_OUT`) |
 | `MED-CLX-040S` | `6221001000118` | Clexane 40mg/0.4mL Pre-Filled Syringes | `8d319479-b9b0-af42-a6ff-ac704434f55e` | `true` | `SYR=1` (105.00) · `BOX=2` (204.00) | **Cold Chain**, **Low Stock** at Nasr City, **Near-Expiry** batch |
 | `MED-PLV-075` | `6221001000149` | Plavix 75mg Tablets | `0516e0a1-8862-e745-ae84-e738d078820d` | `true` | `TAB=1` (11.50) · `STRIP=14` (158.00) · `BOX=28` (310.00) | **Out-of-Stock** (zero stock with active reorder rule) at Nasr City |
-| `MED-OMR-M3BP` | `6221001000248` | Omron M3 Comfort Blood Pressure Monitor | `b8f60890-97ab-4c45-a312-e6ea002d2790` | `false` | `UNIT=1` (2890.00, `ea266058-4a12-824c-9a66-6cbfc426360d`) | **Non-Lot Tracked** (`NON-LOT` system batch, `expiresOn: null`, 14% VAT) |
+| `MED-OMR-M3BP` | `6221001000248` | Omron M3 Comfort Blood Pressure Monitor | `b8f60890-97ab-4c45-a312-e6ea002d2790` | `false` | `UNIT=1` (2890.00, `ea266058-4a12-824c-9a66-6cbfc426360d`) | **Non-Lot Tracked** (`NON-LOT` system batch, `expires_on: null`, 14% VAT) |
 | `MED-ACC-STRP` | `6221001000255` | Accu-Chek Instant Blood Glucose Test Strips | `dc3d9bfb-3334-0941-aa88-2c90418ffd20` | `true` | `STRIP=1` (9.00) · `BOX=50` (410.00) | High conversion ratio (`50`), **Near-Expiry** batch, 14% VAT |
 
 ### Al-Nour (`ALNOUR`) & GreenLeaf (`GREENLEAF`) — Isolation Verification SKUs
@@ -126,31 +130,41 @@ dotnet run --project src/PharmacyERP.Api
 | `MEDCARE` | `MED-PAN-500X` | `MEDCARE-NEAR-2602` | `AVAILABLE` | Near-Expiry (~42 days from seed date) |
 | `MEDCARE` | `MED-LAN-100P` | `MEDCARE-NEAR-2606` | `AVAILABLE` | Near-Expiry (~70 days from seed date, Cold Chain) |
 | `MEDCARE` | `MED-CAT-050` | `MEDCARE-EXP-2508` | `EXPIRED` | Expired (stored strictly in `MAIN-QUARANTINE`) |
-| `MEDCARE` | `MED-OMR-M3BP` | `NON-LOT` | `AVAILABLE` | Non-Lot (`expiresOn: null`) |
+| `MEDCARE` | `MED-OMR-M3BP` | `NON-LOT` | `AVAILABLE` | Non-Lot (`expires_on: null`) |
 | `ALNOUR` | `AN-ZIT-500` | `ALNOUR-NEAR-2601` | `AVAILABLE` | Near-Expiry (~35 days from seed date) |
 | `ALNOUR` | `AN-ZIT-500` | `ALNOUR-EXP-2501` | `EXPIRED` | Expired (stored strictly in `MAIN-QUARANTINE`) |
 
 ### Copy-Paste Sample Stock Adjustment Payload (`POST /api/v1/inventory/adjustments`)
-*(Requires `ERP_RUNTIME_MODE=BranchLocal`, `ENROLLED_BRANCH_ID=11111111-2222-4111-8111-000000000001`, Bearer token from `admin@medcare.test` or `sarah.pharm@medcare.test`, and header `Idempotency-Key: qa-adj-001`.)*
+*(Requires `ERP_RUNTIME_MODE=BranchLocal`, `ENROLLED_BRANCH_ID=11111111-2222-4111-8111-000000000001`, Bearer token from `admin@medcare.test` or `sarah.pharm@medcare.test`, and header `Idempotency-Key: qa-adj-001`. The optional `idempotency_key` JSON body field may be omitted when the `Idempotency-Key` header is sent. Returns **`201 Created`** with base-UOM normalized ledger lines: `product_uom_id` = `TAB` base UOM, `entered_qty: 28`, `conversion_snapshot: 1`, `quantity_delta_base: 28`, `unit_cost_base: 7.2`.)*
 
 ```json
 {
-  "branchId": "11111111-2222-4111-8111-000000000001",
-  "transactionType": "ADJUSTMENT_IN",
-  "reasonCode": "MANUAL_RESTOCK_TEST",
+  "branch_id": "11111111-2222-4111-8111-000000000001",
+  "transaction_type": "ADJUSTMENT_IN",
+  "reason_code": "MANUAL_RESTOCK_TEST",
   "note": "Frontend QA stock adjustment test (2 Boxes = 28 Tablets)",
-  "idempotencyKey": "qa-adj-001",
   "lines": [
     {
-      "productId": "6dbdb1a7-c723-da4c-8e0e-b067c18bc710",
-      "locationId": "694cb9a9-c19d-3c46-be41-a7fc76fcdc9f",
-      "productUomId": "db06a376-50a7-224c-b9c5-4f342c45debb",
-      "batchNumber": "MEDCARE-LOT-2601",
-      "expiresOn": "2027-01-28",
-      "enteredQty": 2,
-      "unitCostEntered": 100.80
+      "product_id": "6dbdb1a7-c723-da4c-8e0e-b067c18bc710",
+      "location_id": "694cb9a9-c19d-3c46-be41-a7fc76fcdc9f",
+      "product_uom_id": "db06a376-50a7-224c-b9c5-4f342c45debb",
+      "batch_number": "MEDCARE-LOT-2601",
+      "expires_on": "2027-01-28",
+      "entered_qty": 2,
+      "unit_cost_entered": 100.80
     }
   ]
+}
+```
+
+### Copy-Paste Sample Reversal Payload (`POST /api/v1/inventory/adjustments`)
+*(Requires `ERP_RUNTIME_MODE=BranchLocal` and header `Idempotency-Key: qa-rev-001`. Note that `REVERSAL` omits both `lines` and `reason_code`.)*
+
+```json
+{
+  "branch_id": "11111111-2222-4111-8111-000000000001",
+  "transaction_type": "REVERSAL",
+  "reverses_inventory_txn_id": "<posted_inventory_txn_id>"
 }
 ```
 
@@ -158,32 +172,40 @@ dotnet run --project src/PharmacyERP.Api
 
 ## 4. Recommended Frontend QA Test Checklist
 
-1. **Org Admin Login & Dashboard Overview**
-   - Log in as `admin@medcare.test` (`MEDCARE` / `MedCare@2026!`).
-   - Verify `GET /api/v1/auth/me` returns `role: "Admin"` and `branchScope: "ALL"`.
-   - Verify `GET /api/v1/branches` lists all 3 MedCare branches, `GET /api/v1/product-categories` shows the 11-node category hierarchy, and `GET /api/v1/products?pageSize=50` returns 32 products.
-   - Verify `GET /api/v1/inventory/transactions?branchId=11111111-2222-4111-8111-000000000001` shows `OPENING_BALANCE`, `ADJUSTMENT_IN`, `ADJUSTMENT_OUT`, and internal transfer replenishment transactions (`TRF-OUT-*` / `TRF-IN-*`).
+1. **Org Admin Login, `/auth/me` Hydration & Dashboard Overview**
+   - Log in via `POST /api/v1/auth/login` as `admin@medcare.test` (`organization_code: "MEDCARE"`, password `MedCare@2026!`).
+   - Verify `GET /api/v1/auth/me` returns a flat `CurrentUserDto` with real `username: "admin@medcare.test"`, `role: "Admin"`, `branch_scope: "ALL"` (in `Cloud` mode; `"ASSIGNED"` in `BranchLocal` mode), `branch_ids`, and `scopes`.
+   - Verify `GET /api/v1/branches` lists all 3 MedCare branches, `GET /api/v1/product-categories` shows the 11-node category hierarchy, and `GET /api/v1/products?page_size=50` returns 32 products.
+   - Verify `GET /api/v1/inventory/transactions?branch_id=11111111-2222-4111-8111-000000000001` shows `OPENING_BALANCE`, `ADJUSTMENT_IN`, `ADJUSTMENT_OUT`, and internal replenishment transactions (`TRF-OUT-*` / `TRF-IN-*`).
 
-2. **Role, Branch-Scope (`403`) & Deactivated Account Enforcement**
-   - Attempt login as `inactive.staff@medcare.test` (`MedCare@2026!`) -> confirm `403 FORBIDDEN` (`AccountInactive`).
+2. **Role, Branch-Scope (`403`), Runtime Mode (`404`) & Deactivated Account Enforcement**
+   - Attempt login as `inactive.staff@medcare.test` (`MedCare@2026!`) -> confirm `403 FORBIDDEN` (`ApiErrorEnvelopeDto`, `error.code: "FORBIDDEN"`).
    - Log in as `cashier.downtown@medcare.test` (`Cashier`, `ASSIGNED` to Downtown):
      - Confirm `GET /api/v1/branches/11111111-2222-4111-8111-000000000002` (Maadi) returns `403 FORBIDDEN_BRANCH`.
-     - Confirm write endpoints (`POST /api/v1/products`, `POST /api/v1/inventory/adjustments`) return `403 FORBIDDEN`.
-     - Confirm read access to Downtown balances (`GET /api/v1/inventory/balances?branchId=11111111-2222-4111-8111-000000000001`) succeeds (`200 OK`).
+     - Confirm `GET /api/v1/employees` and `POST /api/v1/products` (on `Cloud`) return **`403 FORBIDDEN`** with standard `ApiErrorEnvelopeDto`.
+     - Confirm `POST /api/v1/inventory/adjustments` returns **`404 NOT_FOUND`** when the backend runs in **`Cloud`** mode (runtime-mode guard), and **`403 FORBIDDEN`** when the backend runs in **`BranchLocal`** mode (role guard).
+     - Confirm read access to Downtown balances (`GET /api/v1/inventory/balances?branch_id=11111111-2222-4111-8111-000000000001`) and product summary (`GET /api/v1/inventory/summary?branch_id=11111111-2222-4111-8111-000000000001&product_id=6dbdb1a7-c723-da4c-8e0e-b067c18bc710`) succeeds (`200 OK`).
+   - Log in as `sarah.pharm@medcare.test` (`Pharmacist`): confirm `user.scopes` includes `"inventory:write"` and `"sales:read"` and **excludes** `"sales:write"`, and confirm `GET /api/v1/employees` succeeds (`200 OK`).
 
-3. **Multi-UOM & Barcode Lookup**
+3. **Header-Only `Idempotency-Key`, Partial `PATCH` & `REVERSAL` Semantics**
+   - Send `POST /api/v1/product-categories` on `Cloud` with header `Idempotency-Key: qa-cat-1` and **no** `idempotency_key` in the JSON body -> confirm **`201 Created`** + `Location` header. Re-send with the same key and different payload -> confirm **`409 IDEMPOTENCY_MISMATCH`**. Omit both header and body -> confirm **`400 MALFORMED_REQUEST`**.
+   - Send minimal partial `PATCH` payloads (e.g., `{ "is_active": false }` with `Idempotency-Key` header) on `/api/v1/branches/{id}`, `/api/v1/users/{id}`, `/api/v1/employees/{id}`, and `/api/v1/product-categories/{id}` -> confirm `200 OK` and omitted fields (`address`, `branch_ids`, `parent_category_id`, `description`) are preserved.
+   - In `BranchLocal` mode, submit the `REVERSAL` payload above (omitting `lines` and `reason_code`) -> confirm **`201 Created`** with negated ledger lines.
+
+4. **Multi-UOM, `include_inactive` & Barcode Lookup**
    - Search `GET /api/v1/products?search=6221001000019` -> returns `Augmentin 1g Film-Coated Tablets` with 3 sellable UOMs (`TAB=1`, `STRIP=7`, `BOX=14`).
-   - Search `GET /api/v1/products?search=6221001000248` -> returns `Omron M3 Comfort Blood Pressure Monitor` with `lotTrackingRequired: false` (`NON-LOT` batch).
-   - Call `GET /api/v1/products/6dbdb1a7-c723-da4c-8e0e-b067c18bc710/uoms` -> confirm UOM conversions and prices match table above.
+   - Search `GET /api/v1/products?search=6221001000248` -> returns `Omron M3 Comfort Blood Pressure Monitor` with `lot_tracking_required: false` (`NON-LOT` batch).
+   - Call `GET /api/v1/products/6dbdb1a7-c723-da4c-8e0e-b067c18bc710/uoms` -> confirm only **active** UOMs return by default (`include_inactive=false`), and pass `?include_inactive=true` to include deactivated UOMs.
 
-4. **Near-Expiry, Expired/Quarantine, Low-Stock & Out-of-Stock Filtering**
-   - Query `GET /api/v1/inventory/batches?expiringBefore=2027-02-15` -> confirm near-expiry batches (`MEDCARE-NEAR-*`) and expired batches (`MEDCARE-EXP-*`) appear.
+5. **Near-Expiry, Expired/Quarantine, Product Summary, Low-Stock & Out-of-Stock Filtering**
+   - Query `GET /api/v1/inventory/batches?expiring_before=2027-02-15` -> confirm near-expiry (`MEDCARE-NEAR-*`) and expired (`MEDCARE-EXP-*`) batches with `expires_on <= 2027-02-15` (inclusive) appear.
    - Query `GET /api/v1/inventory/batches?status=EXPIRED` -> confirm `MEDCARE-EXP-2501` (Augmentin) and `MEDCARE-EXP-2508` (Cataflam) appear and are stocked only inside `MAIN-QUARANTINE`.
-   - Compare branch stock balances (`GET /api/v1/inventory/balances?branchId=...`) against branch reorder rules (`GET /api/v1/branches/{branchId}/products/{productId}/reorder-rule`):
+   - Query `GET /api/v1/inventory/summary?branch_id=11111111-2222-4111-8111-000000000001&product_id=6dbdb1a7-c723-da4c-8e0e-b067c18bc710` -> confirm `total_on_hand_qty_base`, `total_available_qty_base`, `weighted_average_unit_cost_base`, and `locations_and_lots[]`.
+   - Compare branch stock balances (`GET /api/v1/inventory/balances?branch_id=...` — returns `StockBalanceDto[]` array) against branch reorder rules (`GET /api/v1/branches/{branchId}/products/{productId}/reorder-rule`):
      - **Low-Stock:** `MED-LAN-100P` (Downtown), `MED-AUG-1000` (Maadi), `MED-CLX-040S` (Nasr City).
      - **Out-of-Stock:** `MED-VEN-100I` at Maadi (`0` on-hand), `MED-PLV-075` at Nasr City (no stock row + active reorder rule).
 
-5. **Cross-Tenant PostgreSQL RLS Isolation Check (`MEDCARE` vs. `ALNOUR`)**
-   - Log in as `admin@alnour.test` (`ALNOUR` / `AlNour@2026!`).
+6. **Cross-Tenant PostgreSQL RLS Isolation Check (`MEDCARE` vs. `ALNOUR`)**
+   - Log in as `admin@alnour.test` (`organization_code: "ALNOUR"` / `AlNour@2026!`).
    - Confirm `GET /api/v1/products` returns **only** the 16 `AN-*` products and **never** any `MED-*` or `GL-*` products.
    - Attempt to fetch a MedCare product directly (`GET /api/v1/products/6dbdb1a7-c723-da4c-8e0e-b067c18bc710`) or MedCare branch (`GET /api/v1/branches/11111111-2222-4111-8111-000000000001`) using Al-Nour's token -> confirm `404 NOT_FOUND` (PostgreSQL `FORCE ROW LEVEL SECURITY` completely hides cross-tenant rows).

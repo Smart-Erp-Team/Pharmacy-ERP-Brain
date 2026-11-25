@@ -17,6 +17,10 @@ public class InventoryLocationsController : ControllerBase
 
     [HttpGet]
     [Authorize(Roles = "Admin,Pharmacist,Cashier")]
+    [ProducesResponseType(typeof(PagedResult<InventoryLocationDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> GetLocations(
         [FromQuery(Name = "branch_id")] Guid branchId,
         [FromQuery(Name = "is_sellable")] bool? isSellable,
@@ -32,6 +36,12 @@ public class InventoryLocationsController : ControllerBase
     [AllowHeaderIdempotencyKey]
     [HttpPost]
     [Authorize(Roles = "Admin,Pharmacist")]
+    [ProducesResponseType(typeof(InventoryLocationDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> CreateLocation(
         [FromBody] CreateInventoryLocationRequest request,
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
@@ -57,6 +67,13 @@ public class InventoryLocationsController : ControllerBase
     [AllowHeaderIdempotencyKey]
     [HttpPatch("{id:guid}")]
     [Authorize(Roles = "Admin,Pharmacist")]
+    [ProducesResponseType(typeof(InventoryLocationDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> UpdateLocation(
         Guid id,
         [FromBody] UpdateInventoryLocationRequest request,

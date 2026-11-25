@@ -22,6 +22,9 @@ public class InventoryController : ControllerBase
 
     [HttpGet("batches")]
     [Authorize]
+    [ProducesResponseType(typeof(PagedResult<InventoryBatchDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> GetBatches(
         [FromQuery(Name = "product_id")] Guid? productId,
         [FromQuery(Name = "status")] BatchQualityStatus? status,
@@ -36,6 +39,10 @@ public class InventoryController : ControllerBase
 
     [HttpGet("balances")]
     [Authorize]
+    [ProducesResponseType(typeof(IReadOnlyList<StockBalanceDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> GetBalances(
         [FromQuery(Name = "branch_id")] Guid branchId,
         [FromQuery(Name = "product_id")] Guid? productId,
@@ -49,6 +56,10 @@ public class InventoryController : ControllerBase
 
     [HttpGet("summary")]
     [Authorize]
+    [ProducesResponseType(typeof(InventorySummaryDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> GetProductSummary(
         [FromQuery(Name = "branch_id")] Guid branchId,
         [FromQuery(Name = "product_id")] Guid productId,
@@ -60,6 +71,10 @@ public class InventoryController : ControllerBase
 
     [HttpGet("transactions")]
     [Authorize]
+    [ProducesResponseType(typeof(PagedResult<InventoryTxnDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> GetTransactions(
         [FromQuery(Name = "branch_id")] Guid branchId,
         [FromQuery(Name = "type")] InventoryTransactionType? type = null,
@@ -78,6 +93,13 @@ public class InventoryController : ControllerBase
     [AllowHeaderIdempotencyKey]
     [HttpPost("adjustments")]
     [Authorize(Roles = "Admin,Pharmacist")]
+    [ProducesResponseType(typeof(InventoryTxnDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> PostAdjustment(
         [FromBody] CreateInventoryAdjustmentRequest request,
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,

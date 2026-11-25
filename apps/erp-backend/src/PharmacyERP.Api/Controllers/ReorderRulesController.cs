@@ -19,6 +19,10 @@ public sealed class ReorderRulesController : ControllerBase
 
     [Authorize(Roles = "Admin,Pharmacist,Cashier")]
     [HttpGet]
+    [ProducesResponseType(typeof(ReorderRuleDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetReorderRule(Guid branchId, Guid productId, CancellationToken ct = default)
     {
         var result = await _service.GetReorderRuleAsync(branchId, productId, ct);
@@ -28,6 +32,13 @@ public sealed class ReorderRulesController : ControllerBase
     [AllowHeaderIdempotencyKey]
     [Authorize(Roles = "Admin,Pharmacist")]
     [HttpPut]
+    [ProducesResponseType(typeof(ReorderRuleDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorEnvelopeDto), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> UpsertReorderRule(
         Guid branchId,
         Guid productId,
