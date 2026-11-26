@@ -131,7 +131,7 @@ Create persistence-ignorant entities under `src/PharmacyERP.Domain/Entities/Sale
 6. **`SalesReturn.cs`:**
    - Properties: `Guid ReturnId`, `Guid OrganizationId`, `Guid InvoiceId`, `Guid BranchId`, `Guid ReceivedByEmployeeId`, `Guid? ApprovedByEmployeeId`, `string ReturnNo` (max 40), `SalesReturnStatus Status`, `string ReasonCode` (max 40), `decimal RefundAmount`, `SalesRefundStatus RefundStatus`, `string IdempotencyKey` (max 100), `DateTimeOffset ReceivedAt`.
    - Navigation: `public SalesInvoice Invoice { get; private set; } = null!;`, `public ICollection<SalesReturnLine> Lines { get; private set; } = new List<SalesReturnLine>();`, `public ICollection<SalesRefund> Refunds { get; private set; } = new List<SalesRefund>();`
-   - Factory `CreatePosted(...)`: enforces non-empty lines, `ApprovedByEmployeeId != ReceivedByEmployeeId` when `ApprovedByEmployeeId.HasValue`, `RefundAmount == sum(line.RefundAmount)`, `RefundAmount >= 0`, `RefundStatus` derived (`NOT_REFUNDED` if `0`, `REFUNDED` when full cash refund equals `RefundAmount`).
+   - Factory `CreatePosted(...)`: enforces non-empty lines, `ApprovedByEmployeeId != ReceivedByEmployeeId` when `ApprovedByEmployeeId.HasValue`, `RefundAmount == sum(line.RefundAmount)`, `RefundAmount >= 0`, `RefundStatus` derived (`NOT_REFUNDED` if `0`, `REFUNDED` when full cash refund equals `RefundAmount`). *(Explicit non-refund alignment with `EH-06`/`EH-07`: when `issue_cash_refund == false`, callers set every `SalesReturnLine.RefundAmount = 0m` and `SalesReturn.RefundAmount = 0m`, yielding `RefundStatus = SalesRefundStatus.NOT_REFUNDED` and `SalesRefund = null` so `SALES_RETURN.refund_amount == SUM(SALES_RETURN_LINE.refund_amount) == SUM(SALES_REFUND.amount)` always holds cleanly without throwing.)*
 7. **`SalesReturnLine.cs`:**
    - Properties: `Guid ReturnLineId`, `Guid OrganizationId`, `Guid ReturnId`, `Guid InvoiceId`, `Guid BranchId`, `Guid InvoiceLineId`, `Guid ProductId`, `Guid BatchId` (non-null, `NON-LOT` deterministic GUID when non-lot), `Guid DestinationLocationId`, `decimal QuantityBase`, `decimal RefundAmount`, `ReturnDisposition Disposition`.
    - Navigation: `public SalesReturn SalesReturn { get; private set; } = null!;`, `public SalesInvoiceLine InvoiceLine { get; private set; } = null!;`
@@ -442,22 +442,23 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
    - In `IsCloudOnlyEndpoint(string path, string method)` (returns `404 NOT_FOUND` on `ErpRuntimeMode.BranchLocal`):
      - Preserve **all** live Stage 1 Cloud-only guards: `/api/v1/organizations`, `/api/v1/canonical/` (except `/api/v1/canonical/capabilities`), `/api/v1/branch-enrollment`, plus non-GET/HEAD/OPTIONS writes on `/api/v1/product-categories`, `/api/v1/products`, `*/reorder-rule`, `/api/v1/branches`, `/api/v1/users`, and `/api/v1/employees`.
      - Add `path.StartsWith("/api/v1/sync", StringComparison.OrdinalIgnoreCase)` (blocks ALL verbs on `/api/v1/sync/*` in `BranchLocal` mode).
-4. **Update `src/PharmacyERP.Api/Auth/AuthorizationPoliciesExtensions.cs`:**
+4. **Update `src/PharmacyERP.Api/Auth/AuthorizationPoliciesExtensions.cs` (with Shared Claim-Extraction Helper):**
    - Preserve existing `AdminOnly`, `OrgAdminOnly`, `PlatformProvisionerOnly`.
+   - Create a shared claim-extraction helper (e.g., `JwtClaimValueExtractor.ExtractClaimValues` / `ExtractScopes` — identical to `CurrentUser.ExtractClaimValues`, supporting BOTH unpacked individual claims from `JwtBearer` AND raw JSON-array claim strings `["..."]` as well as space/comma-delimited strings, instead of brittle `c.Value.Split(' ')`) and reuse it in BOTH `AuthorizationPoliciesExtensions.cs` (`SyncAdminOnly`) and `Api/DependencyInjection.cs` (`OnTokenValidated` `CanonicalReader` validation).
    - Add all 5 Stage 2 named policies matching Blueprint §8.5, §9.1 & `API-DIFF-012`:
      - `PosCashierOrAdmin`: `RequireAuthenticatedUser().RequireRole("Cashier", "Admin")`
      - `SalesReadAccess`: `RequireAuthenticatedUser().RequireRole("Admin", "Pharmacist", "Cashier")`
      - `SalesReturnWriteAccess`: `RequireAuthenticatedUser().RequireRole("Cashier", "Pharmacist", "Admin")`
-     - `SyncAdminOnly`: `RequireAuthenticatedUser().RequireRole("Admin").RequireAssertion(ctx => ctx.User.Claims.Any(c => (c.Type == "scopes" || c.Type == "scope") && c.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains("sync:retry", StringComparer.Ordinal)))`
+     - `SyncAdminOnly`: `RequireAuthenticatedUser().RequireRole("Admin").RequireAssertion(ctx => JwtClaimValueExtractor.ExtractScopes(ctx.User).Contains("sync:retry", StringComparer.Ordinal))` *(reads `"scopes"`, `"scope"`, and `"scp"` via the shared helper supporting both unpacked claims and JSON-array strings)*
      - `CanonicalRead`: `RequireAuthenticatedUser().RequireRole("Admin", "Pharmacist", "CanonicalReader")` *(permits human `Admin`/`Pharmacist` users and short-lived `.NET`-issued read-only `CanonicalReader` service tokens across all 5 canonical read feeds while denying `CanonicalReader` on canonical configuration writes)*.
 5. **Update `src/PharmacyERP.Api/DependencyInjection.cs` (`JwtBearerEvents.OnTokenValidated` — `.NET` `CanonicalReader` Service Token Exemption, `API-DIFF-012`):**
    - Preserve existing `PlatformProvisioner` exemption (not a tenant `USER_ACCOUNT` principal).
-   - Add strict recognition for `.NET`-issued short-lived read-only `CanonicalReader` service tokens (not backed by a `USER_ACCOUNT` row or `security_stamp`):
+   - Add strict recognition for `.NET`-issued short-lived read-only `CanonicalReader` service tokens (not backed by a `USER_ACCOUNT` row or `security_stamp`), using the **same shared `JwtClaimValueExtractor`** (supporting both unpacked claims and JSON-array strings for `roles`, `scopes`/`scope`/`scp`, and `branch_ids`):
      - `token_type` claim equals `"service"` (`StringComparison.Ordinal`).
-     - `roles` claims contain ONLY `"CanonicalReader"` (reject if any human/admin role such as `Admin`, `Pharmacist`, `Cashier`, or `PlatformProvisioner` is present).
+     - Extracted `roles` claims contain ONLY `"CanonicalReader"` (reject if any human/admin role such as `Admin`, `Pharmacist`, `Cashier`, or `PlatformProvisioner` is present).
      - `organization_id` is a valid non-empty `Guid`.
-     - `branch_scope` is `"ALL"` or `"ASSIGNED"` (and if `"ASSIGNED"`, at least one valid GUID exists in `branch_ids`).
-     - `scopes` contains `"canonical:read"` and contains **no** write/admin scopes (`user:admin`, `inventory:write`, `sales:write`, `return:write`, `sync:retry`, `canonical:write`).
+     - `branch_scope` is `"ALL"` or `"ASSIGNED"` (and if `"ASSIGNED"`, at least one valid GUID exists in extracted `branch_ids`).
+     - Extracted `scopes` contain `"canonical:read"` and contain **no** write/admin scopes (`user:admin`, `inventory:write`, `sales:write`, `return:write`, `sync:retry`, `canonical:write`).
      - Lifetime bounded: valid `iat` and `exp` numeric claims with `exp > iat` and `(exp - iat) <= 3600` seconds (max 1 hour).
    - When all checks pass, return early to bypass `IUserSecurityStampValidator` (just like `PlatformProvisioner`); if `token_type == "service"` or role `"CanonicalReader"` fails any invariant above, call `context.Fail(...)` immediately.
 6. **Update `src/PharmacyERP.Infrastructure/Services/Context/CurrentUser.cs`:**
@@ -476,17 +477,18 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
      - `UserRole.Pharmacist`: `"inventory:read"`, `"inventory:write"`, `"sales:read"`, `"return:read"`, `"return:write"`.
      - `UserRole.Cashier`: `"inventory:read"`, `"sales:read"`, `"sales:write"`, `"return:read"`, `"return:write"`.
    - Update affected Stage 1 scope assertions in `JwtAndPasswordSecurityTests`, `Stage1ContractFixesUnitTests`, and `Stage1FrontendContractFixesTests` so all Stage 1 + Stage 2 tests stay 100% green.
-8. **Update `src/PharmacyERP.Api/Common/ApiResultMapper.cs`:**
-   - Map `ErrorCode.SYNC_CURSOR_EXPIRED` -> `409` in `MapStatusCode(ErrorCode code)`.
+8. **Update `src/PharmacyERP.Api/Common/ApiResultMapper.cs` & `src/PharmacyERP.Api/Middleware/ExceptionHandlingMiddleware.cs`:**
+   - Map `ErrorCode.SYNC_CURSOR_EXPIRED` -> `409` in `ApiResultMapper.MapStatusCode(ErrorCode code)`.
+   - Add `ErrorCode.SYNC_CURSOR_EXPIRED => HttpStatusCode.Conflict` to `ExceptionHandlingMiddleware.MapErrorCodeToHttpStatus(ErrorCode code)` so any thrown `AppException(ErrorCode.SYNC_CURSOR_EXPIRED, ...)` maps to `409 Conflict` instead of falling through to `500 InternalServerError`.
 
 ### 4. Mandatory Unit & Integration Tests
 - `tests/PharmacyERP.UnitTests/API/Middleware/Stage2RuntimeModeGuardAndAuthzTests.cs`:
   - `Cloud` mode returns `404 NOT_FOUND` (`ApiErrorEnvelopeDto`) for `POST /api/v1/sales-orders`, `PUT /api/v1/sales-orders/{id}/lines`, `POST /api/v1/sales-orders/{id}/complete`, `POST /api/v1/sales-orders/{id}/cancel`, `POST /api/v1/sales-returns`, and `POST /api/v1/inventory/adjustments`; allows `GET /api/v1/sales-orders`, `GET /api/v1/sales-invoices`, `GET /api/v1/sales-returns`, and all `/api/v1/sync/*`.
   - `BranchLocal` mode returns `404 NOT_FOUND` for `POST /api/v1/sync/operations`, `POST /api/v1/sync/operations/{id}/retry`, `GET /api/v1/sync/bootstrap`, `GET /api/v1/sync/changes`, `GET /api/v1/canonical/sales`, `/orders`, `/returns`, `/api/v1/branch-enrollment`, and writes on `/branches`/`/users`/`/employees`/`/products`; allows `GET /api/v1/canonical/capabilities` and all `/api/v1/sales-*` verbs.
-  - `ApiResultMapper` maps `ErrorCode.SYNC_CURSOR_EXPIRED` to HTTP `409`.
-  - `SyncAdminOnly` allows `Admin` with `sync:retry` scope and rejects `Admin` without `sync:retry` and `Pharmacist`/`Cashier`.
+  - Both `ApiResultMapper.MapStatusCode` AND `ExceptionHandlingMiddleware` (`AppException(ErrorCode.SYNC_CURSOR_EXPIRED, ...)`) map `ErrorCode.SYNC_CURSOR_EXPIRED` to HTTP `409 Conflict`.
+  - `SyncAdminOnly` allows `Admin` with `sync:retry` scope (verified for BOTH unpacked individual `scopes` claims AND JSON-array claim strings `["user:admin","sync:retry"]`) and rejects `Admin` without `sync:retry` and `Pharmacist`/`Cashier`.
   - `CanonicalRead` allows `Admin`, `Pharmacist`, and `CanonicalReader`, and rejects `Cashier`.
-  - `JwtBearerEvents.OnTokenValidated` accepts valid `.NET` `CanonicalReader` service tokens (`token_type: "service"`, `roles: ["CanonicalReader"]`, `scopes: ["canonical:read"]`, `exp - iat <= 3600`, valid `organization_id`) without calling `IUserSecurityStampValidator`, and rejects service tokens with write scopes, mixed roles, missing `organization_id`, or `exp - iat > 3600`.
+  - `JwtBearerEvents.OnTokenValidated` accepts valid `.NET` `CanonicalReader` service tokens (both unpacked claims and JSON-array strings for `roles`/`scopes`/`branch_ids`, `token_type: "service"`, `roles: ["CanonicalReader"]`, `scopes: ["canonical:read"]`, `exp - iat <= 3600`, valid `organization_id`) without calling `IUserSecurityStampValidator`, and rejects service tokens with write scopes, mixed roles, missing `organization_id`, or `exp - iat > 3600`.
   - `CurrentUser.CanAccessBranch` permits `CanonicalReader` with `branch_scope == "ALL"` and restricts `CanonicalReader` with `branch_scope == "ASSIGNED"` to `AuthorizedBranchIds`.
   - `JwtTokenGenerator` and `AuthService` emit `return:read`, `return:write` for all 3 roles and `sync:retry` exclusively for `Admin` + `BranchScope.ALL` on `Cloud` (and omit `sync:retry` on `BranchLocal` or `ASSIGNED` Admin).
 
@@ -576,12 +578,185 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
    - Call `_cursorRepo.GetOrCreateForUpdateAsync(organizationId, branchId, ct)` and `var sequence = cursor.AllocateNextIssuedSequence();`.
    - Serialize canonical JSON via `CanonicalJsonHasher.SerializeToCanonicalJson(typedPayload)` and compute `payloadHash = CanonicalJsonHasher.ComputeSha256Hex(typedPayload)` (64-char lowercase hex).
    - Create `SyncOutbox.Create(Guid.NewGuid(), organizationId, branchId, operationType, aggregateId, sequence, payloadVersion, payloadHash, canonicalJson, _dateTimeProvider.UtcNow)` and add via `ISyncOutboxRepository.AddAsync(...)` (registering `ISyncOutboxWriter`, `ISyncBranchCursorRepository`, and minimal `ISyncOutboxRepository` in `SyncDependencyInjection.cs`, Scoped).
-6. **Create Versioned Immutable `v1` Sync Payloads (`src/PharmacyERP.Application/Features/Sync/Contracts/SyncPayloads.cs`):**
-   - Place all three Stage 2 `v1` sync payload contracts here in Wave 1 so `El-Hosseiny` (`EH-05`, `EH-07`) has zero Wave 2 dependency on `AH-08`:
-     - `SupportedPayloadVersion = 1`
-     - `PostInventoryAdjustmentSyncPayloadV1` (exact posted `InventoryTxn` + `InventoryTxnLine`s + `SyncAuditFactDto` with `AuditLogId`, `BeforeData`, `AfterData`)
-     - `CompleteSalesOrderSyncPayloadV1` (exact posted `SalesOrder` + `SalesOrderLine`s + `SalesInvoice` + `SalesInvoiceLine`s + `SalesPayment` + `SALE_ISSUE` `InventoryTxn`/`InventoryTxnLine`s + `SyncAuditFactDto`)
-     - `PostSalesReturnSyncPayloadV1` (exact posted `SalesReturn` + `SalesReturnLine`s + optional `SalesRefund` + `SALES_RETURN_IN` & optional `SCRAP_OUT` `InventoryTxn`/`InventoryTxnLine`s + `SyncAuditFactDto`)
+6. **Create Versioned Immutable Self-Contained `v1` Sync Payloads (`src/PharmacyERP.Application/Features/Sync/Contracts/SyncPayloads.cs`):**
+   - Place **100% self-contained immutable `*FactV1` C# records** here in Wave 1 with **ZERO dependency on Wave 2 HTTP DTOs (`YA-02`/`EH-02`)**, capturing every persisted `NOT NULL` DB column (and zero UI-only display fields such as `product_sku`, `product_name`, `uom_code`, `created_by_employee_name`, or `estimated_*`), matching `contracts/schemas/sync.json` verbatim:
+     ```csharp
+     namespace PharmacyERP.Application.Features.Sync.Contracts;
+
+     public static class SyncPayloadVersions
+     {
+         public const int SupportedPayloadVersion = 1;
+     }
+
+     public sealed record SyncInventoryTxnLineFactV1(
+         Guid InventoryTxnLineId,
+         Guid ProductId,
+         Guid LocationId,
+         Guid BatchId,
+         string BatchNumber,
+         DateOnly? ManufacturedOn,
+         DateOnly? ExpiresOn,
+         Guid ProductUomId,
+         decimal EnteredQty,
+         decimal ConversionSnapshot,
+         decimal QuantityDeltaBase,
+         decimal UnitCostBase,
+         Guid? SalesOrderLineId = null,
+         Guid? SalesReturnLineId = null);
+
+     public sealed record SyncInventoryTxnFactV1(
+         Guid InventoryTxnId,
+         Guid OrganizationId,
+         Guid BranchId,
+         string TransactionNo,
+         InventoryTransactionType TransactionType,
+         InventoryTransactionStatus Status,
+         string? ReasonCode,
+         string? Note,
+         string IdempotencyKey,
+         Guid CreatedByEmployeeId,
+         Guid? ReversesInventoryTxnId,
+         Guid? SalesOrderId,
+         Guid? SalesReturnId,
+         DateTimeOffset CreatedAt,
+         DateTimeOffset PostedAt,
+         IReadOnlyList<SyncInventoryTxnLineFactV1> Lines);
+
+     public sealed record SyncSalesOrderLineFactV1(
+         Guid OrderLineId,
+         Guid ProductId,
+         Guid ProductUomId,
+         decimal EnteredQty,
+         decimal ConversionSnapshot,
+         decimal QuantityBase,
+         decimal UnitPriceSnapshot,
+         decimal DiscountAmount,
+         decimal TaxRateSnapshot,
+         decimal TaxAmountSnapshot,
+         decimal LineTotal,
+         DateTimeOffset CreatedAt,
+         DateTimeOffset UpdatedAt);
+
+     public sealed record SyncSalesOrderFactV1(
+         Guid SalesOrderId,
+         Guid OrganizationId,
+         Guid BranchId,
+         Guid CreatedByEmployeeId,
+         string OrderNo,
+         OrderChannel Channel,
+         SalesOrderStatus OrderStatus,
+         string CurrencyCode,
+         string IdempotencyKey,
+         DateTimeOffset CreatedAt,
+         DateTimeOffset CompletedAt,
+         IReadOnlyList<SyncSalesOrderLineFactV1> Lines);
+
+     public sealed record SyncSalesInvoiceLineFactV1(
+         Guid InvoiceLineId,
+         Guid SourceOrderLineId,
+         Guid ProductId,
+         Guid ProductUomId,
+         decimal EnteredQty,
+         decimal ConversionSnapshot,
+         decimal QuantityBase,
+         decimal UnitPriceSnapshot,
+         decimal DiscountAmount,
+         decimal TaxRateSnapshot,
+         decimal TaxAmount,
+         decimal NetAmount,
+         decimal LineTotal,
+         decimal UnitCostSnapshot);
+
+     public sealed record SyncSalesInvoiceFactV1(
+         Guid InvoiceId,
+         Guid OrganizationId,
+         Guid BranchId,
+         Guid SalesOrderId,
+         string InvoiceNo,
+         SalesInvoiceStatus Status,
+         string CurrencyCode,
+         decimal Subtotal,
+         decimal DiscountTotal,
+         decimal TaxTotal,
+         decimal GrandTotal,
+         decimal PaidAmount,
+         decimal RefundedAmount,
+         SalesPaymentStatus PaymentStatus,
+         DateTimeOffset IssuedAt,
+         DateTimeOffset CreatedAt,
+         DateTimeOffset UpdatedAt,
+         IReadOnlyList<SyncSalesInvoiceLineFactV1> Lines);
+
+     public sealed record SyncSalesPaymentFactV1(
+         Guid PaymentId,
+         Guid OrganizationId,
+         Guid BranchId,
+         Guid InvoiceId,
+         Guid ReceivedByEmployeeId,
+         decimal AmountDue,
+         decimal CashTenderedAmount,
+         decimal ChangeAmount,
+         PaymentMethod Method,
+         string IdempotencyKey,
+         DateTimeOffset PaidAt,
+         string? Note);
+
+     public sealed record SyncSalesReturnLineFactV1(
+         Guid ReturnLineId,
+         Guid InvoiceLineId,
+         Guid ProductId,
+         Guid BatchId,
+         Guid DestinationLocationId,
+         decimal QuantityBase,
+         decimal RefundAmount,
+         ReturnDisposition Disposition);
+
+     public sealed record SyncSalesReturnFactV1(
+         Guid ReturnId,
+         Guid OrganizationId,
+         Guid InvoiceId,
+         Guid BranchId,
+         Guid ReceivedByEmployeeId,
+         Guid? ApprovedByEmployeeId,
+         string ReturnNo,
+         SalesReturnStatus Status,
+         string ReasonCode,
+         decimal RefundAmount,
+         SalesRefundStatus RefundStatus,
+         string IdempotencyKey,
+         DateTimeOffset ReceivedAt,
+         IReadOnlyList<SyncSalesReturnLineFactV1> Lines);
+
+     public sealed record SyncSalesRefundFactV1(
+         Guid RefundId,
+         Guid OrganizationId,
+         Guid BranchId,
+         Guid SalesReturnId,
+         Guid InvoiceId,
+         Guid ProcessedByEmployeeId,
+         decimal Amount,
+         PaymentMethod Method,
+         string IdempotencyKey,
+         DateTimeOffset RefundedAt);
+
+     public sealed record PostInventoryAdjustmentSyncPayloadV1(
+         SyncInventoryTxnFactV1 InventoryTxn,
+         SyncAuditFactDto Audit);
+
+     public sealed record CompleteSalesOrderSyncPayloadV1(
+         SyncSalesOrderFactV1 SalesOrder,
+         SyncSalesInvoiceFactV1 SalesInvoice,
+         SyncSalesPaymentFactV1 SalesPayment,
+         SyncInventoryTxnFactV1 SaleIssueTxn,
+         SyncAuditFactDto Audit);
+
+     public sealed record PostSalesReturnSyncPayloadV1(
+         SyncSalesReturnFactV1 SalesReturn,
+         SyncSalesRefundFactV1? SalesRefund,
+         SyncInventoryTxnFactV1 ReturnStockTxn,
+         SyncInventoryTxnFactV1? ScrapOutTxn,
+         SyncAuditFactDto Audit);
+     ```
 7. **Wire `POST_INVENTORY_ADJUSTMENT` into Stage 1 `InventoryAdjustmentService.cs`:**
    - Live Stage 1 `InventoryAdjustmentService` has a **14-parameter constructor** ending with `IProductUomRepository? productUomRepo = null, IProductRepository? productRepo = null`. Append `ISyncOutboxWriter? syncOutboxWriter = null` as **optional trailing parameter #15** so zero existing Stage 1 unit tests break.
    - Inside `PostAdjustmentAsync` (after `inventoryTransaction.Post(now)`, BEFORE `_unitOfWork.CommitTransactionAsync(ct)`):
@@ -629,6 +804,128 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
    - `SyncOperationResultDto(Guid OperationId, long BranchSequence, SyncDeliveryOutcome Status, long? ExpectedNextSequence, string? ConflictCode, string? Message, IReadOnlyList<ApiErrorDetailDto> Details)`
    - `SyncOperationBatchResponse(Guid OrganizationId, Guid BranchId, long HighestContiguousAppliedSequence, IReadOnlyList<SyncOperationResultDto> Results)`
    - `RetrySyncOperationRequest(string Reason)`
+   - **Pinned Bootstrap Sub-DTO C# Records (100% Lockstep with Live Stage 1 Entities, `contracts/schemas/sync.json`, & `contracts/openapi.erp.yaml` — Zero Missing `NOT NULL` Columns):**
+     ```csharp
+     public sealed record OrganizationBootstrapDto(
+         Guid OrganizationId,
+         string OrganizationCode,
+         string Name,
+         string BaseCurrency,
+         string TimeZoneId,
+         AddressDto Address,
+         bool IsActive,
+         DateTimeOffset UpdatedAt);
+
+     public sealed record BranchBootstrapDto(
+         Guid BranchId,
+         Guid OrganizationId,
+         string BranchCode,
+         string Name,
+         AddressDto Address,
+         bool IsActive,
+         DateTimeOffset UpdatedAt);
+
+     public sealed record BootstrapEmployeeDto(
+         Guid EmployeeId,
+         Guid OrganizationId,
+         Guid BranchId,          // wire: branch_id (matches Employee.BranchId — NOT primary_branch_id)
+         string EmployeeNo,
+         string FullName,
+         string? Email,
+         string? Phone,
+         string JobTitle,        // non-null (matches Employee.JobTitle)
+         AddressDto Address,     // non-null (matches Employee.Address)
+         DateOnly HiredOn,       // non-null ISO date (matches Employee.HiredOn)
+         bool IsActive,
+         DateTimeOffset UpdatedAt);
+
+     public sealed record BootstrapUserAccountDto(
+         Guid UserId,
+         Guid OrganizationId,
+         Guid EmployeeId,
+         string Username,
+         string PasswordHash,
+         Guid SecurityStamp,     // wire: format uuid (matches UserAccount.SecurityStamp Guid)
+         UserRole Role,
+         BranchScope BranchScope,
+         bool IsActive,
+         DateTimeOffset UpdatedAt);
+
+     public sealed record BootstrapUserBranchAccessDto(
+         Guid OrganizationId,
+         Guid UserId,
+         Guid BranchId);
+
+     public sealed record BootstrapCategoryDto(
+         Guid CategoryId,
+         Guid OrganizationId,
+         Guid? ParentCategoryId,
+         string Code,            // non-null maxLength 30 (matches ProductCategory.Code)
+         string Name,
+         string? Description,
+         bool IsActive,
+         DateTimeOffset UpdatedAt);
+
+     public sealed record BootstrapProductDto(
+         Guid ProductId,
+         Guid OrganizationId,
+         Guid CategoryId,
+         string Sku,
+         string? Barcode,
+         string Name,
+         string? GenericName,
+         string? BrandName,
+         string BaseUomCode,
+         decimal TaxRate,
+         string? ImageUrl,
+         bool LotTrackingRequired,
+         int ExpiryAlertDays,
+         bool IsActive,
+         DateTimeOffset UpdatedAt);
+
+     public sealed record BootstrapProductUomDto(
+         Guid ProductUomId,
+         Guid OrganizationId,
+         Guid ProductId,
+         string UomCode,
+         string DisplayName,
+         decimal ConversionToBase,
+         decimal? SaleUnitPrice,
+         bool IsBase,
+         bool IsSellable,
+         bool IsPurchasable,
+         bool IsActive,
+         DateTimeOffset UpdatedAt);
+
+     public sealed record BootstrapReorderRuleDto(
+         Guid ReorderRuleId,
+         Guid OrganizationId,
+         Guid BranchId,
+         Guid ProductId,
+         decimal ReorderPointBase,
+         decimal ReorderQuantityBase,
+         decimal? MaxQuantityBase,
+         bool IsActive,
+         DateTimeOffset UpdatedAt);
+
+     public sealed record BootstrapLocationDto(
+         Guid LocationId,
+         Guid OrganizationId,
+         Guid BranchId,
+         string LocationCode,
+         string Name,
+         LocationType LocationType,
+         bool IsSellable,
+         bool IsActive,
+         DateTimeOffset UpdatedAt);
+
+     public sealed record SyncBootstrapCursorDto(
+         long LastIssuedSequence,
+         long LastAppliedSequence,
+         string LastAppliedCloudCursor,
+         string CloudHighWaterCursor);
+     ```
+     *(On `BranchLocal` initial bootstrap upsert: `NormalizedUsername` is deterministically derived as `Username.ToUpperInvariant()`, `AccessFailedCount` initializes to `0`, and `CreatedAt` initializes from `UpdatedAt` when inserting new local reference rows.)*
    - `SyncBootstrapResponse(Guid OrganizationId, Guid BranchId, OrganizationBootstrapDto Organization, BranchBootstrapDto Branch, IReadOnlyList<BootstrapEmployeeDto> Employees, IReadOnlyList<BootstrapUserAccountDto> Users, IReadOnlyList<BootstrapUserBranchAccessDto> UserBranchAccesses, IReadOnlyList<BootstrapCategoryDto> Categories, IReadOnlyList<BootstrapProductDto> Products, IReadOnlyList<BootstrapProductUomDto> ProductUoms, IReadOnlyList<BootstrapReorderRuleDto> ReorderRules, IReadOnlyList<BootstrapLocationDto> Locations, SyncBootstrapCursorDto Cursors)` *(explicitly NO `StockBalances`, NO `InventoryTxns`, NO opening balances!)*
    - `SyncChangeItemDto(Guid EventId, long EventSequence, string EventType, string SchemaVersion, Guid? BranchId, JsonElement Payload, DateTimeOffset OccurredAt)`
    - `SyncChangesResponse(Guid OrganizationId, Guid BranchId, string NextCursor, bool HasMore, IReadOnlyList<SyncChangeItemDto> Items)` *(wire JSON field for `NextCursor` is `next_cursor`)*
@@ -672,6 +969,7 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
 1. **Persist Issued Runtime Credential Hash in `BranchService.RedeemEnrollmentAsync` & Implement `IBranchSyncAuthenticator`:**
    - **Update `src/PharmacyERP.Application/Features/Identity/Services/Implementations/BranchService.cs` (`RedeemEnrollmentAsync`):** generate `credential = Base64UrlEncode(RandomNumberGenerator.GetBytes(32))` and `expiry = now.AddHours(24)` before redeeming, and invoke `enrollment.Redeem(now, HashToken(credential), expiry)` so the 32-byte SHA-256 hash of `runtime_credential` and its expiration timestamp are atomically persisted on `identity."BRANCH_ENROLLMENT"`.
    - **Create `IBranchSyncAuthenticator` / `BranchSyncAuthenticator`:**
+     - **Reject Pre-Bound Tenant Context First (Prevents Silent `AllowSystemBypass()` No-Op):** Because `TenantContext.AllowSystemBypass()` silently returns when `IsTenantBound == true` (e.g., if a caller sends an `Authorization: Bearer <user JWT>` alongside `X-Branch-Enrollment-Token` on an `[AllowAnonymous]` sync route), `BranchSyncAuthenticator` MUST first check `if (_tenantContext.IsTenantBound)` and immediately return `401 UNAUTHORIZED` (`"Enrolled-branch sync endpoints do not accept user Bearer authentication alongside X-Branch-Enrollment-Token."`).
      - Accepts the `X-Branch-Enrollment-Token` header value (returning `401 UNAUTHORIZED` when missing/blank), hashes with SHA-256, and calls `ISyncSnapshotRepository.FindActiveEnrollmentByCredentialHashAsync(credentialHash, _dateTimeProvider.UtcNow, ct)` inside a short `AllowSystemBypass()` `AsNoTracking()` discovery transaction (matching Stage 1 A-04 pattern: rollback + clear change tracker, then call `_tenantContext.SetTenant(organizationId)`).
      - Enforces `UsedAt != null && RuntimeCredentialExpiresAt > now && Branch.IsActive` — rejecting unknown, unredeemed, expired, or inactive-branch credentials with `401 UNAUTHORIZED`; rejects if request `organization_id`/`branch_id` differs from enrolled `(OrganizationId, BranchId)` with `403 FORBIDDEN` / `403 FORBIDDEN_BRANCH`.
 2. **Create `ISyncOperationApplier`** (shared by `AH-09` Push and `AH-10` Retry) & **`ISyncPushService`**:
@@ -698,7 +996,7 @@ Create three persistence-ignorant entities under `src/PharmacyERP.Domain/Entitie
 
 ### 4. Mandatory Unit & Integration Tests
 - `tests/PharmacyERP.UnitTests/Application/Sync/SyncPushServiceTests.cs`:
-  - `BranchService.RedeemEnrollmentAsync` persists `SHA256(runtime_credential)` & `RuntimeCredentialExpiresAt` on `BranchEnrollment`; `IBranchSyncAuthenticator` accepts valid redeemed credentials and rejects unknown/unredeemed/expired/inactive-branch credentials (`401 UNAUTHORIZED`).
+  - `BranchService.RedeemEnrollmentAsync` persists `SHA256(runtime_credential)` & `RuntimeCredentialExpiresAt` on `BranchEnrollment`; `IBranchSyncAuthenticator` accepts valid redeemed credentials, immediately rejects requests where `ITenantContext.IsTenantBound == true` with `401 UNAUTHORIZED` (never calling `AllowSystemBypass()` or querying the DB), and rejects unknown/unredeemed/expired/inactive-branch credentials (`401 UNAUTHORIZED`).
   - Happy path applying `COMPLETE_SALES_ORDER`, `POST_SALES_RETURN`, and `POST_INVENTORY_ADJUSTMENT` sequentially without recalculating FEFO/totals, preserving exact `audit_log_id` and `before_data`/`after_data`.
   - Duplicate delivery of applied operation returns `ALREADY_APPLIED` with zero duplicate rows.
   - Sequence gap (`seq 3` when `expected 2`) returns `CONFLICT` with `expected_next_sequence = 2` and does not advance cursor.
@@ -849,7 +1147,8 @@ Create `ISyncPullService` & `SyncPullService` (`src/PharmacyERP.Application/Feat
    - **Pull Loop:** reads `SyncBranchCursor.LastAppliedCloudCursor`, calls `GET /api/v1/sync/changes`, and applies the entire returned reference/catalog/identity change page + `cursor.UpdateCloudCursor(response.NextCursor)` inside a **single atomic local `IUnitOfWork` transaction** (idempotent replay if interrupted). On `409 SYNC_CURSOR_EXPIRED`, logs warning and triggers controlled reference resnapshot via `GET /api/v1/sync/bootstrap` while preserving all local business history and pending `SYNC_OUTBOX` rows.
 4. **Complete DI Registration in `SyncDependencyInjection.cs` (Application & Infrastructure):**
    - Register all Sync repositories, services (`ISyncOutboxWriter`, `IBranchSyncAuthenticator`, `ISyncOperationApplier`, `ISyncPushService`, `ISyncRetryService`, `ISyncPullService`), typed `ICloudSyncHttpClient`, and conditional `BranchSyncBackgroundWorker` (`Scoped` for repos/services, `HostedService` for worker). Keep root `DependencyInjection.cs` files untouched.
-5. **Incremental OpenAPI, `ContractsArtifactSyncTests` & `contracts/README.md` Sync (MANDATORY IN THIS PR):**
+5. **OpenAPI Header Filter, `ContractsArtifactSyncTests` & `contracts/README.md` Sync (MANDATORY IN THIS PR):**
+   - Update `IdempotencyKeyHeaderOperationFilter` (or add a dedicated `BranchEnrollmentHeaderOperationFilter` in `src/PharmacyERP.Api/Swagger/` registered in `Api/DependencyInjection.cs`) so Swashbuckle marks the `X-Branch-Enrollment-Token` header parameter `Required = true` in OpenAPI on the 3 enrolled-branch sync routes (`POST /api/v1/sync/operations`, `GET /api/v1/sync/bootstrap`, `GET /api/v1/sync/changes`) — matching `contracts/openapi.erp.yaml` 100%.
    - Update `tests/PharmacyERP.IntegrationTests/Api/ContractsArtifactSyncTests.cs`:
      - Add all 4 `/api/v1/sync/*` endpoints (`POST /api/v1/sync/operations`, `POST /api/v1/sync/operations/{operationId}/retry`, `GET /api/v1/sync/bootstrap`, `GET /api/v1/sync/changes`) to `ExpectedLiveEndpoints`.
      - Add `typeof(SyncOperationType)` and `typeof(SyncDeliveryOutcome)` to the string-only wire enum schema verification list.
@@ -859,7 +1158,7 @@ Create `ISyncPullService` & `SyncPullService` (`src/PharmacyERP.Application/Feat
      dotnet test tests/PharmacyERP.IntegrationTests/PharmacyERP.IntegrationTests.csproj --filter ContractsArtifactSyncTests
      Remove-Item Env:UPDATE_OPENAPI_SNAPSHOT
      ```
-   - Update `apps/erp-backend/contracts/README.md` documenting the 4 Sync endpoints, `X-Branch-Enrollment-Token` header auth on enrolled-branch endpoints, `SyncAdminOnly` (`sync:retry`) on retry, and `409 SYNC_CURSOR_EXPIRED`.
+   - Update `apps/erp-backend/contracts/README.md` documenting the 4 Sync endpoints, required `X-Branch-Enrollment-Token` header auth on enrolled-branch endpoints, `SyncAdminOnly` (`sync:retry`) on retry, and `409 SYNC_CURSOR_EXPIRED`.
 
 ### 4. Mandatory Unit & Integration Tests
 - `tests/PharmacyERP.UnitTests/Infrastructure/BranchSyncBackgroundWorkerTests.cs`:
@@ -996,7 +1295,7 @@ Run `/stage-final-audit` across all Ahmed Hassan Stage 2 code (`AH-01`..`AH-14`)
    - `dotnet build PharmacyERP.sln --no-restore` (`0 Error(s), 0 Warning(s)`).
    - `dotnet test PharmacyERP.sln --no-restore` (`100% Passed, 0 Failed, 0 Skipped`, covering all `767` Stage 1 tests + all Stage 2 unit, integration, concurrency, sync, and contract suites).
    - `ContractsArtifactSyncTests` passing across all **`66` live HTTP endpoints** (`48` Stage 1 + `18` new Stage 2 + updated `/api/v1/canonical/capabilities`), `contracts/schemas/api-error-envelope.schema.json` (including `SYNC_CURSOR_EXPIRED`), and `contracts/schemas/canonical-capabilities.schema.json` (`stage: 2`, `Cloud`: `5` reads / `2` writes, `BranchLocal`: `0` / `0`).
-   - Verified byte/semantic parity between `apps/erp-backend/contracts/` and the shared monorepo-root `contracts/` directory (`openapi.v1.json`, `schemas/api-error-envelope.schema.json`, `schemas/canonical-capabilities.schema.json`, `README.md`), confirming readiness to open the final `stage2-dev -> main` PR.
+   - Verified semantic parity between `apps/erp-backend/contracts/openapi.v1.json` (`66` live endpoints) and the shared monorepo-root `contracts/` package after applying the **4 Stage 2 Activation Deltas** across `contracts/openapi.erp.yaml` (preserving `x-stage`/`x-surface`/`x-runtime`/`x-roles` extensions), `contracts/schemas/{api-error-envelope.schema.json,canonical-capabilities.schema.json,common.json,canonical.json}`, `contracts/README.md`, and `contracts/FRONTEND.md` (preserving modular schemas, fixtures, and repo-root documentation — never overwriting `contracts/README.md` or duplicating `openapi.v1.json`), confirming readiness to open the final `stage2-dev -> main` PR.
 
 ### 4. Mandatory Unit & Integration Tests
 - Execute the full solution test suite (`PharmacyERP.UnitTests` + `PharmacyERP.IntegrationTests`) with zero failures and zero skipped tests. Fix any audit findings with dedicated regression tests before finalizing the report.

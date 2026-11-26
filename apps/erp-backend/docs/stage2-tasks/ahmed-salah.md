@@ -326,7 +326,7 @@ Fold deferred Stage 1 Brain contract item **`API-DIFF-011` / `T-03`** directly i
        - Extract distinct aggregate/product IDs from the returned events, batch-load the authoritative rows + child lines via `.AsNoTracking().AsSplitQuery()`, and advance `NextCursor` to `{ "m": "seq", "seq": lastScannedEventSequence }` (even if filtered events produce `0` body items, guaranteeing no-loss progress!).
    - **Per-Feed Mapping & Event Filters:**
      - **`sales` (`CanonicalSaleDto`):** Posted `SalesInvoice` + lines + batch-fetched `Product.BaseUomCode` (never filtering `IsActive == true`). Compute `unit_price_base = Math.Round(line.UnitPriceSnapshot / line.ConversionSnapshot, 4, MidpointRounding.AwayFromZero)` per §8.9.12. Outbox event types: `sales.order.completed`, `sales.return.posted`.
-     - **`orders` (`CanonicalSalesOrderDto`):** `SalesOrder` + lines + batch-fetched `Product.BaseUomCode`. Outbox event types: `sales.order.completed` (and any `sales.order.*` lifecycle events emitted).
+     - **`orders` (`CanonicalSalesOrderDto`):** `SalesOrder` + lines + batch-fetched `Product.BaseUomCode`. Because `sales."SALES_ORDER"` has no `updated_at` column, filter `updated_since` and keyset-order strictly on **`(COALESCE(completed_at, created_at), sales_order_id)`** (in EF Core LINQ: `(order.CompletedAt ?? order.CreatedAt) >= updatedSince` and `OrderBy(order => order.CompletedAt ?? order.CreatedAt).ThenBy(order => order.SalesOrderId)`, encoding `ts = order.CompletedAt ?? order.CreatedAt` and `id = order.SalesOrderId` in `CanonicalOutboxCursor` `m: "ks"`). Outbox event types: `sales.order.completed` (and any `sales.order.*` lifecycle events emitted).
      - **`returns` (`CanonicalSaleReturnDto`):** Posted `SalesReturn` + lines (`UpdatedAt` mapped from `ReceivedAt`). Outbox event types: `sales.return.posted`.
      - **`products` (`CanonicalProductDto`, Stage 1 unification):** Keyset ordered by `(UpdatedAt ASC, ProductId ASC)`. Outbox event types: `catalog.product.*` (`catalog.product.created`, `catalog.product.updated`) and `catalog.uom.*` (`catalog.uom.created`, `catalog.uom.updated`). Projects exact Stage 1 `CanonicalProductDto` fields + active/inactive UOMs inside `PagedResult<CanonicalProductDto>`.
      - **`inventory` (`CanonicalInventoryItemDto`, Stage 1 unification):** Keyset ordered by `(ProductId ASC, LocationId ASC)` for `(organizationId, branchId, optional productId)`. Outbox event types: `inventory.adjustment.posted`, `sales.order.completed`, `sales.return.posted`, `catalog.reorderrule.created`, `catalog.reorderrule.updated`, `catalog.reorder_rule.upserted` (matching live `CanonicalCatalogService` & inventory/sales outbox emitters). Preserves exact Stage 1 `CanonicalInventoryItemDto` lot availability (`IsSellable && IsActive && Batch.IsEligibleForSale(organizationBusinessDate)`), weighted-average cost rounding (`4` decimals, `MidpointRounding.AwayFromZero`), and active `ReorderPointBase` projection inside `PagedResult<CanonicalInventoryItemDto>`.
@@ -335,7 +335,7 @@ Fold deferred Stage 1 Brain contract item **`API-DIFF-011` / `T-03`** directly i
 - `tests/PharmacyERP.IntegrationTests/Persistence/CanonicalStage2RepositoryTests.cs` (`[SkipWhenPostgresUnavailableFact]`):
   - Verifies keyset paging + seamless handoff to `OUTBOX_EVENT.event_sequence` cursor (`m: "ks"` -> `m: "seq"`) across **ALL 5 canonical feeds** (`sales`, `orders`, `returns`, `products`, `inventory`).
   - Verifies incremental `m == "seq"` mode picks up newly committed `OUTBOX_EVENT` rows (`sales.order.completed`, `sales.return.posted`, `catalog.product.*`, `catalog.uom.*`, `inventory.adjustment.posted`, `catalog.reorderrule.*`) without missing late commits or duplicating prior items.
-  - Verifies unified `limit` clamp `[1, 1000]` (default `100`), `updated_since`, `from_date`/`to_date`, `branch_id`, and `FORCE RLS` cross-tenant isolation under `erp_it_app`.
+  - Verifies unified `limit` clamp `[1, 1000]` (default `100`), `updated_since` (explicitly verifying `/canonical/orders` filters and keyset-orders on `(COALESCE(completed_at, created_at), sales_order_id)` for both `DRAFT` and `COMPLETED` orders), `from_date`/`to_date`, `branch_id`, and `FORCE RLS` cross-tenant isolation under `erp_it_app`.
 
 ### 5. Verification & Arabic Explanation Gate
 - Run `dotnet build PharmacyERP.sln --no-restore` (`0 Error(s), 0 Warning(s)`).
@@ -344,11 +344,11 @@ Fold deferred Stage 1 Brain contract item **`API-DIFF-011` / `T-03`** directly i
 
 ---
 
-## Task `AS-06`: Stage 2 Canonical Read Service, `CanonicalServiceTokenGenerator` & Stage 1 Canonical Alignment (`API-DIFF-011`, `API-DIFF-012`, `DTO-DIFF-034`)
+## Task `AS-06`: Strictly Additive Stage 2 Canonical Read Service & `CanonicalServiceTokenGenerator` (`API-DIFF-012`)
 
 ### 1. Task Header
 - **Task ID:** `AS-06`
-- **Title:** `ICanonicalStage2Service`, `ICanonicalServiceTokenGenerator` & Stage 1 Canonical Service Unification (`CanonicalCatalogService`, `CanonicalInventoryService`, `CanonicalWriteStatuses`)
+- **Title:** Strictly Additive `ICanonicalStage2Service` & `ICanonicalServiceTokenGenerator` (`API-DIFF-012`)
 - **Base Branch:** `stage2-dev`
 - **Feature Branch:** `stage2/ahmed-salah/as-06-canonical-stage2-service`
 - **Execution Command:** Execute via `/execute-stage-task` applying `@.agent/rules/00-backend-guardrails.md`, `@.agent/skills/pharmacy-stage1-baseline/SKILL.md`, and `@.agent/skills/pharmacy-backend-engineering/SKILL.md`.
@@ -361,7 +361,7 @@ Fold deferred Stage 1 Brain contract item **`API-DIFF-011` / `T-03`** directly i
 > **BLOCKING GATE RULE:** *If ANY prerequisite above is missing or fails to compile, STOP immediately, refuse to implement this task, and inform the developer in Arabic which exact task/PR must be merged and pulled from `stage2-dev` first.*
 
 ### 3. Exhaustive Implementation Specification
-Fold deferred Stage 1 Brain contract items **`API-DIFF-011` / `T-03`**, **`API-DIFF-012`**, and **`DTO-DIFF-034`** cleanly into `AS-06`:
+Keep `AS-06` **strictly additive** — **ZERO signature changes** to Stage 1 `ICanonicalCatalogService`, `CanonicalCatalogService`, `ICanonicalInventoryService`, `CanonicalInventoryService`, or `CanonicalWriteStatuses` (the atomic Stage 1 Canonical unification of services + controllers + capabilities + OpenAPI + impacted Stage 1 tests lands together in **`AS-07`** so both `AS-06` and `AS-07` compile and pass 100% of tests independently!):
 
 1. **Create `ICanonicalStage2Service` & `CanonicalStage2Service`** (`src/PharmacyERP.Application/Features/Integration/Services/`):
    - **Read-Only Contract:** Exposes strictly three read methods (`GetCanonicalSalesAsync`, `GetCanonicalOrdersAsync`, `GetCanonicalReturnsAsync`) — **ZERO write methods**.
@@ -387,19 +387,6 @@ Fold deferred Stage 1 Brain contract items **`API-DIFF-011` / `T-03`**, **`API-D
      - `branch_scope`: `"ALL"` or `"ASSIGNED"` + `branch_ids` JSON string array
      - `scopes`: `["canonical:read"]` (strictly read-only — zero write scopes)
      - Default lifetime **`15 minutes`**, hard maximum **`60 minutes`** (`TimeSpan.FromMinutes(60)`; reject `<= 0` or `> 60 min` with `ArgumentOutOfRangeException`).
-3. **Update Stage 1 `CanonicalCatalogService.cs`, `ICanonicalCatalogService.cs`, & `CanonicalCatalogConfigurationDtos.cs` (`API-DIFF-011`, `API-DIFF-012`, `DTO-DIFF-034`):**
-   - **`DTO-DIFF-034`:** In `src/PharmacyERP.Application/Features/Integration/DTOs/CanonicalCatalogConfigurationDtos.cs`, add `public const string Succeeded = "succeeded";` to `CanonicalWriteStatuses` and update `CanonicalCatalogService.ConfigureProductAsync` and `ConfigureReorderRuleAsync` to emit **`CanonicalWriteStatuses.Succeeded` (`"succeeded"`)** per Blueprint §2.7 (replacing `"APPLIED"`).
-   - **Role Separation (`API-DIFF-012`):** Split `IsAuthorized()` into:
-     - `IsReadAuthorized()` -> `{ Admin, Pharmacist, CanonicalReader }` (used by `GetCanonicalProductsFeedAsync`).
-     - `IsWriteAuthorized()` -> `{ Admin, Pharmacist }` ONLY (used by `ConfigureProductAsync` and `ConfigureReorderRuleAsync` — denying `CanonicalReader` with **`403 FORBIDDEN`**!).
-   - **Unified Cursor & Envelope (`API-DIFF-011` / `T-03`):**
-     - Update `ICanonicalCatalogService.GetCanonicalProductsFeedAsync` and `CanonicalCatalogService.GetCanonicalProductsFeedAsync` return type to **`Task<Result<PagedResult<CanonicalProductDto>>>`** with default `limit = 100` (clamped `[1, 1000]`).
-     - Replace legacy ticks-based `EncodeCursor`/`TryDecodeCursor` with `CanonicalOutboxCursor.TryDecode(...)` (returning `422 VALIDATION_ERROR`, `field: "cursor"` on malformed cursor) and delegate to `ICanonicalStage2Repository.GetUnifiedCanonicalProductsPageAsync` inside the explicit `IUnitOfWork` read transaction (keeping constructor optional/backwards-friendly or cleanly updated across unit tests).
-4. **Update Stage 1 `CanonicalInventoryService.cs` & `ICanonicalInventoryService.cs` (`API-DIFF-011`, `API-DIFF-012`):**
-   - Update role check on `GetCanonicalInventoryAsync` to allow **`{ Admin, Pharmacist, CanonicalReader }`** (still rejecting `Cashier` with `403 FORBIDDEN`).
-   - Change `cursor` parameter on `ICanonicalInventoryService.GetCanonicalInventoryAsync` and `CanonicalInventoryService.GetCanonicalInventoryAsync` from `long?` to **`string?`**.
-   - Validate `cursor` via `CanonicalOutboxCursor.TryDecode(...)` -> **`422 VALIDATION_ERROR`** with `ApiErrorDetailDto("cursor", "Invalid cursor format.")` on malformed cursor.
-   - Delegate to `ICanonicalStage2Repository.GetUnifiedCanonicalInventoryPageAsync` inside the explicit `IUnitOfWork` read transaction (preserving exact tenant/branch validation, `Organization.TimeZoneId` business date calculation, `limit` clamp `[1, 1000]`, default `100`, and `PagedResult<CanonicalInventoryItemDto>`).
 
 ### 4. Mandatory Unit & Integration Tests
 - `tests/PharmacyERP.UnitTests/Application/Integration/CanonicalStage2ServiceTests.cs`:
@@ -408,20 +395,19 @@ Fold deferred Stage 1 Brain contract items **`API-DIFF-011` / `T-03`**, **`API-D
   - Verifies explicit `BeginTransactionAsync` + `RollbackTransactionAsync(CancellationToken.None)` on both success and failure paths.
 - `tests/PharmacyERP.UnitTests/Security/CanonicalServiceTokenGeneratorTests.cs`:
   - Verifies RS256 signature verification against `JwksKeyProvider.GetPublicKeyParameters()`, exact claims (`token_type: "service"`, `roles: ["CanonicalReader"]`, `scopes: ["canonical:read"]`, `organization_id`, `branch_scope`, `branch_ids`), default `15 min` TTL, and rejection of `> 60 min` or `<= 0` TTL.
-- Update affected Stage 1 unit tests (`CanonicalCatalogServiceTests`, `CanonicalInventoryServiceTests`) to verify unified `CanonicalOutboxCursor` (`422` on malformed cursor), `PagedResult<CanonicalProductDto>`, `CanonicalReader` allowed on reads and rejected (`403`) on canonical writes, and `CanonicalWriteResultDto.Status == "succeeded"`.
 
 ### 5. Verification & Arabic Explanation Gate
 - Run `dotnet build PharmacyERP.sln --no-restore` (`0 Error(s), 0 Warning(s)`).
 - Run `dotnet test PharmacyERP.sln --no-restore` (`100% Passed, 0 Failed, 0 Skipped`).
-- Provide a concise **Arabic explanation in chat** summarizing the Cloud-only read-only canonical service, `CanonicalServiceTokenGenerator`, `CanonicalReader` read/write separation, unified cursor adoption, and `"succeeded"` status alignment.
+- Provide a concise **Arabic explanation in chat** summarizing the strictly additive Cloud-only read-only canonical service and `CanonicalServiceTokenGenerator` (`API-DIFF-012`), confirming zero Stage 1 signature churn prior to atomic unification in `AS-07`.
 
 ---
 
-## Task `AS-07`: `CanonicalSalesController`, Stage 1 Canonical Controllers Unification, `CanonicalCapabilitiesService` Update, DI Wiring & OpenAPI Sync
+## Task `AS-07`: `CanonicalSalesController`, Atomic Stage 1 Canonical Unification (`API-DIFF-011`, `API-DIFF-012`, `DTO-DIFF-034`), `CanonicalCapabilitiesService` Update, DI Wiring & OpenAPI Sync
 
 ### 1. Task Header
 - **Task ID:** `AS-07`
-- **Title:** `CanonicalSalesController`, Unified Stage 1 Canonical Controllers, `CanonicalCapabilitiesService` Stage 2 Update, DI Registration & OpenAPI/Schema Sync
+- **Title:** `CanonicalSalesController`, Atomic Stage 1 Canonical Service + Controller Unification, `CanonicalCapabilitiesService` Stage 2 Update, DI Registration & OpenAPI/Schema Sync
 - **Base Branch:** `stage2-dev`
 - **Feature Branch:** `stage2/ahmed-salah/as-07-canonical-controller-and-capabilities`
 - **Execution Command:** Execute via `/execute-stage-task` applying `@.agent/rules/00-backend-guardrails.md`, `@.agent/skills/pharmacy-stage1-baseline/SKILL.md`, and `@.agent/skills/pharmacy-backend-engineering/SKILL.md`.
@@ -433,6 +419,8 @@ Fold deferred Stage 1 Brain contract items **`API-DIFF-011` / `T-03`**, **`API-D
 > **BLOCKING GATE RULE:** *If ANY prerequisite above is missing or fails to compile, STOP immediately, refuse to implement this task, and inform the developer in Arabic which exact task/PR must be merged and pulled from `stage2-dev` first.*
 
 ### 3. Exhaustive Implementation Specification
+Land the entire Stage 1 Canonical unification (`API-DIFF-011`/`T-03`, `API-DIFF-012`, `DTO-DIFF-034`, plus defense-in-depth `Cloud` runtime guards) **atomically** in this single PR alongside `CanonicalSalesController`, `CanonicalCapabilitiesService`, OpenAPI snapshot regeneration, and all impacted Stage 1 tests so the solution compiles and passes 100% of tests at every commit:
+
 1. **Create `src/PharmacyERP.Api/Controllers/CanonicalSalesController.cs`:**
    - `[ApiController]`, `[Route("api/v1/canonical")]`, **`[Authorize(Policy = "CanonicalRead")]`** (allows `Admin`, `Pharmacist`, and `CanonicalReader`; denies `Cashier` with `403 FORBIDDEN`).
    - Three read-only `GET` endpoints using explicit `snake_case` `[FromQuery(Name = "...")]` parameter names matching Stage 1 `CanonicalInventoryController` & `CanonicalCatalogController`:
@@ -442,13 +430,25 @@ Fold deferred Stage 1 Brain contract items **`API-DIFF-011` / `T-03`**, **`API-D
    - Query params on all three: `[FromQuery(Name = "organization_id")] Guid? organizationId`, `[FromQuery(Name = "branch_id")] Guid? branchFilter`, `[FromQuery(Name = "from_date")] DateTimeOffset? fromDate`, `[FromQuery(Name = "to_date")] DateTimeOffset? toDate`, `[FromQuery(Name = "updated_since")] DateTimeOffset? updatedSince`, `[FromQuery(Name = "cursor")] string? cursor`, `[FromQuery(Name = "limit")] int limit = 100`.
    - Thin controller: delegates directly to `ICanonicalStage2Service` and returns via `ApiResultMapper.ToActionResult(this, result, _currentUser.TraceId)`.
    - **ZERO `POST`/`PUT`/`PATCH`/`DELETE` actions on `CanonicalSalesController`** (Blueprint §6.6 & §8.2).
-2. **Unify Stage 1 Canonical Controllers (`CanonicalCatalogController.cs` & `CanonicalInventoryController.cs`):**
+2. **Atomically Unify Stage 1 Canonical Services & DTOs (`ICanonicalCatalogService`, `CanonicalCatalogService`, `ICanonicalInventoryService`, `CanonicalInventoryService`, `CanonicalWriteStatuses`):**
+   - **`DTO-DIFF-034` (`src/PharmacyERP.Application/Features/Integration/DTOs/CanonicalCatalogConfigurationDtos.cs`):** Add `public const string Succeeded = "succeeded";` to `CanonicalWriteStatuses` and update `CanonicalCatalogService.ConfigureProductAsync` and `ConfigureReorderRuleAsync` to emit **`CanonicalWriteStatuses.Succeeded` (`"succeeded"`)** per Blueprint §2.7 (replacing `"APPLIED"`).
+   - **`ICanonicalCatalogService.cs` & `CanonicalCatalogService.cs` (`API-DIFF-011`, `API-DIFF-012`, Defense-in-Depth `Cloud` Check):**
+     - Add defense-in-depth `Cloud` runtime-mode guard at the top of `GetCanonicalProductsFeedAsync`: `if (!IsCloudRuntimeMode()) return Result<PagedResult<CanonicalProductDto>>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.CloudOnlyOperationUnavailable);` (matching `ConfigureProductAsync` and `ConfigureReorderRuleAsync`).
+     - Split `IsAuthorized()` into `IsReadAuthorized()` (`{ Admin, Pharmacist, CanonicalReader }`, used by `GetCanonicalProductsFeedAsync`) and `IsWriteAuthorized()` (`{ Admin, Pharmacist }` ONLY, used by `ConfigureProductAsync` & `ConfigureReorderRuleAsync` — denying `CanonicalReader` with **`403 FORBIDDEN`**!).
+     - Update `GetCanonicalProductsFeedAsync` return type to **`Task<Result<PagedResult<CanonicalProductDto>>>`** with default `limit = 100` (clamped `[1, 1000]`).
+     - Replace legacy ticks-based `EncodeCursor`/`TryDecodeCursor` with `CanonicalOutboxCursor.TryDecode(...)` (returning `422 VALIDATION_ERROR`, `field: "cursor"` on malformed cursor) and delegate to `ICanonicalStage2Repository.GetUnifiedCanonicalProductsPageAsync` inside the explicit `IUnitOfWork` read transaction.
+   - **`ICanonicalInventoryService.cs` & `CanonicalInventoryService.cs` (`API-DIFF-011`, `API-DIFF-012`, Defense-in-Depth `Cloud` Check):**
+     - Append optional trailing constructor parameter **`IRuntimeModeProvider? runtimeModeProvider = null`** (automatically resolved by DI while keeping existing unit test constructions backwards-compatible) and enforce defense-in-depth `if (_runtimeModeProvider is not null && _runtimeModeProvider.CurrentMode != ErpRuntimeMode.Cloud) return Result<PagedResult<CanonicalInventoryItemDto>>.Failure(ErrorCode.NOT_FOUND, ErrorMessages.CloudOnlyOperationUnavailable);` inside `GetCanonicalInventoryAsync`.
+     - Update role check on `GetCanonicalInventoryAsync` to allow **`{ Admin, Pharmacist, CanonicalReader }`** (still rejecting `Cashier` with `403 FORBIDDEN`).
+     - Change `cursor` parameter on `ICanonicalInventoryService.GetCanonicalInventoryAsync` and `CanonicalInventoryService.GetCanonicalInventoryAsync` from `long?` to **`string?`**.
+     - Validate `cursor` via `CanonicalOutboxCursor.TryDecode(...)` -> **`422 VALIDATION_ERROR`** with `ApiErrorDetailDto("cursor", "Invalid cursor format.")` on malformed cursor, and delegate to `ICanonicalStage2Repository.GetUnifiedCanonicalInventoryPageAsync` inside the explicit `IUnitOfWork` read transaction.
+3. **Unify Stage 1 Canonical Controllers (`CanonicalCatalogController.cs` & `CanonicalInventoryController.cs`):**
    - **`src/PharmacyERP.Api/Controllers/CanonicalCatalogController.cs`:**
      - On `GetProductsFeed` (`GET /api/v1/canonical/products`): replace `[Authorize(Roles = "Admin,Pharmacist")]` with **`[Authorize(Policy = "CanonicalRead")]`**, update `[ProducesResponseType(typeof(PagedResult<CanonicalProductDto>), StatusCodes.Status200OK)]` (replacing `CanonicalProductFeedPageDto`), and update default `[FromQuery(Name = "limit")] int limit = 100` (was `50`).
      - On `ConfigureProduct` (`POST /api/v1/canonical/configuration/products`) and `ConfigureReorderRule` (`PUT /api/v1/canonical/configuration/reorder-rules`): keep **`[Authorize(Roles = "Admin,Pharmacist")]`** strictly unchanged so `CanonicalReader` tokens receive `403 FORBIDDEN`.
    - **`src/PharmacyERP.Api/Controllers/CanonicalInventoryController.cs`:**
      - On `GetCanonicalInventory` (`GET /api/v1/canonical/inventory`): replace `[Authorize(Roles = "Admin,Pharmacist")]` with **`[Authorize(Policy = "CanonicalRead")]`** and change `[FromQuery(Name = "cursor")] long? cursor` to **`[FromQuery(Name = "cursor")] string? cursor`** (keeping `limit = 100` and all `[ProducesResponseType]` attributes).
-3. **Update `src/PharmacyERP.Application/Features/Integration/Services/Implementations/CanonicalCapabilitiesService.cs`** (MUST preserve `isCloud` check for `BranchLocal` empty arrays per `API-DIFF-008` / `DTO-DIFF-036`!):
+4. **Update `src/PharmacyERP.Application/Features/Integration/Services/Implementations/CanonicalCapabilitiesService.cs`** (MUST preserve `isCloud` check for `BranchLocal` empty arrays per `API-DIFF-008` / `DTO-DIFF-036`!):
    ```csharp
    public CanonicalCapabilitiesDto GetCapabilities()
    {
@@ -466,16 +466,25 @@ Fold deferred Stage 1 Brain contract items **`API-DIFF-011` / `T-03`**, **`API-D
    }
    ```
    *(On `Cloud`: `Stage: 2`, `5` reads, `2` writes — **ZERO Stage 2 canonical writes**! On `BranchLocal`: `Stage: 2`, `supported_reads: []`, `supported_writes: []`.)*
-4. **Register Services & Repositories ONLY in Ahmed Salah's Modular DI Files** (keep root `DependencyInjection.cs` untouched!):
+5. **Register Services & Repositories ONLY in Ahmed Salah's Modular DI Files** (keep root `DependencyInjection.cs` untouched!):
    - `src/PharmacyERP.Application/Extensions/CanonicalStage2DependencyInjection.cs`: register `ISalesReturnQueryService`, `ICanonicalStage2Service` (`Scoped`).
    - `src/PharmacyERP.Infrastructure/Extensions/CanonicalStage2DependencyInjection.cs`: register `ISalesReturnQueryRepository`, `ICanonicalStage2Repository` (`Scoped`), and `ICanonicalServiceTokenGenerator` -> `CanonicalServiceTokenGenerator` (`Singleton`).
-5. **Update Schemas, `ContractsArtifactSyncTests`, OpenAPI Snapshot & Affected Stage 1 Tests (NON-NEGOTIABLE):**
+6. **Update Schemas, `ContractsArtifactSyncTests`, OpenAPI Snapshot & ALL 9 Impacted Stage 1 Test Files (NON-NEGOTIABLE):**
    - Update `apps/erp-backend/contracts/schemas/canonical-capabilities.schema.json`: change `"stage": { "type": "integer", "const": 1 }` to **`"const": 2`**.
    - Update `tests/PharmacyERP.IntegrationTests/Api/ContractsArtifactSyncTests.cs`:
      - Add `("/api/v1/canonical/sales", "get")`, `("/api/v1/canonical/orders", "get")`, and `("/api/v1/canonical/returns", "get")` to `ExpectedLiveEndpoints`.
      - Update `CanonicalCapabilitiesAndErrorEnvelopeSchemas_MatchLiveEndpointsAndErrorCodes`: assert `stage == 2`, `("Cloud", 5, 2)`, and `("BranchLocal", 0, 0)`.
    - Regenerate `apps/erp-backend/contracts/openapi.v1.json` (`UPDATE_OPENAPI_SNAPSHOT=true`) and update `apps/erp-backend/contracts/README.md`.
-   - Update affected Stage 1 tests strictly inside `tests/` (`CanonicalCapabilitiesServiceTests`, `CanonicalCapabilitiesEndpointTests`, `CatalogEndpointsTests`, `CanonicalCatalogServiceTests`, `CanonicalInventoryServiceTests`, `Level1BWireContractTests`) to align with Stage 2 capabilities (`stage: 2`, `Cloud` `5`/`2`, `BranchLocal` `0`/`0`), unified `PagedResult<CanonicalProductDto>` + `string? cursor`, `CanonicalRead` policy, and `status: "succeeded"`.
+   - Update **all 9 impacted Stage 1 test files** strictly inside `tests/` in this same PR so 100% of unit and integration tests compile and pass:
+     1. `Stage1ContractFixesUnitTests.cs`
+     2. `Level1BWireContractTests.cs`
+     3. `Level1AApiContractTests.cs`
+     4. `CatalogEndpointsTests.cs`
+     5. `CanonicalCatalogServiceTests.cs` (also assert `BranchLocal` -> `404 NOT_FOUND` on `GetCanonicalProductsFeedAsync`, `CanonicalReader` read/write separation, `PagedResult<CanonicalProductDto>`, and `status == "succeeded"`)
+     6. `CanonicalInventoryServiceTests.cs` (also assert `BranchLocal` -> `404 NOT_FOUND` when `IRuntimeModeProvider` is provided, `string? cursor` `CanonicalOutboxCursor`, and `CanonicalReader` read access)
+     7. `CanonicalCapabilitiesServiceTests.cs`
+     8. `CanonicalCapabilitiesEndpointTests.cs`
+     9. `CanonicalCapabilitiesControllerTests.cs`
 
 ### 4. Mandatory Unit & Integration Tests
 - `tests/PharmacyERP.UnitTests/API/Controllers/CanonicalSalesControllerAndCapabilitiesTests.cs`:
@@ -483,13 +492,13 @@ Fold deferred Stage 1 Brain contract items **`API-DIFF-011` / `T-03`**, **`API-D
   - Verifies `CanonicalCapabilitiesService.GetCapabilities()` returns:
     - On `Cloud`: `Stage: 2`, `RuntimeMode: "Cloud"`, `SupportedReads: ["products", "inventory", "sales", "orders", "returns"]`, `SupportedWrites: ["configuration.products", "configuration.reorder-rules"]`.
     - On `BranchLocal`: `Stage: 2`, `RuntimeMode: "BranchLocal"`, `SupportedReads: []`, `SupportedWrites: []`.
-- `ContractsArtifactSyncTests`: green with `0` drift.
+- All 9 updated Stage 1 test files + `ContractsArtifactSyncTests`: 100% green with `0` drift.
 
 ### 5. Verification & Arabic Explanation Gate
 - Run `dotnet build PharmacyERP.sln --no-restore` (`0 Error(s), 0 Warning(s)`).
 - Run `dotnet test PharmacyERP.sln --no-restore` (`100% Passed, 0 Failed, 0 Skipped`).
 - Local API boot check confirming Swagger exposes `GET /api/v1/sales-returns`, `GET /api/v1/sales-returns/{id}`, `GET /api/v1/canonical/sales`, `GET /api/v1/canonical/orders`, `GET /api/v1/canonical/returns`, unified `GET /api/v1/canonical/products` & `GET /api/v1/canonical/inventory`, and updated `GET /api/v1/canonical/capabilities`, then terminate cleanly.
-- Provide a concise **Arabic explanation in chat** summarizing the 5 unified canonical read feeds, `CanonicalRead` enforcement, `isCloud`-guarded capabilities update, and zero-write AI boundary enforcement.
+- Provide a concise **Arabic explanation in chat** summarizing the atomic Stage 1 + Stage 2 canonical unification across all 5 read feeds, defense-in-depth `Cloud` checks, `CanonicalRead` enforcement, `isCloud`-guarded capabilities update, and zero-write AI boundary enforcement.
 
 ---
 
@@ -519,14 +528,16 @@ Fold deferred Stage 1 Brain contract items **`API-DIFF-011` / `T-03`**, **`API-D
    - **Sync DTO Property Contracts (strict `snake_case`):** Serialize & inspect `SyncOperationBatchRequest`, `SyncOperationBatchResponse`, `SyncOperationResultDto`, `SyncBootstrapResponse`, `SyncChangesResponse` — verifying `next_cursor`, `branch_sequence`, `payload_hash`, and asserting `SyncBootstrapResponse` contains NO `stock_balances` or `opening_balances` properties.
    - **Canonical Stage 2 & Unified Stage 1 DTO Contracts:** Serialize & inspect `CanonicalSaleDto`, `CanonicalSalesOrderDto`, `CanonicalSaleReturnDto`, `CanonicalCapabilitiesDto`, `CanonicalWriteResultDto`, and `PagedResult<T>` — verifying exact `snake_case` property names (`next_cursor`, `runtime_mode`, `supported_reads`, `supported_writes`, `unit_price_entered`, `unit_price_base`, `unit_cost_base_snapshot`), `schema` & `version` constants, zero customer/delivery/reservation/terminal/PII keys, zero Stage 2 canonical write entries in `supported_writes`, `BranchLocal` empty arrays, and **`CanonicalWriteResultDto.status == "succeeded"`** (`DTO-DIFF-034`).
    - **Error Envelope Contract (§8.6):** Verify `ApiResultMapper` produces `{ "error": { "code", "message", "details", "trace_id" } }` with exact HTTP status codes (`400` including `ToMissingIdempotencyKeyResult`, `401`, `403`, `404`, `409` including `SYNC_CURSOR_EXPIRED`, `OUT_OF_STOCK`, `INVALID_STATE_TRANSITION`, `IDEMPOTENCY_MISMATCH`, and `422` with `snake_case` `details[].field`).
-2. **Wave 3 Shared Repo-Root `/contracts/` Export (`00-backend-guardrails.md` §1.1):**
+2. **Wave 3 Shared Repo-Root `/contracts/` Stage 2 Activation Sync (`00-backend-guardrails.md` §1.1):**
    - Run `ContractsArtifactSyncTests` verifying all **`66` live endpoints** (`48` Stage 1 + `18` new Stage 2 + updated `/api/v1/canonical/capabilities`) match `/swagger/v1/swagger.json` with zero drift and 100% typed response schemas.
-   - Mirror the finalized Stage 2 contract artifacts from `apps/erp-backend/contracts/` into the shared monorepo-root `contracts/` directory:
-     - `openapi.v1.json`
-     - `schemas/api-error-envelope.schema.json`
-     - `schemas/canonical-capabilities.schema.json`
-     - `README.md`
-   - Verify exact parity between `apps/erp-backend/contracts/` and shared repo-root `contracts/`.
+   - Synchronize the **4 Stage 2 Activation Deltas** into the shared monorepo-root `contracts/` package (preserving all `x-stage`/`x-surface`/`x-runtime`/`x-roles` extensions, modular schemas, fixtures, and repo-root documentation — **NEVER** overwriting repo-root `contracts/README.md` with backend-only `apps/erp-backend/contracts/README.md` or duplicating `openapi.v1.json` into repo-root `contracts/`):
+     - `contracts/openapi.erp.yaml` (activate Stage 2 updates on `/canonical/capabilities`, `/canonical/products`, `/canonical/inventory`, `/canonical/configuration/*`, preserving `x-*` extensions across all `66` endpoints)
+     - `contracts/schemas/api-error-envelope.schema.json` (add `"SYNC_CURSOR_EXPIRED"`)
+     - `contracts/schemas/canonical-capabilities.schema.json` (`"const": 2`)
+     - `contracts/schemas/common.json` (add `"SYNC_CURSOR_EXPIRED"` to `ErrorCode` and `"return:read"`, `"return:write"`, `"sync:retry"` to `PermissionScope`)
+     - `contracts/schemas/canonical.json` (unified `PagedResult<CanonicalProductDto>` / `string? cursor` / `CanonicalWriteResultDto.status` `"succeeded"`)
+     - `contracts/README.md` and `contracts/FRONTEND.md` (update Stage 2 activation status tables in-place)
+   - Verify exact semantic parity between `apps/erp-backend/contracts/openapi.v1.json` and shared repo-root `contracts/openapi.erp.yaml` + `contracts/schemas/`.
 
 ### 4. Mandatory Unit & Integration Tests
 - Execute `Stage2ContractSchemaTests.cs`, `ContractsArtifactSyncTests.cs`, and the full solution suite (`0 Failed, 0 Skipped`).

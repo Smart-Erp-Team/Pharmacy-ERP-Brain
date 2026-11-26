@@ -1,259 +1,1452 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$comment": "Owner: erp-frontend",
-  "$id": "https://example.com/contracts/schemas/sales.json",
-  "title": "Pharmacy ERP — Sales Contract (Stage 2, BranchLocal runtime)",
-  "description": "Cashier-only POS. Counterparty rules: the FE sends product identification + quantity ONLY. The server prices lines from PRODUCT_UOM.sale_unit_price + PRODUCT.tax_rate, allocates stock FEFO, computes totals/change, and derives return batch/location. Drafts NEVER reserve stock. Full CASH payment only. Corrections are returns — never invoice edits.",
+  "$id": "https://pharmacy-erp.local/contracts/schemas/sales.json",
+  "title": "Pharmacy ERP — Sales Orders, Checkout, Invoices, Payments, Returns & Refunds Contract (Stage 2)",
+  "description": "Stage 2 POS sales order drafts, atomic checkout, immutable sales invoices, full cash payments, sales returns (RESTOCK/QUARANTINE/SCRAP), and cash refunds derived verbatim from yassin.md (YA-02), el-hosseiny.md (EH-02), and ahmed-salah.md (AS-02). Strict snake_case, native JSON numbers, and string-only enums.",
   "$defs": {
+    "OrderChannel": {
+      "type": "string",
+      "enum": [
+        "POS"
+      ]
+    },
     "SalesOrderStatus": {
       "type": "string",
-      "enum": ["DRAFT", "COMPLETED", "CANCELLED"]
+      "enum": [
+        "DRAFT",
+        "COMPLETED",
+        "CANCELLED"
+      ]
     },
-    "SalesOrderLineDto": {
-      "type": "object",
-      "required": ["order_line_id", "product_id", "product_uom_id", "entered_qty", "conversion_snapshot", "quantity_base", "unit_price_snapshot", "discount_amount", "tax_rate_snapshot", "tax_amount_snapshot", "line_total"],
-      "properties": {
-        "order_line_id": { "type": "string", "format": "uuid" },
-        "product_id": { "type": "string", "format": "uuid" },
-        "product_uom_id": { "type": "string", "format": "uuid" },
-        "entered_qty": { "$ref": "common.json#/$defs/PositiveNumeric4" },
-        "conversion_snapshot": { "$ref": "common.json#/$defs/PositiveNumeric6" },
-        "quantity_base": { "$ref": "common.json#/$defs/PositiveNumeric4" },
-        "unit_price_snapshot": { "$ref": "common.json#/$defs/NonNegativeNumeric4", "description": "Per entered UOM; server-copied." },
-        "discount_amount": { "$ref": "common.json#/$defs/Money", "description": "Always 0 in MVP — clients cannot set discounts." },
-        "tax_rate_snapshot": { "$ref": "common.json#/$defs/TaxRate", "description": "Fractional snapshot of PRODUCT.tax_rate." },
-        "tax_amount_snapshot": { "$ref": "common.json#/$defs/Money" },
-        "line_total": { "$ref": "common.json#/$defs/Money", "description": "= net + tax. net = round(entered_qty × unit_price_snapshot − discount_amount, 2)." }
-      }
+    "SalesInvoiceStatus": {
+      "type": "string",
+      "enum": [
+        "ISSUED"
+      ]
     },
-    "SalesOrderDto": {
-      "type": "object",
-      "required": ["sales_order_id", "branch_id", "created_by_employee_id", "order_no", "channel", "order_status", "currency_code", "created_at", "lines"],
-      "properties": {
-        "sales_order_id": { "type": "string", "format": "uuid" },
-        "branch_id": { "type": "string", "format": "uuid" },
-        "created_by_employee_id": { "type": "string", "format": "uuid" },
-        "order_no": { "type": "string" },
-        "channel": { "type": "string", "const": "POS" },
-        "order_status": { "$ref": "#/$defs/SalesOrderStatus" },
-        "currency_code": { "type": "string", "description": "= Organization base_currency (EGP seeded)." },
-        "estimated_subtotal": { "$ref": "common.json#/$defs/Money", "description": "Draft estimates — server-computed, informational to FE." },
-        "estimated_tax_total": { "$ref": "common.json#/$defs/Money" },
-        "estimated_grand_total": { "$ref": "common.json#/$defs/Money" },
-        "created_at": { "$ref": "common.json#/$defs/Timestamp" },
-        "completed_at": { "$ref": "common.json#/$defs/Timestamp" },
-        "lines": { "type": "array", "items": { "$ref": "#/$defs/SalesOrderLineDto" } }
-      }
+    "SalesPaymentStatus": {
+      "type": "string",
+      "enum": [
+        "PAID",
+        "PARTIALLY_REFUNDED",
+        "REFUNDED"
+      ]
+    },
+    "PaymentMethod": {
+      "type": "string",
+      "enum": [
+        "CASH"
+      ]
+    },
+    "SalesReturnStatus": {
+      "type": "string",
+      "enum": [
+        "DRAFT",
+        "POSTED",
+        "CANCELLED"
+      ]
+    },
+    "SalesRefundStatus": {
+      "type": "string",
+      "enum": [
+        "NOT_REFUNDED",
+        "PARTIALLY_REFUNDED",
+        "REFUNDED"
+      ]
+    },
+    "ReturnDisposition": {
+      "type": "string",
+      "enum": [
+        "RESTOCK",
+        "QUARANTINE",
+        "SCRAP"
+      ]
     },
     "SalesOrderLineRequest": {
       "type": "object",
-      "required": ["product_id", "product_uom_id", "entered_qty"],
-      "description": "NO price, tax, discount, or total fields — those are server-authoritative.",
+      "required": [
+        "product_id",
+        "product_uom_id",
+        "entered_qty"
+      ],
+      "additionalProperties": false,
       "properties": {
-        "product_id": { "type": "string", "format": "uuid" },
-        "product_uom_id": { "type": "string", "format": "uuid" },
-        "entered_qty": { "$ref": "common.json#/$defs/PositiveNumeric4" }
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_uom_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "entered_qty": {
+          "type": "number",
+          "format": "double",
+          "exclusiveMinimum": 0
+        }
       }
     },
     "CreateSalesOrderRequest": {
       "type": "object",
-      "required": ["branch_id", "lines"],
+      "required": [
+        "branch_id",
+        "lines"
+      ],
+      "additionalProperties": false,
       "properties": {
-        "branch_id": { "type": "string", "format": "uuid" },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
         "lines": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/SalesOrderLineRequest" }
+          "maxItems": 200,
+          "items": {
+            "$ref": "#/$defs/SalesOrderLineRequest"
+          }
+        },
+        "idempotency_key": {
+          "$ref": "common.json#/$defs/IdempotencyKey"
         }
       }
     },
-    "SalesOrderLinesRequest": {
+    "ReplaceSalesOrderLinesRequest": {
       "type": "object",
-      "required": ["lines"],
-      "description": "DRAFT-only full replace of the line set (PUT /sales-orders/{id}/lines). Draft edits never touch stock.",
+      "required": [
+        "lines"
+      ],
+      "additionalProperties": false,
       "properties": {
         "lines": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/SalesOrderLineRequest" }
+          "maxItems": 200,
+          "items": {
+            "$ref": "#/$defs/SalesOrderLineRequest"
+          }
+        },
+        "idempotency_key": {
+          "$ref": "common.json#/$defs/IdempotencyKey"
+        }
+      }
+    },
+    "CancelSalesOrderRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 500
+        },
+        "idempotency_key": {
+          "$ref": "common.json#/$defs/IdempotencyKey"
+        }
+      }
+    },
+    "SalesOrderLineDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "order_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_sku": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "product_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "product_uom_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "uom_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "entered_qty": {
+          "type": "number",
+          "format": "double"
+        },
+        "conversion_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "quantity_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "unit_price_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "discount_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "tax_rate_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "tax_amount_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "line_total": {
+          "type": "number",
+          "format": "double"
+        }
+      }
+    },
+    "SalesOrderDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sales_order_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "created_by_employee_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "created_by_employee_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "order_no": {
+          "type": "string"
+        },
+        "channel": {
+          "$ref": "#/$defs/OrderChannel"
+        },
+        "order_status": {
+          "$ref": "#/$defs/SalesOrderStatus"
+        },
+        "currency_code": {
+          "type": "string"
+        },
+        "estimated_subtotal": {
+          "type": "number",
+          "format": "double"
+        },
+        "estimated_discount_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "estimated_tax_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "estimated_grand_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SalesOrderLineDto"
+          }
+        }
+      }
+    },
+    "SalesOrderSummaryDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sales_order_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "order_no": {
+          "type": "string"
+        },
+        "channel": {
+          "$ref": "#/$defs/OrderChannel"
+        },
+        "order_status": {
+          "$ref": "#/$defs/SalesOrderStatus"
+        },
+        "currency_code": {
+          "type": "string"
+        },
+        "estimated_grand_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "line_count": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "created_by_employee_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "SalesOrderSummaryDtoPagedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SalesOrderSummaryDto"
+          }
+        },
+        "page": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "page_size": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "total_count": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     },
     "CompleteSalesOrderRequest": {
       "type": "object",
-      "description": "Branch-local. Atomic server operation: invoice + cash payment + FEFO stock issue + audit + sync outbox. Rejects partial payment / unpaid credit sales.",
-      "required": ["cash_tendered_amount", "method"],
+      "required": [
+        "cash_tendered_amount"
+      ],
+      "additionalProperties": false,
       "properties": {
-        "cash_tendered_amount": { "$ref": "common.json#/$defs/PositiveMoney", "description": ">0 and >= payable total; change = tendered - due must be >= 0." },
+        "cash_tendered_amount": {
+          "type": "number",
+          "format": "double",
+          "exclusiveMinimum": 0
+        },
         "method": {
-          "type": "string",
-          "enum": ["CASH"],
-          "description": "CASH only in the MVP."
+          "$ref": "#/$defs/PaymentMethod",
+          "default": "CASH"
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 500
+        },
+        "idempotency_key": {
+          "$ref": "common.json#/$defs/IdempotencyKey"
         }
       }
     },
     "SalesPaymentDto": {
       "type": "object",
-      "required": ["payment_id", "invoice_id", "amount_due", "cash_tendered_amount", "change_amount", "method", "received_by_employee_id", "paid_at"],
+      "additionalProperties": false,
       "properties": {
-        "payment_id": { "type": "string", "format": "uuid" },
-        "invoice_id": { "type": "string", "format": "uuid" },
-        "amount_due": { "$ref": "common.json#/$defs/Money", "description": "= exact invoice total (payment amount is not the tendered amount)." },
-        "cash_tendered_amount": { "$ref": "common.json#/$defs/Money" },
-        "change_amount": { "$ref": "common.json#/$defs/Money", "description": "= tendered - due; >= 0." },
-        "method": { "type": "string", "const": "CASH" },
-        "received_by_employee_id": { "type": "string", "format": "uuid" },
-        "paid_at": { "$ref": "common.json#/$defs/Timestamp" }
+        "payment_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "received_by_employee_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "amount_due": {
+          "type": "number",
+          "format": "double"
+        },
+        "cash_tendered_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "change_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "method": {
+          "$ref": "#/$defs/PaymentMethod"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "paid_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     },
-    "SalesInvoiceStatus": { "type": "string", "enum": ["ISSUED"], "description": "Only value: invoices exist only on completed sale; immutable identity + snapshots." },
-    "SalesInvoicePaymentStatus": {
-      "type": "string",
-      "enum": ["PAID", "PARTIALLY_REFUNDED", "REFUNDED"],
-      "description": "Settlement projection; only paid_amount/refunded_amount/payment_status may move after issue."
-    },
-    "SalesInvoiceLineDto": {
+    "CompletedSaleLineDto": {
       "type": "object",
-      "description": "POSTED: all snapshots immutable. unit_cost_snapshot is the weighted summary of actual batch allocations.",
-      "required": ["invoice_line_id", "source_order_line_id", "product_id", "product_uom_id", "entered_qty", "conversion_snapshot", "quantity_base", "unit_price_snapshot", "discount_amount", "tax_rate_snapshot", "tax_amount_snapshot", "net_amount", "line_total", "unit_cost_snapshot"],
+      "additionalProperties": false,
       "properties": {
-        "invoice_line_id": { "type": "string", "format": "uuid" },
-        "source_order_line_id": { "type": "string", "format": "uuid" },
-        "product_id": { "type": "string", "format": "uuid" },
-        "product_uom_id": { "type": "string", "format": "uuid" },
-        "entered_qty": { "$ref": "common.json#/$defs/PositiveNumeric4" },
-        "conversion_snapshot": { "$ref": "common.json#/$defs/PositiveNumeric6" },
-        "quantity_base": { "$ref": "common.json#/$defs/PositiveNumeric4" },
-        "unit_price_snapshot": { "$ref": "common.json#/$defs/NonNegativeNumeric4" },
-        "discount_amount": { "$ref": "common.json#/$defs/Money" },
-        "tax_rate_snapshot": { "$ref": "common.json#/$defs/TaxRate" },
-        "tax_amount_snapshot": { "$ref": "common.json#/$defs/Money" },
-        "net_amount": { "$ref": "common.json#/$defs/Money", "description": "tax-exclusive." },
-        "line_total": { "$ref": "common.json#/$defs/Money", "description": "tax-inclusive; the refundable base." },
-        "unit_cost_snapshot": { "$ref": "common.json#/$defs/NonNegativeNumeric4" }
-      }
-    },
-    "SalesInvoiceDto": {
-      "type": "object",
-      "required": ["invoice_id", "sales_order_id", "branch_id", "invoice_no", "status", "currency_code", "subtotal", "discount_total", "tax_total", "grand_total", "paid_amount", "refunded_amount", "payment_status", "issued_at", "lines"],
-      "properties": {
-        "invoice_id": { "type": "string", "format": "uuid" },
-        "sales_order_id": { "type": "string", "format": "uuid" },
-        "branch_id": { "type": "string", "format": "uuid" },
-        "invoice_no": { "type": "string", "maxLength": 40 },
-        "status": { "$ref": "#/$defs/SalesInvoiceStatus" },
-        "currency_code": { "type": "string" },
-        "subtotal": { "$ref": "common.json#/$defs/Money" },
-        "discount_total": { "$ref": "common.json#/$defs/Money" },
-        "tax_total": { "$ref": "common.json#/$defs/Money" },
-        "grand_total": { "$ref": "common.json#/$defs/Money" },
-        "paid_amount": { "$ref": "common.json#/$defs/Money" },
-        "refunded_amount": { "$ref": "common.json#/$defs/Money" },
-        "payment_status": { "$ref": "#/$defs/SalesInvoicePaymentStatus" },
-        "issued_at": { "$ref": "common.json#/$defs/Timestamp" },
-        "lines": { "type": "array", "items": { "$ref": "#/$defs/SalesInvoiceLineDto" } },
-        "payments": { "type": "array", "items": { "$ref": "#/$defs/SalesPaymentDto" } },
-        "returns_summary": { "type": "array", "items": { "$ref": "#/$defs/SalesReturnDto" } }
+        "invoice_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "source_order_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_uom_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "entered_qty": {
+          "type": "number",
+          "format": "double"
+        },
+        "conversion_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "quantity_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "unit_price_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "discount_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "tax_rate_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "tax_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "net_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "line_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "unit_cost_snapshot": {
+          "type": "number",
+          "format": "double"
+        }
       }
     },
     "CompleteSalesOrderResultDto": {
       "type": "object",
-      "description": "Everything created by the checkout in one response.",
-      "required": ["sales_order", "invoice", "payment", "inventory_txn"],
+      "additionalProperties": false,
       "properties": {
-        "sales_order": { "$ref": "#/$defs/SalesOrderDto" },
-        "invoice": { "$ref": "#/$defs/SalesInvoiceDto" },
-        "payment": { "$ref": "#/$defs/SalesPaymentDto" },
-        "inventory_txn": { "$ref": "inventory.json#/$defs/InventoryTxnDto" }
+        "sales_order_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "order_no": {
+          "type": "string"
+        },
+        "order_status": {
+          "$ref": "#/$defs/SalesOrderStatus"
+        },
+        "completed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "invoice_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_no": {
+          "type": "string"
+        },
+        "invoice_status": {
+          "$ref": "#/$defs/SalesInvoiceStatus"
+        },
+        "payment_status": {
+          "$ref": "#/$defs/SalesPaymentStatus"
+        },
+        "currency_code": {
+          "type": "string"
+        },
+        "subtotal": {
+          "type": "number",
+          "format": "double"
+        },
+        "discount_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "tax_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "grand_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "paid_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "refunded_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "payment": {
+          "$ref": "#/$defs/SalesPaymentDto"
+        },
+        "inventory_txn_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "inventory_txn_no": {
+          "type": "string"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CompletedSaleLineDto"
+          }
+        }
       }
     },
-    "ReturnDisposition": {
-      "type": "string",
-      "enum": ["RESTOCK", "QUARANTINE", "SCRAP"],
-      "description": "RESTOCK-> sellable location; QUARANTINE-> quarantine location; SCRAP-> positive receipt into SCRAP + equal linked scrap issue (net on-hand 0). Destination is ALWAYS server-selected."
+    "SalesInvoiceLineDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "invoice_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "source_order_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_sku": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "product_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "product_uom_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "uom_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "entered_qty": {
+          "type": "number",
+          "format": "double"
+        },
+        "conversion_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "quantity_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "unit_price_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "discount_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "tax_rate_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "tax_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "net_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "line_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "unit_cost_snapshot": {
+          "type": "number",
+          "format": "double"
+        }
+      }
     },
-    "SalesReturnStatus": { "type": "string", "enum": ["DRAFT", "POSTED", "CANCELLED"] },
-    "SalesRefundStatus": { "type": "string", "enum": ["NOT_REFUNDED", "PARTIALLY_REFUNDED", "REFUNDED"] },
+    "SalesInvoicePaymentSummaryDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "payment_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "received_by_employee_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "received_by_employee_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "amount_due": {
+          "type": "number",
+          "format": "double"
+        },
+        "cash_tendered_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "change_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "method": {
+          "$ref": "#/$defs/PaymentMethod"
+        },
+        "paid_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "SalesInvoiceRefundSummaryDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "refund_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sales_return_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "processed_by_employee_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "processed_by_employee_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "method": {
+          "$ref": "#/$defs/PaymentMethod"
+        },
+        "refunded_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "SalesInvoiceDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "invoice_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sales_order_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_no": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/SalesInvoiceStatus"
+        },
+        "currency_code": {
+          "type": "string"
+        },
+        "subtotal": {
+          "type": "number",
+          "format": "double"
+        },
+        "discount_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "tax_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "grand_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "paid_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "refunded_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "payment_status": {
+          "$ref": "#/$defs/SalesPaymentStatus"
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SalesInvoiceLineDto"
+          }
+        },
+        "payments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SalesInvoicePaymentSummaryDto"
+          }
+        },
+        "refunds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SalesInvoiceRefundSummaryDto"
+          }
+        }
+      }
+    },
+    "SalesInvoiceSummaryDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "invoice_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sales_order_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_no": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/SalesInvoiceStatus"
+        },
+        "currency_code": {
+          "type": "string"
+        },
+        "subtotal": {
+          "type": "number",
+          "format": "double"
+        },
+        "discount_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "tax_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "grand_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "paid_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "refunded_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "payment_status": {
+          "$ref": "#/$defs/SalesPaymentStatus"
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "SalesInvoiceSummaryDtoPagedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SalesInvoiceSummaryDto"
+          }
+        },
+        "page": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "page_size": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "total_count": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
     "SalesReturnLineRequest": {
       "type": "object",
-      "required": ["invoice_line_id", "quantity_base", "disposition"],
-      "description": "FE does NOT choose batch_id or destination_location_id — the server derives them from the original SALE_ISSUE allocation and rejects over-returns.",
+      "required": [
+        "invoice_line_id",
+        "quantity_base",
+        "disposition"
+      ],
+      "additionalProperties": false,
       "properties": {
-        "invoice_line_id": { "type": "string", "format": "uuid" },
-        "quantity_base": { "$ref": "common.json#/$defs/PositiveNumeric4", "description": "<= remaining sold quantity for that invoice line." },
-        "disposition": { "$ref": "#/$defs/ReturnDisposition" }
+        "invoice_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "quantity_base": {
+          "type": "number",
+          "format": "double",
+          "exclusiveMinimum": 0
+        },
+        "disposition": {
+          "$ref": "#/$defs/ReturnDisposition"
+        }
       }
     },
-    "SalesReturnRequest": {
+    "CreateSalesReturnRequest": {
       "type": "object",
-      "description": "Must be processed AT the invoice branch; within 14 calendar days of issue measured in the Organization time zone.",
-      "required": ["invoice_id", "reason_code", "lines"],
+      "required": [
+        "invoice_id",
+        "reason_code",
+        "lines"
+      ],
+      "additionalProperties": false,
       "properties": {
-        "invoice_id": { "type": "string", "format": "uuid" },
-        "reason_code": { "type": "string", "maxLength": 40 },
-        "approved_by_employee_id": {
-          "type": ["string", "null"],
-          "format": "uuid",
-          "description": "Optional; must differ from the receiving cashier and be an active Admin/Pharmacist authorized at the invoice branch."
+        "invoice_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "reason_code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
         },
         "lines": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/SalesReturnLineRequest" }
+          "maxItems": 200,
+          "items": {
+            "$ref": "#/$defs/SalesReturnLineRequest"
+          }
         },
-        "refund_requested": { "type": "boolean", "default": true, "description": "Cash refund posted atomically with the return; amounts are server-computed from invoice line totals (capped by remaining paid/refundable amounts)." }
+        "approved_by_employee_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "refund_method": {
+          "$ref": "#/$defs/PaymentMethod",
+          "default": "CASH"
+        },
+        "issue_cash_refund": {
+          "type": "boolean",
+          "default": true
+        },
+        "idempotency_key": {
+          "$ref": "common.json#/$defs/IdempotencyKey"
+        }
       }
     },
     "SalesReturnLineDto": {
       "type": "object",
-      "required": ["return_line_id", "invoice_line_id", "product_id", "batch_id", "destination_location_id", "quantity_base", "refund_amount", "disposition"],
+      "additionalProperties": false,
       "properties": {
-        "return_line_id": { "type": "string", "format": "uuid" },
-        "invoice_line_id": { "type": "string", "format": "uuid" },
-        "product_id": { "type": "string", "format": "uuid" },
-        "batch_id": { "type": "string", "format": "uuid", "description": "Server-derived from the original posted sale allocation." },
-        "destination_location_id": { "type": "string", "format": "uuid", "description": "Server-selected (source sale location if SELLABLE, else branch default of the disposition type)." },
-        "quantity_base": { "$ref": "common.json#/$defs/PositiveNumeric4" },
-        "refund_amount": { "$ref": "common.json#/$defs/Money", "description": "Proportional share of the original tax-inclusive line_total; residual-cent rules apply." },
-        "disposition": { "$ref": "#/$defs/ReturnDisposition" }
+        "return_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "destination_location_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "quantity_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "refund_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "disposition": {
+          "$ref": "#/$defs/ReturnDisposition"
+        }
       }
     },
     "SalesRefundDto": {
       "type": "object",
-      "required": ["refund_id", "sales_return_id", "invoice_id", "amount", "method", "processed_by_employee_id", "refunded_at"],
+      "additionalProperties": false,
       "properties": {
-        "refund_id": { "type": "string", "format": "uuid" },
-        "sales_return_id": { "type": "string", "format": "uuid" },
-        "invoice_id": { "type": "string", "format": "uuid" },
-        "amount": { "$ref": "common.json#/$defs/Money", "description": "Capped by paid_amount minus prior refunds and by returned line refundable value." },
-        "method": { "type": "string", "const": "CASH" },
-        "processed_by_employee_id": { "type": "string", "format": "uuid" },
-        "refunded_at": { "$ref": "common.json#/$defs/Timestamp" }
+        "refund_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sales_return_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "processed_by_employee_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "method": {
+          "$ref": "#/$defs/PaymentMethod"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "refunded_at": {
+          "type": "string",
+          "format": "date-time"
+        }
       }
     },
     "SalesReturnDto": {
       "type": "object",
-      "required": ["return_id", "invoice_id", "branch_id", "return_no", "status", "reason_code", "refund_amount", "refund_status", "received_by_employee_id", "received_at", "lines"],
+      "additionalProperties": false,
       "properties": {
-        "return_id": { "type": "string", "format": "uuid" },
-        "invoice_id": { "type": "string", "format": "uuid" },
-        "branch_id": { "type": "string", "format": "uuid" },
-        "return_no": { "type": "string", "maxLength": 40 },
-        "status": { "$ref": "#/$defs/SalesReturnStatus" },
-        "reason_code": { "type": "string", "maxLength": 40 },
-        "refund_amount": { "$ref": "common.json#/$defs/Money" },
-        "refund_status": { "$ref": "#/$defs/SalesRefundStatus" },
-        "received_by_employee_id": { "type": "string", "format": "uuid" },
-        "approved_by_employee_id": { "type": ["string", "null"], "format": "uuid" },
-        "received_at": { "$ref": "common.json#/$defs/Timestamp" },
-        "lines": { "type": "array", "items": { "$ref": "#/$defs/SalesReturnLineDto" } },
-        "inventory_txns": {
-          "type": "array",
-          "maxItems": 2,
-          "description": "Zero transactions for a non-restocking return, one SALES_RETURN_IN when stock is restocked/quarantined, and up to two when RESTOCK plus an additional SCRAP_OUT is required. Server-created only.",
-          "items": { "$ref": "inventory.json#/$defs/InventoryTxnDto" }
+        "return_id": {
+          "type": "string",
+          "format": "uuid"
         },
-        "refund": { "$ref": "#/$defs/SalesRefundDto" }
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "return_no": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/SalesReturnStatus"
+        },
+        "reason_code": {
+          "type": "string"
+        },
+        "received_by_employee_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "approved_by_employee_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "refund_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "refund_status": {
+          "$ref": "#/$defs/SalesRefundStatus"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "received_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "return_stock_txn_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "scrap_out_txn_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "refund": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SalesRefundDto"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SalesReturnLineDto"
+          }
+        }
+      }
+    },
+    "SalesReturnSummaryDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "return_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_no": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "return_no": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/SalesReturnStatus"
+        },
+        "reason_code": {
+          "type": "string"
+        },
+        "refund_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "refund_status": {
+          "$ref": "#/$defs/SalesRefundStatus"
+        },
+        "received_by_employee_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "approved_by_employee_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "received_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "SalesReturnSummaryDtoPagedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SalesReturnSummaryDto"
+          }
+        },
+        "page": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "page_size": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "total_count": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "SalesReturnLineDetailDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "return_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_sku": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "product_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "batch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batch_number": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "destination_location_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "destination_location_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "quantity_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "refund_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "disposition": {
+          "$ref": "#/$defs/ReturnDisposition"
+        }
+      }
+    },
+    "SalesReturnStockMovementDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "inventory_txn_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "transaction_no": {
+          "type": "string"
+        },
+        "transaction_type": {
+          "$ref": "inventory.json#/$defs/InventoryTransactionType"
+        },
+        "status": {
+          "$ref": "inventory.json#/$defs/InventoryTransactionStatus"
+        },
+        "posted_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "SalesReturnRefundSummaryDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "refund_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "processed_by_employee_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "processed_by_employee_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "method": {
+          "$ref": "#/$defs/PaymentMethod"
+        },
+        "refunded_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "SalesReturnDetailDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "return_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_no": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "return_no": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/SalesReturnStatus"
+        },
+        "reason_code": {
+          "type": "string"
+        },
+        "received_by_employee_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "received_by_employee_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "approved_by_employee_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "approved_by_employee_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "refund_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "refund_status": {
+          "$ref": "#/$defs/SalesRefundStatus"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "received_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SalesReturnLineDetailDto"
+          }
+        },
+        "stock_movements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SalesReturnStockMovementDto"
+          }
+        },
+        "refunds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SalesReturnRefundSummaryDto"
+          }
+        }
       }
     }
   }

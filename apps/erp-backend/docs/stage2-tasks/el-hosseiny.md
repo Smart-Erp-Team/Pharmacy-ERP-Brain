@@ -506,15 +506,18 @@ Create focused, testable policy/calculation components under `src/PharmacyERP.Ap
      - Fetch original posted `SALE_ISSUE` ledger allocations for `invoiceLine.SourceOrderLineId` minus cumulative already-returned quantities per `(invoiceLineId, batchId)`.
      - Verify `requestedQtyBase <= totalRemainingReturnableQtyBase` -> if exceeded, fail with `422 VALIDATION_ERROR` (typed policy error `ApiErrorDetailDto` with strict `snake_case` `field: "lines[i].quantity_base"` showing remaining returnable quantity).
      - Split `requestedQtyBase` deterministically across remaining original `SALE_ISSUE` `(LocationId, BatchId, UnitCostBase)` allocations in original `InventoryTxnLineId` order, preserving each allocation's exact original `UnitCostBase`!
-   - **Exact Proportional Partial Refund Rounding with Cent-Residual Rule (Blueprint §8.9.12):**
-     - Let `lineTotal = invoiceLine.LineTotal` (tax-inclusive: `net_amount + tax_amount`), `soldQtyBase = invoiceLine.QuantityBase`, `priorReturnedQty = alreadyReturned.ReturnedQtyBase`, `priorRefunded = alreadyReturned.RefundedAmount`.
-     - If `priorReturnedQty + requestedQtyBase == soldQtyBase` *(final returned unit(s) for this invoice line)*:
-       - `lineRefund = Math.Round(lineTotal - priorRefunded, 2, MidpointRounding.AwayFromZero)` *(assigns any remaining cent fraction deterministically so cumulative line refund equals `lineTotal` exactly!)*.
-     - Else *(partial return)*:
-       - `lineRefund = Math.Round(lineTotal * (requestedQtyBase / soldQtyBase), 2, MidpointRounding.AwayFromZero)`.
-     - Guard: `lineRefund = Math.Min(lineRefund, Math.Round(lineTotal - priorRefunded, 2, MidpointRounding.AwayFromZero))` (never exceeds remaining refundable line total).
-     - When an invoice line splits across multiple original batches, distribute `lineRefund` proportionally across the split slices and assign any slice rounding residual cent to the last slice so `sum(slice.RefundAmount) == lineRefund` exactly.
-     - Verify total return refund `<= invoice.PaidAmount - invoice.RefundedAmount` (never exceeds remaining paid amount on invoice).
+   - **Exact Proportional Partial Refund Rounding with Cent-Residual Rule (Blueprint §8.9.12) & `issueCashRefund` Flag:**
+     - Pass `bool issueCashRefund` into `SalesReturnAllocationAndRefundCalculator`:
+     - **When `issueCashRefund == false`:** set every calculated `SalesReturnLine` slice `RefundAmount = 0m` and total return `RefundAmount = 0m` (so `SALES_RETURN.refund_amount == SUM(SALES_RETURN_LINE.refund_amount) == SUM(SALES_REFUND.amount) == 0m` holds cleanly without throwing in `SalesReturn.CreatePosted`!).
+     - **When `issueCashRefund == true`:**
+       - Let `lineTotal = invoiceLine.LineTotal` (tax-inclusive: `net_amount + tax_amount`), `soldQtyBase = invoiceLine.QuantityBase`, `priorReturnedQty = alreadyReturned.ReturnedQtyBase`, `priorRefunded = alreadyReturned.RefundedAmount`.
+       - If `priorReturnedQty + requestedQtyBase == soldQtyBase` *(final returned unit(s) for this invoice line)*:
+         - `lineRefund = Math.Round(lineTotal - priorRefunded, 2, MidpointRounding.AwayFromZero)` *(assigns any remaining cent fraction deterministically so cumulative line refund equals `lineTotal` exactly!)*.
+       - Else *(partial return)*:
+         - `lineRefund = Math.Round(lineTotal * (requestedQtyBase / soldQtyBase), 2, MidpointRounding.AwayFromZero)`.
+       - Guard: `lineRefund = Math.Min(lineRefund, Math.Round(lineTotal - priorRefunded, 2, MidpointRounding.AwayFromZero))` (never exceeds remaining refundable line total).
+       - When an invoice line splits across multiple original batches, distribute `lineRefund` proportionally across the split slices and assign any slice rounding residual cent to the last slice so `sum(slice.RefundAmount) == lineRefund` exactly.
+       - Verify total return refund `<= invoice.PaidAmount - invoice.RefundedAmount` (never exceeds remaining paid amount on invoice).
    - **Server-Selected Return Destination Location (Blueprint §8.9.9):**
      - `ReturnDisposition.RESTOCK`: original `SALE_ISSUE` location if still `IsActive && IsSellable && LocationType == SELLABLE`; otherwise branch default active `SELLABLE` location (`MAIN-SELLABLE`).
      - `ReturnDisposition.QUARANTINE`: branch default active `QUARANTINE` location (`MAIN-QUARANTINE`).
@@ -525,6 +528,7 @@ Create focused, testable policy/calculation components under `src/PharmacyERP.Ap
   - 14-day window passes on day `0` and day `14` in Org TZ (`Africa/Cairo`), fails on day `15` (including UTC vs Org TZ midnight edge case).
   - Distinct approver: accepts Admin (`ALL` scope, different home branch) and Pharmacist (`ASSIGNED` to invoice branch); rejects Cashier approver, inactive approver, unassigned branch approver, and self-approval (`approvedBy == receivedBy`).
   - Partial refund cent-residual math: `100.00` sold qty `3` returned `1 + 1 + 1` -> `33.33 + 33.33 + 33.34 = 100.00` exact; `10.00` qty `3` -> `3.33 + 3.33 + 3.34 = 10.00`; multi-batch split sums exactly to `lineRefund`.
+  - Non-refund return (`issueCashRefund = false`): sets every `SalesReturnLine.RefundAmount = 0m` and total `RefundAmount = 0m`, maintaining `SalesReturn.RefundAmount == sum(line.RefundAmount) == 0m` with `SalesRefundStatus.NOT_REFUNDED` and `SalesRefund = null`.
   - Over-return rejection across cumulative returns.
   - Destination selection fallback when original sellable location is deactivated.
 
@@ -559,11 +563,10 @@ Create `ISalesReturnService` & `SalesReturnService` (`src/PharmacyERP.Applicatio
   2. Load & lock `SALES_INVOICE` via `_returnWriteRepo.GetInvoiceForReturnUpdateAsync(organizationId, request.InvoiceId, ct)` -> `404 NOT_FOUND` if null; load `organization` via live Stage 1 `IOrganizationRepository.GetByIdAsync(organizationId, ct)` for `organization.TimeZoneId`.
   3. Run `SalesReturnPolicyEvaluator` (invoice branch check, 14-day Org TZ window using `organization.TimeZoneId`, distinct approver verification).
   4. **Check Idempotency INSIDE transaction** (`IdempotencyScope`, `request.IdempotencyKey!`, `invoice.BranchId`, `request`): replay on match, `409 IDEMPOTENCY_MISMATCH` on hash conflict.
-  5. Run `SalesReturnAllocationAndRefundCalculator` to derive `(LocationId, BatchId, DestinationLocationId, QuantityBase, UnitCostBase, RefundAmount, Disposition)` splits and verify no over-return or over-refund.
+  5. Run `SalesReturnAllocationAndRefundCalculator` passing **`request.IssueCashRefund`** to derive `(LocationId, BatchId, DestinationLocationId, QuantityBase, UnitCostBase, RefundAmount, Disposition)` splits and verify no over-return or over-refund.
   6. **Create `SalesReturn` (`POSTED`) & `SalesReturnLine`s:**
-     - `totalRefundAmount = request.IssueCashRefund ? sum(lines.RefundAmount) : 0m`.
-     - `SalesRefund? refund = totalRefundAmount > 0m ? SalesRefund.CreateCashRefund(..., amount: totalRefundAmount, method: PaymentMethod.CASH, idempotencyKey: request.IdempotencyKey!, refundedAt: now) : null`.
-     - If `totalRefundAmount > 0m`, call `invoice.ApplyRefund(totalRefundAmount, now)` (updates ONLY mutable settlement columns `refunded_amount`, `payment_status`, `updated_at` — respecting the PostgreSQL invoice immutability trigger!).
+     - When `request.IssueCashRefund == false`: every calculated `SalesReturnLine.RefundAmount == 0m`, `totalRefundAmount = 0m`, `SalesReturn.RefundStatus = SalesRefundStatus.NOT_REFUNDED`, `SalesRefund? refund = null`, and `invoice.ApplyRefund(...)` is not called (`SALES_RETURN.refund_amount == SUM(SALES_RETURN_LINE.refund_amount) == SUM(SALES_REFUND.amount) == 0m` holds without throwing!).
+     - When `request.IssueCashRefund == true`: `totalRefundAmount = sum(lines.RefundAmount)` (`> 0m`), `SalesReturn.RefundStatus = SalesRefundStatus.REFUNDED`, create `SalesRefund.CreateCashRefund(..., amount: totalRefundAmount, method: PaymentMethod.CASH, idempotencyKey: request.IdempotencyKey!, refundedAt: now)`, and call `invoice.ApplyRefund(totalRefundAmount, now)` (updates ONLY mutable settlement columns `refunded_amount`, `payment_status`, `updated_at` — respecting the PostgreSQL invoice immutability trigger!).
   7. **Atomic Stock Balance & Dual-Transaction Ledger Execution (`RESTOCK` / `QUARANTINE` / `SCRAP`):**
      - Acquire all destination `(DestinationLocationId, BatchId)` balance locks in **one deterministic ordered batch** via `IStockBalanceRepository.GetOrCreateForUpdateBatchAsync(organizationId, distinctKeys, now, ct)`.
      - Fetch active base UOM rows for all returned products via live Stage 1 `IProductUomRepository.GetActiveBaseUomsByProductIdsAsync(organizationId, distinctProductIds, ct)`.

@@ -1,69 +1,40 @@
 {
-  "return_id": "ab12cd34-5050-4e5a-8b6c-7a8b9c0dcd09",
-  "invoice_id": "d9e0f1a2-9090-4d2f-8b3a-2b3c4d5e6f03",
-  "branch_id": "d4e5f6a7-3333-4c44-9d55-bbccddeeffaa",
-  "return_no": "RET-2026-000021",
+  "return_id": "22222222-eeee-4111-8111-000000000001",
+  "organization_id": "11111111-1111-4111-8111-111111111101",
+  "branch_id": "11111111-2222-4111-8111-000000000001",
+  "invoice_id": "22222222-aaaa-4111-8111-000000000001",
+  "return_no": "RET-MED-DT-0001",
   "status": "POSTED",
-  "reason_code": "CUSTOMER_CHANGED_MIND",
-  "refund_amount": "27.36",
-  "refund_status": "PARTIALLY_REFUNDED",
-  "received_by_employee_id": "ef456789-0123-4abc-8bcd-ef01234567ab",
-  "approved_by_employee_id": "fa567890-1234-4def-9fbe-fa12345678de",
-  "received_at": "2026-10-16T10:30:00Z",
+  "reason_code": "PATIENT_CHANGED_MIND",
+  "received_by_employee_id": "11111111-3333-4111-8111-000000000008",
+  "approved_by_employee_id": "11111111-3333-4111-8111-000000000005",
+  "refund_amount": 138.0,
+  "refund_status": "REFUNDED",
+  "idempotency_key": "pos-return-med-dt-0001",
+  "received_at": "2026-11-25T15:10:00+00:00",
+  "return_stock_txn_id": "22222222-dddd-4111-8111-000000000001",
+  "scrap_out_txn_id": null,
+  "refund": {
+    "refund_id": "22222222-ffff-4111-8111-000000000001",
+    "sales_return_id": "22222222-eeee-4111-8111-000000000001",
+    "invoice_id": "22222222-aaaa-4111-8111-000000000001",
+    "branch_id": "11111111-2222-4111-8111-000000000001",
+    "processed_by_employee_id": "11111111-3333-4111-8111-000000000008",
+    "amount": 138.0,
+    "method": "CASH",
+    "idempotency_key": "pos-return-med-dt-0001",
+    "refunded_at": "2026-11-25T15:10:00+00:00"
+  },
   "lines": [
     {
-      "return_line_id": "ab12cd34-5151-4e6b-9c7d-8b9c0d1edd10",
-      "invoice_line_id": "d9e0f1a2-1111-4a1e-8c2b-3c4d5e6f7a04",
-      "product_id": "e5f6a7b8-3333-4ddd-8b2c-34567890abc1",
-      "batch_id": "3d3c4b4a-0000-4b0c-8abc-9d8e7f6a5b04",
-      "destination_location_id": "2f31c9d4-7070-4a10-8b2d-ce0f1a2b3c14",
-      "quantity_base": "20.0000",
-      "refund_amount": "27.36",
+      "return_line_id": "22222222-eeee-4111-8111-000000000011",
+      "invoice_line_id": "22222222-bbbb-4111-8111-000000000001",
+      "product_id": "6dbdb1a7-c723-da4c-8e0e-b067c18bc710",
+      "batch_id": "7a8b9c0d-1e2f-5a3b-8c4d-5e6f7a8b9c0d",
+      "destination_location_id": "694cb9a9-c19d-3c46-be41-a7fc76fcdc9f",
+      "quantity_base": 14,
+      "refund_amount": 138.0,
       "disposition": "RESTOCK"
     }
-  ],
-  "inventory_txns": [
-    {
-    "inventory_txn_id": "bc23de45-6262-4f8d-9b8c-ad0e1f2fdd12",
-    "branch_id": "d4e5f6a7-3333-4c44-9d55-bbccddeeffaa",
-    "transaction_no": "TXN-2026-001780",
-    "transaction_type": "SALES_RETURN_IN",
-    "status": "POSTED",
-    "reason_code": "CUSTOMER_CHANGED_MIND",
-    "note": "Full line 1 returned; RESTOCK to counter sellable location.",
-    "posted_at": "2026-10-16T10:30:05Z",
-    "created_by_employee_id": "ef456789-0123-4abc-8bcd-ef01234567ab",
-    "reverses_inventory_txn_id": null,
-    "sales_order_id": "c8d9e0f1-8888-4ccc-8d3e-89012345def0",
-    "sales_return_id": "ab12cd34-5050-4e5a-8b6c-7a8b9c0dcd09",
-    "purchase_order_id": null,
-    "vendor_return_id": null,
-    "lines": [
-      {
-        "inventory_txn_line_id": "bc23de45-6363-4f8e-8c9d-bd1e2f3fcd13",
-        "product_id": "e5f6a7b8-3333-4ddd-8b2c-34567890abc1",
-        "location_id": "2f31c9d4-7070-4a10-8b2d-ce0f1a2b3c14",
-        "batch_id": "3d3c4b4a-0000-4b0c-8abc-9d8e7f6a5b04",
-        "product_uom_id": "f1a2b3c4-0101-4fff-8a1b-56789012abcd",
-        "entered_qty": "20.0000",
-        "conversion_snapshot": "1.000000",
-        "quantity_delta_base": "20.0000",
-        "unit_cost_base": "0.8500",
-        "sales_order_line_id": "c8d9e0f1-1010-4c1d-8a1e-1a2b3c4d5e01",
-        "sales_return_line_id": "ab12cd34-5151-4e6b-9c7d-8b9c0d1edd10",
-        "purchase_order_line_id": null,
-        "vendor_return_line_id": null
-      }
-    ]
-    }
-  ],
-  "refund": {
-    "refund_id": "bc23de45-6161-4f7c-8a7b-9c0d1e2fdd11",
-    "sales_return_id": "ab12cd34-5050-4e5a-8b6c-7a8b9c0dcd09",
-    "invoice_id": "d9e0f1a2-9090-4d2f-8b3a-2b3c4d5e6f03",
-    "amount": "27.36",
-    "method": "CASH",
-    "processed_by_employee_id": "fa567890-1234-4def-9fbe-fa12345678de",
-    "refunded_at": "2026-10-16T10:30:10Z"
-  }
+  ]
 }
