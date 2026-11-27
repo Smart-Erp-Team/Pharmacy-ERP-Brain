@@ -12,9 +12,9 @@ These rules apply automatically to every backend developer and AI agent operatin
 ## 1. Turbo-Safe OS, Workspace & Terminal Containment (ALWAYS-ON SAFETY)
 
 ### 1.1 Strict Workspace Sandbox (Relative Path — Applies to All Teammates)
-- Your working scope is confined **EXCLUSIVELY** to `apps/erp-backend/` relative to the repository root.
-- **NEVER** read, create, modify, move, or delete any file outside `apps/erp-backend/`:
-  - No frontend folders (`apps/erp-frontend/`), Brain folders (`apps/brain/`), or repository-root frontend files.
+- Your working scope is confined **EXCLUSIVELY** to `apps/erp-backend/` **and the shared monorepo-root `contracts/` directory** (relative to the repository root) for contract reading, alignment, and synchronization.
+- **NEVER** read, create, modify, move, or delete any other file outside `apps/erp-backend/` and `contracts/`:
+  - No frontend folders (`apps/erp-frontend/`), Brain folders (`apps/brain/`), or other repository-root files (`00-router.md`, `MEMORY.md`, CI/infra files, etc.).
   - No OS/System directories (`C:\Windows`, `Program Files`, `/etc`, etc.), user profile/Desktop/Documents files, Windows Registry keys, or system/machine environment variables.
 
 ### 1.2 Strict Monorepo Boundary
@@ -23,11 +23,11 @@ These rules apply automatically to every backend developer and AI agent operatin
 - Treat `apps/erp-backend/_audit_docs/01_master_spec/ERP-Backend-Blueprint-v1.1.md` as **frozen reference-only**; never edit it.
 
 ### 1.3 Allowed Terminal Commands Only
-Execute commands strictly with working directory inside `apps/erp-backend/`:
+Execute commands strictly with working directory inside `apps/erp-backend/` (targeting `apps/erp-backend/` or the shared repo-root `contracts/` directory only):
 - **Build & Test:** `dotnet build`, `dotnet test`, `dotnet restore` (only when explicitly needed).
 - **EF Core CLI:** `dotnet ef migrations add`, `dotnet ef migrations script`, `dotnet ef database update` (using `erp_migrator` or local dev DB).
 - **Local Smoke Checks:** `dotnet run` strictly for local verification (e.g., `GET /.well-known/jwks.json`, `/swagger/v1/swagger.json`, or target endpoint), and **always terminate the process cleanly** once verified.
-- **Read-Only Inspection:** `git status`, `git diff`, `git log`, `git check-ignore`, `git show`, `Get-Content`, `Select-String`, `Get-ChildItem`.
+- **Read-Only Inspection:** `git status --short -- .`, `git diff -- .`, `git log`, `git check-ignore`, `git show`, `Get-Content`, `Select-String`, `Get-ChildItem` *(always pass `-- .` to `git status`/`git diff` so monorepo siblings outside `apps/erp-backend/` are excluded)*.
 - **Safe Local Git State Changes:** `git checkout -b`, `git switch`, `git add`, `git commit` **ONLY** when explicitly requested by the developer.
 - **Onboarding Script:** `setup-local-db.ps1` **ONLY** during initial local environment onboarding.
 
@@ -61,7 +61,8 @@ Execute commands strictly with working directory inside `apps/erp-backend/`:
 
 - **NEVER** alter existing public API routes, HTTP verbs, query-parameter names, HTTP status-code mappings (`400`/`401`/`403`/`404`/`409`/`422`), `ApiErrorEnvelopeDto`, `ApiResultMapper`, or approved Blueprint DTO property names without explicit architectural approval.
 - All expected business errors MUST flow through `Result` / `Result<T>` (`src/PharmacyERP.Application/Common/DTOs/Result.cs`) and `ErrorCode` (`src/PharmacyERP.Domain/Enums/ErrorCode.cs`), mapped in controllers via `ApiResultMapper`.
-- All idempotent write endpoints MUST preserve `[AllowHeaderIdempotencyKey]` (`src/PharmacyERP.Api/Filters/AllowHeaderIdempotencyKeyAttribute.cs`) so clients can pass `Idempotency-Key` via HTTP header or request body.
+- All idempotent write endpoints MUST preserve `[AllowHeaderIdempotencyKey]` (`src/PharmacyERP.Api/Filters/AllowHeaderIdempotencyKeyAttribute.cs`) so clients can pass `Idempotency-Key` via HTTP header or request body (with `string? IdempotencyKey = null` as the trailing optional request DTO parameter).
+- **Strict Wire Contract & `ContractsArtifactSyncTests`:** Every `[FromQuery]` parameter and every `ApiErrorDetailDto.Field` MUST use exact `snake_case`; every Controller Action MUST declare complete `[ProducesResponseType]` attributes; any PR adding/changing `ErrorCode`, routes, DTOs, or `/canonical/capabilities` MUST update `ContractsArtifactSyncTests.cs`, `apps/erp-backend/contracts/schemas/*.json`, `apps/erp-backend/contracts/openapi.v1.json` (via `UPDATE_OPENAPI_SNAPSHOT="true"`), and `apps/erp-backend/contracts/README.md` in the same PR.
 
 ---
 

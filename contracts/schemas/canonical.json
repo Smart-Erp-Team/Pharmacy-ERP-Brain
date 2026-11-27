@@ -555,6 +555,446 @@
           ]
         }
       }
+    },
+    "CanonicalSaleLineDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "invoice_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "base_uom_code": {
+          "type": "string"
+        },
+        "entered_uom_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "entered_qty": {
+          "type": "number",
+          "format": "double"
+        },
+        "conversion_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "quantity_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "unit_price_entered": {
+          "type": "number",
+          "format": "double"
+        },
+        "unit_price_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "discount_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "tax_rate_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "tax_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "net_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "line_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "unit_cost_base_snapshot": {
+          "type": "number",
+          "format": "double"
+        }
+      }
+    },
+    "CanonicalSaleDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "type": "string",
+          "const": "canonical.Sale"
+        },
+        "version": {
+          "type": "string",
+          "const": "1.0"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "order_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_no": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "sales.json#/$defs/SalesInvoiceStatus"
+        },
+        "payment_status": {
+          "$ref": "sales.json#/$defs/SalesPaymentStatus"
+        },
+        "currency_code": {
+          "type": "string"
+        },
+        "subtotal": {
+          "type": "number",
+          "format": "double"
+        },
+        "discount_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "tax_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "grand_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "paid_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "refunded_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CanonicalSaleLineDto"
+          }
+        }
+      }
+    },
+    "CanonicalSaleDtoPagedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CanonicalSaleDto"
+          }
+        },
+        "page": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "page_size": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "total_count": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "CanonicalSalesOrderLineDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "order_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "base_uom_code": {
+          "type": "string"
+        },
+        "product_uom_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "entered_qty": {
+          "type": "number",
+          "format": "double"
+        },
+        "conversion_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "quantity_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "unit_price_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "discount_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "tax_rate_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "tax_amount_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "line_total": {
+          "type": "number",
+          "format": "double"
+        }
+      }
+    },
+    "CanonicalSalesOrderDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "type": "string",
+          "const": "canonical.SalesOrder"
+        },
+        "version": {
+          "type": "string",
+          "const": "1.0"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "order_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "order_no": {
+          "type": "string"
+        },
+        "channel": {
+          "$ref": "sales.json#/$defs/OrderChannel"
+        },
+        "order_status": {
+          "$ref": "sales.json#/$defs/SalesOrderStatus"
+        },
+        "currency_code": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CanonicalSalesOrderLineDto"
+          }
+        }
+      }
+    },
+    "CanonicalSalesOrderDtoPagedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CanonicalSalesOrderDto"
+          }
+        },
+        "page": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "page_size": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "total_count": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "CanonicalSaleReturnLineDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "return_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "destination_location_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "quantity_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "refund_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "disposition": {
+          "$ref": "sales.json#/$defs/ReturnDisposition"
+        }
+      }
+    },
+    "CanonicalSaleReturnDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "type": "string",
+          "const": "canonical.SaleReturn"
+        },
+        "version": {
+          "type": "string",
+          "const": "1.0"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "return_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "return_no": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "sales.json#/$defs/SalesReturnStatus"
+        },
+        "reason_code": {
+          "type": "string"
+        },
+        "refund_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "refund_status": {
+          "$ref": "sales.json#/$defs/SalesRefundStatus"
+        },
+        "received_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CanonicalSaleReturnLineDto"
+          }
+        }
+      }
+    },
+    "CanonicalSaleReturnDtoPagedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CanonicalSaleReturnDto"
+          }
+        },
+        "page": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "page_size": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "total_count": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     }
   }
 }

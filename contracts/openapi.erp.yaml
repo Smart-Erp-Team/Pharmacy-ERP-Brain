@@ -1,17 +1,20 @@
 # =============================================================================
-# Pharmacy ERP — Stage 1 Live Backend OpenAPI Contract (3.0.4)
+# Pharmacy ERP — Stage 1 (Live) + Stage 2 (Target) OpenAPI Contract (3.0.4)
 # =============================================================================
-# Generated verbatim from apps/erp-backend/contracts/openapi.v1.json
-# (48 live Stage 1 endpoints, 76 component schemas).
+# Stage 1 (x-stage: 1): 48 live endpoints & 76 component schemas generated
+#   verbatim from apps/erp-backend/contracts/openapi.v1.json (0 regressions).
+# Stage 2 (x-stage: 2): 18 appended endpoints (11 erp-pos, 4 sync, 3 canonical)
+#   and Stage 2 DTO/enum schemas derived verbatim from the 4 reconciled Stage 2
+#   backend task specs (ahmed-hassan.md, el-hosseiny.md, yassin.md, ahmed-salah.md).
+# Total: 66 endpoints.
 #
 # Authoritative rules:
 #   - Strict snake_case JSON properties and query parameters everywhere.
 #   - Native JSON numbers for all decimals, prices, quantities, and tax rates.
 #   - String-only enums (integer enum values rejected with 422 VALIDATION_ERROR).
-#   - x-stage (1), x-runtime (Cloud | BranchLocal | Both), and x-roles
-#     metadata derived strictly from apps/erp-backend/contracts/README.md.
-#   - Stage 2 (Sales) and Stage 3 (Purchasing) endpoints are intentionally
-#     excluded until implemented in the live backend.
+#   - x-stage (1 | 2), x-surface (erp-pos | sync | canonical on Stage 2),
+#     x-runtime (Cloud | BranchLocal | Both), and x-roles metadata.
+#   - Stage 3 (Purchasing) endpoints and schemas are intentionally excluded.
 # =============================================================================
 openapi: 3.0.4
 info:
@@ -4461,6 +4464,1883 @@ paths:
       x-stage: 1
       x-runtime: Both
       x-roles: []
+  /api/v1/sales-orders:
+    post:
+      tags:
+      - SalesOrders
+      summary: Create a POS draft sales order
+      description: Creates a non-posting DRAFT POS sales order in BranchLocal mode with server-authoritative catalog pricing and tax snapshots (zero stock reservation or mutation). Policy PosCashierOrAdmin (Cashier, Admin) + branch scope.
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        description: Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field.
+        schema:
+          maxLength: 100
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/CreateSalesOrderRequest'
+          text/json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/CreateSalesOrderRequest'
+          application/*+json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/CreateSalesOrderRequest'
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location:
+              description: URI of the newly created sales order (/api/v1/sales-orders/{sales_order_id}).
+              schema:
+                type: string
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/SalesOrderDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesOrderDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/SalesOrderDto'
+        '400':
+          description: Bad Request
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '401':
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '403':
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '404':
+          description: Not Found
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '409':
+          description: Conflict
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '422':
+          description: Unprocessable Content
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+      x-stage: 2
+      x-surface: erp-pos
+      x-runtime: BranchLocal
+      x-roles:
+      - Cashier
+      - Admin
+    get:
+      tags:
+      - SalesOrders
+      summary: List sales orders (paginated)
+      description: Paginated search over POS sales orders within authorized branches. Policy SalesReadAccess (Admin, Pharmacist, Cashier). Out-of-range page (< 1) or page_size (outside 1..200) returns 422 VALIDATION_ERROR.
+      parameters:
+      - name: branch_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: status
+        in: query
+        schema:
+          $ref: '#/components/schemas/SalesOrderStatus'
+      - name: from_date
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: to_date
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: page
+        in: query
+        schema:
+          type: integer
+          format: int32
+          minimum: 1
+          default: 1
+      - name: page_size
+        in: query
+        schema:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 200
+          default: 25
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/SalesOrderSummaryDtoPagedResult'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesOrderSummaryDtoPagedResult'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/SalesOrderSummaryDtoPagedResult'
+        '401':
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '403':
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '422':
+          description: Unprocessable Content
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+      x-stage: 2
+      x-surface: erp-pos
+      x-runtime: Both
+      x-roles:
+      - Admin
+      - Pharmacist
+      - Cashier
+  /api/v1/sales-orders/{id}:
+    get:
+      tags:
+      - SalesOrders
+      summary: Get sales order detail by ID
+      description: Returns a sales order with all line snapshots (preserving deactivated products, UOMs, and employees). Policy SalesReadAccess + branch scope.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/SalesOrderDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesOrderDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/SalesOrderDto'
+        '401':
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '403':
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '404':
+          description: Not Found
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+      x-stage: 2
+      x-surface: erp-pos
+      x-runtime: Both
+      x-roles:
+      - Admin
+      - Pharmacist
+      - Cashier
+  /api/v1/sales-orders/{id}/lines:
+    put:
+      tags:
+      - SalesOrders
+      summary: Replace lines on a DRAFT sales order
+      description: Atomically replaces all lines of a DRAFT sales order using current active sellable catalog prices and tax rates (zero stock mutation). Rejects COMPLETED or CANCELLED orders with 409 INVALID_STATE_TRANSITION. Policy PosCashierOrAdmin + branch scope.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: Idempotency-Key
+        in: header
+        description: Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field.
+        schema:
+          maxLength: 100
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/ReplaceSalesOrderLinesRequest'
+          text/json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/ReplaceSalesOrderLinesRequest'
+          application/*+json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/ReplaceSalesOrderLinesRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/SalesOrderDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesOrderDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/SalesOrderDto'
+        '400':
+          description: Bad Request
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '401':
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '403':
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '404':
+          description: Not Found
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '409':
+          description: Conflict
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '422':
+          description: Unprocessable Content
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+      x-stage: 2
+      x-surface: erp-pos
+      x-runtime: BranchLocal
+      x-roles:
+      - Cashier
+      - Admin
+  /api/v1/sales-orders/{id}/complete:
+    post:
+      tags:
+      - SalesOrders
+      summary: Complete POS checkout atomically (FEFO + full CASH payment + invoice)
+      description: Atomically completes a DRAFT sales order in BranchLocal mode with FEFO batch allocation (expires_on > org business date), base-UOM SALE_ISSUE inventory ledger posting, immutable SALES_INVOICE issuance, full CASH SALES_PAYMENT settlement, audit log, outbox, and SYNC_OUTBOX queueing. Returns 409 OUT_OF_STOCK with affected lines[i].quantity details on stock shortage. Policy PosCashierOrAdmin + branch scope.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: Idempotency-Key
+        in: header
+        description: Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field.
+        schema:
+          maxLength: 100
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/CompleteSalesOrderRequest'
+          text/json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/CompleteSalesOrderRequest'
+          application/*+json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/CompleteSalesOrderRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/CompleteSalesOrderResultDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompleteSalesOrderResultDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/CompleteSalesOrderResultDto'
+        '400':
+          description: Bad Request
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '401':
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '403':
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '404':
+          description: Not Found
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '409':
+          description: Conflict
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '422':
+          description: Unprocessable Content
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+      x-stage: 2
+      x-surface: erp-pos
+      x-runtime: BranchLocal
+      x-roles:
+      - Cashier
+      - Admin
+  /api/v1/sales-orders/{id}/cancel:
+    post:
+      tags:
+      - SalesOrders
+      summary: Cancel a DRAFT sales order
+      description: Transitions a DRAFT sales order to CANCELLED in BranchLocal mode with zero stock reversal and zero invoice/payment creation. Rejects COMPLETED or CANCELLED orders with 409 INVALID_STATE_TRANSITION. Policy PosCashierOrAdmin + branch scope.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: Idempotency-Key
+        in: header
+        description: Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field.
+        schema:
+          maxLength: 100
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/CancelSalesOrderRequest'
+          text/json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/CancelSalesOrderRequest'
+          application/*+json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/CancelSalesOrderRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/SalesOrderDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesOrderDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/SalesOrderDto'
+        '400':
+          description: Bad Request
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '401':
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '403':
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '404':
+          description: Not Found
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '409':
+          description: Conflict
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '422':
+          description: Unprocessable Content
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+      x-stage: 2
+      x-surface: erp-pos
+      x-runtime: BranchLocal
+      x-roles:
+      - Cashier
+      - Admin
+  /api/v1/sales-invoices:
+    get:
+      tags:
+      - SalesInvoices
+      summary: List issued sales invoices (paginated)
+      description: Paginated search over immutable sales invoices within authorized branches. Policy SalesReadAccess (Admin, Pharmacist, Cashier). Out-of-range page (< 1) or page_size (outside 1..200) returns 422 VALIDATION_ERROR.
+      parameters:
+      - name: branch_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: invoice_no
+        in: query
+        schema:
+          type: string
+          maxLength: 40
+      - name: payment_status
+        in: query
+        schema:
+          $ref: '#/components/schemas/SalesPaymentStatus'
+      - name: from_date
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: to_date
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: page
+        in: query
+        schema:
+          type: integer
+          format: int32
+          minimum: 1
+          default: 1
+      - name: page_size
+        in: query
+        schema:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 200
+          default: 25
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/SalesInvoiceSummaryDtoPagedResult'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesInvoiceSummaryDtoPagedResult'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/SalesInvoiceSummaryDtoPagedResult'
+        '401':
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '403':
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '422':
+          description: Unprocessable Content
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+      x-stage: 2
+      x-surface: erp-pos
+      x-runtime: Both
+      x-roles:
+      - Admin
+      - Pharmacist
+      - Cashier
+  /api/v1/sales-invoices/{id}:
+    get:
+      tags:
+      - SalesInvoices
+      summary: Get issued sales invoice detail by ID
+      description: Returns an issued sales invoice with all immutable line price/tax/cost snapshots, cash payments, refunds, and current settlement totals (preserving deactivated products, UOMs, and employees). Policy SalesReadAccess + branch scope.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/SalesInvoiceDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesInvoiceDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/SalesInvoiceDto'
+        '401':
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '403':
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '404':
+          description: Not Found
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+      x-stage: 2
+      x-surface: erp-pos
+      x-runtime: Both
+      x-roles:
+      - Admin
+      - Pharmacist
+      - Cashier
+  /api/v1/sales-returns:
+    post:
+      tags:
+      - SalesReturns
+      summary: Post an atomic sales return and cash refund
+      description: Atomically posts a sales return in BranchLocal mode at the original invoice branch within the 14-day Organization IANA timezone window. Enforces distinct active Admin/Pharmacist approver when supplied, server-derived original SALE_ISSUE batch/location splits, RESTOCK/QUARANTINE/SCRAP dispositions (dual SALES_RETURN_IN + SCRAP_OUT with zero ending scrap balance), proportional cent-residual cash refund, invoice settlement update, audit log, outbox, and SYNC_OUTBOX queueing. Policy SalesReturnWriteAccess (Cashier, Pharmacist, Admin).
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        description: Unique idempotency key (max 100 characters) for safe retries. Required via either the Idempotency-Key HTTP header or the optional idempotency_key JSON body field.
+        schema:
+          maxLength: 100
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/CreateSalesReturnRequest'
+          text/json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/CreateSalesReturnRequest'
+          application/*+json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/CreateSalesReturnRequest'
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location:
+              description: URI of the newly created sales return (/api/v1/sales-returns/{return_id}).
+              schema:
+                type: string
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/SalesReturnDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesReturnDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/SalesReturnDto'
+        '400':
+          description: Bad Request
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '401':
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '403':
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '404':
+          description: Not Found
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '409':
+          description: Conflict
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '422':
+          description: Unprocessable Content
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+      x-stage: 2
+      x-surface: erp-pos
+      x-runtime: BranchLocal
+      x-roles:
+      - Cashier
+      - Pharmacist
+      - Admin
+    get:
+      tags:
+      - SalesReturns
+      summary: List sales returns (paginated)
+      description: Paginated search over sales returns within authorized branches. Policy SalesReadAccess (Admin, Pharmacist, Cashier). Out-of-range page (< 1) or page_size (outside 1..200) returns 422 VALIDATION_ERROR.
+      parameters:
+      - name: branch_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: invoice_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: from_date
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: to_date
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: page
+        in: query
+        schema:
+          type: integer
+          format: int32
+          minimum: 1
+          default: 1
+      - name: page_size
+        in: query
+        schema:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 200
+          default: 25
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/SalesReturnSummaryDtoPagedResult'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesReturnSummaryDtoPagedResult'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/SalesReturnSummaryDtoPagedResult'
+        '401':
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '403':
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '422':
+          description: Unprocessable Content
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+      x-stage: 2
+      x-surface: erp-pos
+      x-runtime: Both
+      x-roles:
+      - Admin
+      - Pharmacist
+      - Cashier
+  /api/v1/sales-returns/{id}:
+    get:
+      tags:
+      - SalesReturns
+      summary: Get sales return detail by ID
+      description: Returns enriched sales return details including lines, linked SALES_RETURN_IN/SCRAP_OUT stock movements, refunds, and deactivated product/employee/location names. Policy SalesReadAccess + branch scope.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/SalesReturnDetailDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesReturnDetailDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/SalesReturnDetailDto'
+        '401':
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '403':
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '404':
+          description: Not Found
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+      x-stage: 2
+      x-surface: erp-pos
+      x-runtime: Both
+      x-roles:
+      - Admin
+      - Pharmacist
+      - Cashier
+  /api/v1/sync/operations:
+    post:
+      tags:
+      - Sync
+      summary: Push ordered offline branch operations to Cloud
+      description: Cloud-only enrolled-branch push ingestion endpoint authenticated via X-Branch-Enrollment-Token (verified against BRANCH_ENROLLMENT.runtime_credential_hash). Replays exact branch-posted facts in contiguous branch_sequence order with SHA-256 verification and head-of-line conflict blocking.
+      parameters:
+      - name: X-Branch-Enrollment-Token
+        in: header
+        description: Redeemed enrolled branch runtime credential verified against identity.BRANCH_ENROLLMENT.runtime_credential_hash.
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/SyncOperationBatchRequest'
+          text/json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/SyncOperationBatchRequest'
+          application/*+json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/SyncOperationBatchRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/SyncOperationBatchResponse'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncOperationBatchResponse'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/SyncOperationBatchResponse'
+        '400':
+          description: Bad Request
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '401':
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '403':
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '404':
+          description: Not Found
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '422':
+          description: Unprocessable Content
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+      security: []
+      x-stage: 2
+      x-surface: sync
+      x-runtime: Cloud
+      x-roles: []
+  /api/v1/sync/operations/{operationId}/retry:
+    post:
+      tags:
+      - Sync
+      summary: Retry a head-of-line conflicted sync operation
+      description: Cloud-only authorized retry for a CONFLICT SYNC_INBOX entry at last_applied_sequence + 1. Reprocesses the exact immutable stored payload without alteration while preserving the first terminal result_code. Policy SyncAdminOnly (Admin role + sync:retry scope + branch access).
+      parameters:
+      - name: operationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/RetrySyncOperationRequest'
+          text/json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/RetrySyncOperationRequest'
+          application/*+json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/RetrySyncOperationRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/SyncOperationResultDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncOperationResultDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/SyncOperationResultDto'
+        '400':
+          description: Bad Request
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '401':
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '403':
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '404':
+          description: Not Found
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '409':
+          description: Conflict
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '422':
+          description: Unprocessable Content
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+      x-stage: 2
+      x-surface: sync
+      x-runtime: Cloud
+      x-roles:
+      - Admin
+  /api/v1/sync/bootstrap:
+    get:
+      tags:
+      - Sync
+      summary: Download enrolled branch reference bootstrap snapshot
+      description: Cloud-only enrolled-branch bootstrap snapshot authenticated via X-Branch-Enrollment-Token. Delivers organization, branch, authorized users/employees, catalog, UOM prices, tax rates, reorder rules, locations, and initial cursors. Explicitly excludes stock balances, inventory transactions, and opening balances.
+      parameters:
+      - name: X-Branch-Enrollment-Token
+        in: header
+        description: Redeemed enrolled branch runtime credential verified against identity.BRANCH_ENROLLMENT.runtime_credential_hash.
+        required: true
+        schema:
+          type: string
+      - name: branch_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/SyncBootstrapResponse'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncBootstrapResponse'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/SyncBootstrapResponse'
+        '401':
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '403':
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '404':
+          description: Not Found
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '422':
+          description: Unprocessable Content
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+      security: []
+      x-stage: 2
+      x-surface: sync
+      x-runtime: Cloud
+      x-roles: []
+  /api/v1/sync/changes:
+    get:
+      tags:
+      - Sync
+      summary: Pull incremental Cloud-to-Branch reference changes
+      description: Cloud-only enrolled-branch incremental pull feed authenticated via X-Branch-Enrollment-Token. Ordered strictly by commit-ordered OUTBOX_EVENT.event_sequence with opaque Base64Url since_cursor/next_cursor. Returns 409 SYNC_CURSOR_EXPIRED when the cursor falls behind retention floor.
+      parameters:
+      - name: X-Branch-Enrollment-Token
+        in: header
+        description: Redeemed enrolled branch runtime credential verified against identity.BRANCH_ENROLLMENT.runtime_credential_hash.
+        required: true
+        schema:
+          type: string
+      - name: branch_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: since_cursor
+        in: query
+        description: 'Opaque Base64Url JSON cursor ({ "v": 1, "seq": <long> }) from a previous bootstrap or changes response.'
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 200
+          default: 100
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/SyncChangesResponse'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncChangesResponse'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/SyncChangesResponse'
+        '401':
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '403':
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '404':
+          description: Not Found
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '409':
+          description: Conflict (SYNC_CURSOR_EXPIRED)
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '422':
+          description: Unprocessable Content
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+      security: []
+      x-stage: 2
+      x-surface: sync
+      x-runtime: Cloud
+      x-roles: []
+  /api/v1/canonical/sales:
+    get:
+      tags:
+      - CanonicalSales
+      summary: Read canonical sales invoices feed (non-PII)
+      description: Cloud-only read-only canonical sales invoice feed backed by unified CanonicalOutboxCursor (keyset -> OUTBOX_EVENT.event_sequence). Policy CanonicalRead (Admin, Pharmacist, CanonicalReader).
+      parameters:
+      - name: organization_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: branch_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: from_date
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: to_date
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: updated_since
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: cursor
+        in: query
+        description: Opaque Base64Url CanonicalOutboxCursor string.
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 1000
+          default: 100
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/CanonicalSaleDtoPagedResult'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CanonicalSaleDtoPagedResult'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/CanonicalSaleDtoPagedResult'
+        '401':
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '403':
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '404':
+          description: Not Found
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '422':
+          description: Unprocessable Content
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+      x-stage: 2
+      x-surface: canonical
+      x-runtime: Cloud
+      x-roles:
+      - Admin
+      - Pharmacist
+      - CanonicalReader
+  /api/v1/canonical/orders:
+    get:
+      tags:
+      - CanonicalSales
+      summary: Read canonical sales orders feed (non-PII)
+      description: Cloud-only read-only canonical sales orders feed backed by unified CanonicalOutboxCursor (keyset -> OUTBOX_EVENT.event_sequence). Policy CanonicalRead (Admin, Pharmacist, CanonicalReader).
+      parameters:
+      - name: organization_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: branch_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: from_date
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: to_date
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: updated_since
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: cursor
+        in: query
+        description: Opaque Base64Url CanonicalOutboxCursor string.
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 1000
+          default: 100
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/CanonicalSalesOrderDtoPagedResult'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CanonicalSalesOrderDtoPagedResult'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/CanonicalSalesOrderDtoPagedResult'
+        '401':
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '403':
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '404':
+          description: Not Found
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '422':
+          description: Unprocessable Content
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+      x-stage: 2
+      x-surface: canonical
+      x-runtime: Cloud
+      x-roles:
+      - Admin
+      - Pharmacist
+      - CanonicalReader
+  /api/v1/canonical/returns:
+    get:
+      tags:
+      - CanonicalSales
+      summary: Read canonical sales returns feed (non-PII)
+      description: Cloud-only read-only canonical sales returns feed backed by unified CanonicalOutboxCursor (keyset -> OUTBOX_EVENT.event_sequence). Policy CanonicalRead (Admin, Pharmacist, CanonicalReader).
+      parameters:
+      - name: organization_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: branch_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: from_date
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: to_date
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: updated_since
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: cursor
+        in: query
+        description: Opaque Base64Url CanonicalOutboxCursor string.
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 1000
+          default: 100
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/CanonicalSaleReturnDtoPagedResult'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CanonicalSaleReturnDtoPagedResult'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/CanonicalSaleReturnDtoPagedResult'
+        '401':
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '403':
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '404':
+          description: Not Found
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+        '422':
+          description: Unprocessable Content
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+            text/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEnvelopeDto'
+      x-stage: 2
+      x-surface: canonical
+      x-runtime: Cloud
+      x-roles:
+      - Admin
+      - Pharmacist
+      - CanonicalReader
 components:
   schemas:
     AddressDto:
@@ -6307,6 +8187,1904 @@ components:
       - Pharmacist
       - Cashier
       type: string
+    OrderChannel:
+      enum:
+      - POS
+      type: string
+    SalesOrderStatus:
+      enum:
+      - DRAFT
+      - COMPLETED
+      - CANCELLED
+      type: string
+    SalesInvoiceStatus:
+      enum:
+      - ISSUED
+      type: string
+    SalesPaymentStatus:
+      enum:
+      - PAID
+      - PARTIALLY_REFUNDED
+      - REFUNDED
+      type: string
+    PaymentMethod:
+      enum:
+      - CASH
+      type: string
+    SalesReturnStatus:
+      enum:
+      - DRAFT
+      - POSTED
+      - CANCELLED
+      type: string
+    SalesRefundStatus:
+      enum:
+      - NOT_REFUNDED
+      - PARTIALLY_REFUNDED
+      - REFUNDED
+      type: string
+    ReturnDisposition:
+      enum:
+      - RESTOCK
+      - QUARANTINE
+      - SCRAP
+      type: string
+    SyncOperationType:
+      description: Closed Blueprint §8.9.11 DB CHECK vocabulary; Stage 2 handlers accept strictly COMPLETE_SALES_ORDER, POST_SALES_RETURN, and POST_INVENTORY_ADJUSTMENT.
+      enum:
+      - COMPLETE_SALES_ORDER
+      - POST_SALES_RETURN
+      - POST_INVENTORY_ADJUSTMENT
+      - RECEIVE_PURCHASE_ORDER
+      - CANCEL_REMAINING_PURCHASE_ORDER
+      - POST_VENDOR_RETURN
+      type: string
+    SyncProcessingStatus:
+      enum:
+      - RECEIVED
+      - APPLIED
+      - CONFLICT
+      - FAILED
+      type: string
+    SyncResultCode:
+      enum:
+      - APPLIED
+      - CONFLICT
+      - FAILED
+      type: string
+    SyncDeliveryOutcome:
+      enum:
+      - APPLIED
+      - ALREADY_APPLIED
+      - CONFLICT
+      - FAILED
+      type: string
+    SalesOrderLineRequest:
+      required:
+      - product_id
+      - product_uom_id
+      - entered_qty
+      type: object
+      properties:
+        product_id:
+          type: string
+          format: uuid
+        product_uom_id:
+          type: string
+          format: uuid
+        entered_qty:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+      additionalProperties: false
+    CreateSalesOrderRequest:
+      required:
+      - branch_id
+      - lines
+      type: object
+      properties:
+        branch_id:
+          type: string
+          format: uuid
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/SalesOrderLineRequest'
+        idempotency_key:
+          maxLength: 100
+          type: string
+          description: Optional when the Idempotency-Key HTTP header is provided (max 100 characters).
+          nullable: true
+      additionalProperties: false
+    ReplaceSalesOrderLinesRequest:
+      required:
+      - lines
+      type: object
+      properties:
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/SalesOrderLineRequest'
+        idempotency_key:
+          maxLength: 100
+          type: string
+          description: Optional when the Idempotency-Key HTTP header is provided (max 100 characters).
+          nullable: true
+      additionalProperties: false
+    CancelSalesOrderRequest:
+      type: object
+      properties:
+        reason:
+          maxLength: 500
+          type: string
+          nullable: true
+        idempotency_key:
+          maxLength: 100
+          type: string
+          description: Optional when the Idempotency-Key HTTP header is provided (max 100 characters).
+          nullable: true
+      additionalProperties: false
+    SalesOrderLineDto:
+      type: object
+      properties:
+        order_line_id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+        product_sku:
+          type: string
+          nullable: true
+        product_name:
+          type: string
+          nullable: true
+        product_uom_id:
+          type: string
+          format: uuid
+        uom_code:
+          type: string
+          nullable: true
+        entered_qty:
+          type: number
+          format: double
+        conversion_snapshot:
+          type: number
+          format: double
+        quantity_base:
+          type: number
+          format: double
+        unit_price_snapshot:
+          type: number
+          format: double
+        discount_amount:
+          type: number
+          format: double
+        tax_rate_snapshot:
+          type: number
+          format: double
+        tax_amount_snapshot:
+          type: number
+          format: double
+        line_total:
+          type: number
+          format: double
+      additionalProperties: false
+    SalesOrderDto:
+      type: object
+      properties:
+        sales_order_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        created_by_employee_id:
+          type: string
+          format: uuid
+        created_by_employee_name:
+          type: string
+          nullable: true
+        order_no:
+          type: string
+        channel:
+          allOf:
+          - $ref: '#/components/schemas/OrderChannel'
+        order_status:
+          allOf:
+          - $ref: '#/components/schemas/SalesOrderStatus'
+        currency_code:
+          type: string
+        estimated_subtotal:
+          type: number
+          format: double
+        estimated_discount_total:
+          type: number
+          format: double
+        estimated_tax_total:
+          type: number
+          format: double
+        estimated_grand_total:
+          type: number
+          format: double
+        idempotency_key:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalesOrderLineDto'
+      additionalProperties: false
+    SalesOrderSummaryDto:
+      type: object
+      properties:
+        sales_order_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        order_no:
+          type: string
+        channel:
+          allOf:
+          - $ref: '#/components/schemas/OrderChannel'
+        order_status:
+          allOf:
+          - $ref: '#/components/schemas/SalesOrderStatus'
+        currency_code:
+          type: string
+        estimated_grand_total:
+          type: number
+          format: double
+        line_count:
+          type: integer
+          format: int32
+        created_by_employee_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+      additionalProperties: false
+    SalesOrderSummaryDtoPagedResult:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalesOrderSummaryDto'
+        page:
+          type: integer
+          format: int32
+        page_size:
+          type: integer
+          format: int32
+        total_count:
+          type: integer
+          format: int32
+        next_cursor:
+          type: string
+          nullable: true
+      additionalProperties: false
+    CompleteSalesOrderRequest:
+      required:
+      - cash_tendered_amount
+      type: object
+      properties:
+        cash_tendered_amount:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+        method:
+          allOf:
+          - $ref: '#/components/schemas/PaymentMethod'
+          default: CASH
+        note:
+          maxLength: 500
+          type: string
+          nullable: true
+        idempotency_key:
+          maxLength: 100
+          type: string
+          description: Optional when the Idempotency-Key HTTP header is provided (max 100 characters).
+          nullable: true
+      additionalProperties: false
+    SalesPaymentDto:
+      type: object
+      properties:
+        payment_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        invoice_id:
+          type: string
+          format: uuid
+        received_by_employee_id:
+          type: string
+          format: uuid
+        amount_due:
+          type: number
+          format: double
+        cash_tendered_amount:
+          type: number
+          format: double
+        change_amount:
+          type: number
+          format: double
+        method:
+          allOf:
+          - $ref: '#/components/schemas/PaymentMethod'
+        idempotency_key:
+          type: string
+        paid_at:
+          type: string
+          format: date-time
+        note:
+          type: string
+          nullable: true
+      additionalProperties: false
+    CompletedSaleLineDto:
+      type: object
+      properties:
+        invoice_line_id:
+          type: string
+          format: uuid
+        source_order_line_id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+        product_uom_id:
+          type: string
+          format: uuid
+        entered_qty:
+          type: number
+          format: double
+        conversion_snapshot:
+          type: number
+          format: double
+        quantity_base:
+          type: number
+          format: double
+        unit_price_snapshot:
+          type: number
+          format: double
+        discount_amount:
+          type: number
+          format: double
+        tax_rate_snapshot:
+          type: number
+          format: double
+        tax_amount:
+          type: number
+          format: double
+        net_amount:
+          type: number
+          format: double
+        line_total:
+          type: number
+          format: double
+        unit_cost_snapshot:
+          type: number
+          format: double
+      additionalProperties: false
+    CompleteSalesOrderResultDto:
+      type: object
+      properties:
+        sales_order_id:
+          type: string
+          format: uuid
+        order_no:
+          type: string
+        order_status:
+          allOf:
+          - $ref: '#/components/schemas/SalesOrderStatus'
+        completed_at:
+          type: string
+          format: date-time
+        invoice_id:
+          type: string
+          format: uuid
+        invoice_no:
+          type: string
+        invoice_status:
+          allOf:
+          - $ref: '#/components/schemas/SalesInvoiceStatus'
+        payment_status:
+          allOf:
+          - $ref: '#/components/schemas/SalesPaymentStatus'
+        currency_code:
+          type: string
+        subtotal:
+          type: number
+          format: double
+        discount_total:
+          type: number
+          format: double
+        tax_total:
+          type: number
+          format: double
+        grand_total:
+          type: number
+          format: double
+        paid_amount:
+          type: number
+          format: double
+        refunded_amount:
+          type: number
+          format: double
+        issued_at:
+          type: string
+          format: date-time
+        payment:
+          allOf:
+          - $ref: '#/components/schemas/SalesPaymentDto'
+        inventory_txn_id:
+          type: string
+          format: uuid
+        inventory_txn_no:
+          type: string
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompletedSaleLineDto'
+      additionalProperties: false
+    SalesInvoiceLineDto:
+      type: object
+      properties:
+        invoice_line_id:
+          type: string
+          format: uuid
+        source_order_line_id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+        product_sku:
+          type: string
+          nullable: true
+        product_name:
+          type: string
+          nullable: true
+        product_uom_id:
+          type: string
+          format: uuid
+        uom_code:
+          type: string
+          nullable: true
+        entered_qty:
+          type: number
+          format: double
+        conversion_snapshot:
+          type: number
+          format: double
+        quantity_base:
+          type: number
+          format: double
+        unit_price_snapshot:
+          type: number
+          format: double
+        discount_amount:
+          type: number
+          format: double
+        tax_rate_snapshot:
+          type: number
+          format: double
+        tax_amount:
+          type: number
+          format: double
+        net_amount:
+          type: number
+          format: double
+        line_total:
+          type: number
+          format: double
+        unit_cost_snapshot:
+          type: number
+          format: double
+      additionalProperties: false
+    SalesInvoicePaymentSummaryDto:
+      type: object
+      properties:
+        payment_id:
+          type: string
+          format: uuid
+        received_by_employee_id:
+          type: string
+          format: uuid
+        received_by_employee_name:
+          type: string
+          nullable: true
+        amount_due:
+          type: number
+          format: double
+        cash_tendered_amount:
+          type: number
+          format: double
+        change_amount:
+          type: number
+          format: double
+        method:
+          allOf:
+          - $ref: '#/components/schemas/PaymentMethod'
+        paid_at:
+          type: string
+          format: date-time
+        note:
+          type: string
+          nullable: true
+      additionalProperties: false
+    SalesInvoiceRefundSummaryDto:
+      type: object
+      properties:
+        refund_id:
+          type: string
+          format: uuid
+        sales_return_id:
+          type: string
+          format: uuid
+        processed_by_employee_id:
+          type: string
+          format: uuid
+        processed_by_employee_name:
+          type: string
+          nullable: true
+        amount:
+          type: number
+          format: double
+        method:
+          allOf:
+          - $ref: '#/components/schemas/PaymentMethod'
+        refunded_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    SalesInvoiceDto:
+      type: object
+      properties:
+        invoice_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        sales_order_id:
+          type: string
+          format: uuid
+        invoice_no:
+          type: string
+        status:
+          allOf:
+          - $ref: '#/components/schemas/SalesInvoiceStatus'
+        currency_code:
+          type: string
+        subtotal:
+          type: number
+          format: double
+        discount_total:
+          type: number
+          format: double
+        tax_total:
+          type: number
+          format: double
+        grand_total:
+          type: number
+          format: double
+        paid_amount:
+          type: number
+          format: double
+        refunded_amount:
+          type: number
+          format: double
+        payment_status:
+          allOf:
+          - $ref: '#/components/schemas/SalesPaymentStatus'
+        issued_at:
+          type: string
+          format: date-time
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalesInvoiceLineDto'
+        payments:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalesInvoicePaymentSummaryDto'
+        refunds:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalesInvoiceRefundSummaryDto'
+      additionalProperties: false
+    SalesInvoiceSummaryDto:
+      type: object
+      properties:
+        invoice_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        sales_order_id:
+          type: string
+          format: uuid
+        invoice_no:
+          type: string
+        status:
+          allOf:
+          - $ref: '#/components/schemas/SalesInvoiceStatus'
+        currency_code:
+          type: string
+        subtotal:
+          type: number
+          format: double
+        discount_total:
+          type: number
+          format: double
+        tax_total:
+          type: number
+          format: double
+        grand_total:
+          type: number
+          format: double
+        paid_amount:
+          type: number
+          format: double
+        refunded_amount:
+          type: number
+          format: double
+        payment_status:
+          allOf:
+          - $ref: '#/components/schemas/SalesPaymentStatus'
+        issued_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    SalesInvoiceSummaryDtoPagedResult:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalesInvoiceSummaryDto'
+        page:
+          type: integer
+          format: int32
+        page_size:
+          type: integer
+          format: int32
+        total_count:
+          type: integer
+          format: int32
+        next_cursor:
+          type: string
+          nullable: true
+      additionalProperties: false
+    SalesReturnLineRequest:
+      required:
+      - invoice_line_id
+      - quantity_base
+      - disposition
+      type: object
+      properties:
+        invoice_line_id:
+          type: string
+          format: uuid
+        quantity_base:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+        disposition:
+          allOf:
+          - $ref: '#/components/schemas/ReturnDisposition'
+      additionalProperties: false
+    CreateSalesReturnRequest:
+      required:
+      - invoice_id
+      - reason_code
+      - lines
+      type: object
+      properties:
+        invoice_id:
+          type: string
+          format: uuid
+        reason_code:
+          minLength: 1
+          maxLength: 40
+          type: string
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/SalesReturnLineRequest'
+        approved_by_employee_id:
+          type: string
+          format: uuid
+          nullable: true
+        refund_method:
+          allOf:
+          - $ref: '#/components/schemas/PaymentMethod'
+          default: CASH
+        issue_cash_refund:
+          type: boolean
+          default: true
+        idempotency_key:
+          maxLength: 100
+          type: string
+          description: Optional when the Idempotency-Key HTTP header is provided (max 100 characters).
+          nullable: true
+      additionalProperties: false
+    SalesReturnLineDto:
+      type: object
+      properties:
+        return_line_id:
+          type: string
+          format: uuid
+        invoice_line_id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+        batch_id:
+          type: string
+          format: uuid
+        destination_location_id:
+          type: string
+          format: uuid
+        quantity_base:
+          type: number
+          format: double
+        refund_amount:
+          type: number
+          format: double
+        disposition:
+          allOf:
+          - $ref: '#/components/schemas/ReturnDisposition'
+      additionalProperties: false
+    SalesRefundDto:
+      type: object
+      properties:
+        refund_id:
+          type: string
+          format: uuid
+        sales_return_id:
+          type: string
+          format: uuid
+        invoice_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        processed_by_employee_id:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          format: double
+        method:
+          allOf:
+          - $ref: '#/components/schemas/PaymentMethod'
+        idempotency_key:
+          type: string
+        refunded_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    SalesReturnDto:
+      type: object
+      properties:
+        return_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        invoice_id:
+          type: string
+          format: uuid
+        return_no:
+          type: string
+        status:
+          allOf:
+          - $ref: '#/components/schemas/SalesReturnStatus'
+        reason_code:
+          type: string
+        received_by_employee_id:
+          type: string
+          format: uuid
+        approved_by_employee_id:
+          type: string
+          format: uuid
+          nullable: true
+        refund_amount:
+          type: number
+          format: double
+        refund_status:
+          allOf:
+          - $ref: '#/components/schemas/SalesRefundStatus'
+        idempotency_key:
+          type: string
+        received_at:
+          type: string
+          format: date-time
+        return_stock_txn_id:
+          type: string
+          format: uuid
+          nullable: true
+        scrap_out_txn_id:
+          type: string
+          format: uuid
+          nullable: true
+        refund:
+          allOf:
+          - $ref: '#/components/schemas/SalesRefundDto'
+          nullable: true
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalesReturnLineDto'
+      additionalProperties: false
+    SalesReturnSummaryDto:
+      type: object
+      properties:
+        return_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        invoice_id:
+          type: string
+          format: uuid
+        invoice_no:
+          type: string
+          nullable: true
+        return_no:
+          type: string
+        status:
+          allOf:
+          - $ref: '#/components/schemas/SalesReturnStatus'
+        reason_code:
+          type: string
+        refund_amount:
+          type: number
+          format: double
+        refund_status:
+          allOf:
+          - $ref: '#/components/schemas/SalesRefundStatus'
+        received_by_employee_id:
+          type: string
+          format: uuid
+        approved_by_employee_id:
+          type: string
+          format: uuid
+          nullable: true
+        received_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    SalesReturnSummaryDtoPagedResult:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalesReturnSummaryDto'
+        page:
+          type: integer
+          format: int32
+        page_size:
+          type: integer
+          format: int32
+        total_count:
+          type: integer
+          format: int32
+        next_cursor:
+          type: string
+          nullable: true
+      additionalProperties: false
+    SalesReturnLineDetailDto:
+      type: object
+      properties:
+        return_line_id:
+          type: string
+          format: uuid
+        invoice_line_id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+        product_sku:
+          type: string
+          nullable: true
+        product_name:
+          type: string
+          nullable: true
+        batch_id:
+          type: string
+          format: uuid
+        batch_number:
+          type: string
+          nullable: true
+        destination_location_id:
+          type: string
+          format: uuid
+        destination_location_code:
+          type: string
+          nullable: true
+        quantity_base:
+          type: number
+          format: double
+        refund_amount:
+          type: number
+          format: double
+        disposition:
+          allOf:
+          - $ref: '#/components/schemas/ReturnDisposition'
+      additionalProperties: false
+    SalesReturnStockMovementDto:
+      type: object
+      properties:
+        inventory_txn_id:
+          type: string
+          format: uuid
+        transaction_no:
+          type: string
+        transaction_type:
+          allOf:
+          - $ref: '#/components/schemas/InventoryTransactionType'
+        status:
+          allOf:
+          - $ref: '#/components/schemas/InventoryTransactionStatus'
+        posted_at:
+          type: string
+          format: date-time
+          nullable: true
+      additionalProperties: false
+    SalesReturnRefundSummaryDto:
+      type: object
+      properties:
+        refund_id:
+          type: string
+          format: uuid
+        processed_by_employee_id:
+          type: string
+          format: uuid
+        processed_by_employee_name:
+          type: string
+          nullable: true
+        amount:
+          type: number
+          format: double
+        method:
+          allOf:
+          - $ref: '#/components/schemas/PaymentMethod'
+        refunded_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    SalesReturnDetailDto:
+      type: object
+      properties:
+        return_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        invoice_id:
+          type: string
+          format: uuid
+        invoice_no:
+          type: string
+          nullable: true
+        return_no:
+          type: string
+        status:
+          allOf:
+          - $ref: '#/components/schemas/SalesReturnStatus'
+        reason_code:
+          type: string
+        received_by_employee_id:
+          type: string
+          format: uuid
+        received_by_employee_name:
+          type: string
+          nullable: true
+        approved_by_employee_id:
+          type: string
+          format: uuid
+          nullable: true
+        approved_by_employee_name:
+          type: string
+          nullable: true
+        refund_amount:
+          type: number
+          format: double
+        refund_status:
+          allOf:
+          - $ref: '#/components/schemas/SalesRefundStatus'
+        idempotency_key:
+          type: string
+        received_at:
+          type: string
+          format: date-time
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalesReturnLineDetailDto'
+        stock_movements:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalesReturnStockMovementDto'
+        refunds:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalesReturnRefundSummaryDto'
+      additionalProperties: false
+    SyncOperationItemRequest:
+      required:
+      - operation_id
+      - branch_sequence
+      - operation_type
+      - payload_version
+      - payload_hash
+      - payload
+      - created_at
+      type: object
+      properties:
+        operation_id:
+          type: string
+          format: uuid
+        branch_sequence:
+          type: integer
+          format: int64
+          minimum: 1
+        operation_type:
+          allOf:
+          - $ref: '#/components/schemas/SyncOperationType'
+        payload_version:
+          type: integer
+          format: int32
+          minimum: 1
+        payload_hash:
+          minLength: 64
+          maxLength: 64
+          pattern: '^[0-9a-f]{64}$'
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+          description: Versioned v1 canonical JSON payload (CompleteSalesOrderSyncPayloadV1, PostSalesReturnSyncPayloadV1, or PostInventoryAdjustmentSyncPayloadV1).
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    SyncOperationBatchRequest:
+      required:
+      - organization_id
+      - branch_id
+      - operations
+      type: object
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        operations:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/SyncOperationItemRequest'
+      additionalProperties: false
+    SyncOperationResultDto:
+      type: object
+      properties:
+        operation_id:
+          type: string
+          format: uuid
+        branch_sequence:
+          type: integer
+          format: int64
+        status:
+          allOf:
+          - $ref: '#/components/schemas/SyncDeliveryOutcome'
+        expected_next_sequence:
+          type: integer
+          format: int64
+          nullable: true
+        conflict_code:
+          type: string
+          nullable: true
+        message:
+          type: string
+          nullable: true
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiErrorDetailDto'
+      additionalProperties: false
+    SyncOperationBatchResponse:
+      type: object
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        highest_contiguous_applied_sequence:
+          type: integer
+          format: int64
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncOperationResultDto'
+      additionalProperties: false
+    RetrySyncOperationRequest:
+      required:
+      - reason
+      type: object
+      properties:
+        reason:
+          minLength: 3
+          maxLength: 500
+          type: string
+      additionalProperties: false
+    OrganizationBootstrapDto:
+      type: object
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+        organization_code:
+          type: string
+        name:
+          type: string
+        base_currency:
+          type: string
+        time_zone_id:
+          type: string
+        address:
+          allOf:
+          - $ref: '#/components/schemas/AddressDto'
+        is_active:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    BranchBootstrapDto:
+      type: object
+      properties:
+        branch_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        branch_code:
+          type: string
+        name:
+          type: string
+        address:
+          allOf:
+          - $ref: '#/components/schemas/AddressDto'
+        is_active:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    BootstrapEmployeeDto:
+      type: object
+      properties:
+        employee_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        employee_no:
+          type: string
+        full_name:
+          type: string
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        job_title:
+          type: string
+        address:
+          allOf:
+          - $ref: '#/components/schemas/AddressDto'
+        hired_on:
+          type: string
+          format: date
+        is_active:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    BootstrapUserAccountDto:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        employee_id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        password_hash:
+          type: string
+        security_stamp:
+          type: string
+          format: uuid
+        role:
+          allOf:
+          - $ref: '#/components/schemas/UserRole'
+        branch_scope:
+          allOf:
+          - $ref: '#/components/schemas/BranchScope'
+        is_active:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    BootstrapUserBranchAccessDto:
+      type: object
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+      additionalProperties: false
+    BootstrapCategoryDto:
+      type: object
+      properties:
+        category_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        parent_category_id:
+          type: string
+          format: uuid
+          nullable: true
+        code:
+          maxLength: 30
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    BootstrapProductDto:
+      type: object
+      properties:
+        product_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        category_id:
+          type: string
+          format: uuid
+        sku:
+          type: string
+        barcode:
+          type: string
+          nullable: true
+        name:
+          type: string
+        generic_name:
+          type: string
+          nullable: true
+        brand_name:
+          type: string
+          nullable: true
+        base_uom_code:
+          type: string
+        tax_rate:
+          type: number
+          format: double
+        image_url:
+          type: string
+          nullable: true
+        lot_tracking_required:
+          type: boolean
+        expiry_alert_days:
+          type: integer
+          format: int32
+        is_active:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    BootstrapProductUomDto:
+      type: object
+      properties:
+        product_uom_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+        uom_code:
+          type: string
+        display_name:
+          type: string
+        conversion_to_base:
+          type: number
+          format: double
+        sale_unit_price:
+          type: number
+          format: double
+          nullable: true
+        is_base:
+          type: boolean
+        is_sellable:
+          type: boolean
+        is_purchasable:
+          type: boolean
+        is_active:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    BootstrapReorderRuleDto:
+      type: object
+      properties:
+        reorder_rule_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+        reorder_point_base:
+          type: number
+          format: double
+        reorder_quantity_base:
+          type: number
+          format: double
+        max_quantity_base:
+          type: number
+          format: double
+          nullable: true
+        is_active:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    BootstrapLocationDto:
+      type: object
+      properties:
+        location_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        location_code:
+          type: string
+        name:
+          type: string
+        location_type:
+          allOf:
+          - $ref: '#/components/schemas/LocationType'
+        is_sellable:
+          type: boolean
+        is_active:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    SyncBootstrapCursorDto:
+      type: object
+      properties:
+        last_issued_sequence:
+          type: integer
+          format: int64
+        last_applied_sequence:
+          type: integer
+          format: int64
+        last_applied_cloud_cursor:
+          type: string
+        cloud_high_water_cursor:
+          type: string
+      additionalProperties: false
+    SyncBootstrapResponse:
+      type: object
+      description: Reference bootstrap snapshot for an enrolled branch. Explicitly excludes stock balances, inventory transactions, and opening balances.
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        organization:
+          allOf:
+          - $ref: '#/components/schemas/OrganizationBootstrapDto'
+        branch:
+          allOf:
+          - $ref: '#/components/schemas/BranchBootstrapDto'
+        employees:
+          type: array
+          items:
+            $ref: '#/components/schemas/BootstrapEmployeeDto'
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/BootstrapUserAccountDto'
+        user_branch_accesses:
+          type: array
+          items:
+            $ref: '#/components/schemas/BootstrapUserBranchAccessDto'
+        categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/BootstrapCategoryDto'
+        products:
+          type: array
+          items:
+            $ref: '#/components/schemas/BootstrapProductDto'
+        product_uoms:
+          type: array
+          items:
+            $ref: '#/components/schemas/BootstrapProductUomDto'
+        reorder_rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/BootstrapReorderRuleDto'
+        locations:
+          type: array
+          items:
+            $ref: '#/components/schemas/BootstrapLocationDto'
+        cursors:
+          allOf:
+          - $ref: '#/components/schemas/SyncBootstrapCursorDto'
+      additionalProperties: false
+    SyncChangeItemDto:
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        event_sequence:
+          type: integer
+          format: int64
+        event_type:
+          type: string
+        schema_version:
+          type: string
+        branch_id:
+          type: string
+          format: uuid
+          nullable: true
+        payload:
+          type: object
+          additionalProperties: true
+        occurred_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    SyncChangesResponse:
+      type: object
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncChangeItemDto'
+      additionalProperties: false
+    CanonicalSaleLineDto:
+      type: object
+      properties:
+        invoice_line_id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+        base_uom_code:
+          type: string
+        entered_uom_id:
+          type: string
+          format: uuid
+        entered_qty:
+          type: number
+          format: double
+        conversion_snapshot:
+          type: number
+          format: double
+        quantity_base:
+          type: number
+          format: double
+        unit_price_entered:
+          type: number
+          format: double
+        unit_price_base:
+          type: number
+          format: double
+        discount_amount:
+          type: number
+          format: double
+        tax_rate_snapshot:
+          type: number
+          format: double
+        tax_amount:
+          type: number
+          format: double
+        net_amount:
+          type: number
+          format: double
+        line_total:
+          type: number
+          format: double
+        unit_cost_base_snapshot:
+          type: number
+          format: double
+      additionalProperties: false
+    CanonicalSaleDto:
+      type: object
+      properties:
+        schema:
+          type: string
+        version:
+          type: string
+        organization_id:
+          type: string
+          format: uuid
+        invoice_id:
+          type: string
+          format: uuid
+        order_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        invoice_no:
+          type: string
+        status:
+          allOf:
+          - $ref: '#/components/schemas/SalesInvoiceStatus'
+        payment_status:
+          allOf:
+          - $ref: '#/components/schemas/SalesPaymentStatus'
+        currency_code:
+          type: string
+        subtotal:
+          type: number
+          format: double
+        discount_total:
+          type: number
+          format: double
+        tax_total:
+          type: number
+          format: double
+        grand_total:
+          type: number
+          format: double
+        paid_amount:
+          type: number
+          format: double
+        refunded_amount:
+          type: number
+          format: double
+        issued_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/CanonicalSaleLineDto'
+      additionalProperties: false
+    CanonicalSaleDtoPagedResult:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CanonicalSaleDto'
+        page:
+          type: integer
+          format: int32
+        page_size:
+          type: integer
+          format: int32
+        total_count:
+          type: integer
+          format: int32
+        next_cursor:
+          type: string
+          nullable: true
+      additionalProperties: false
+    CanonicalSalesOrderLineDto:
+      type: object
+      properties:
+        order_line_id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+        base_uom_code:
+          type: string
+        product_uom_id:
+          type: string
+          format: uuid
+        entered_qty:
+          type: number
+          format: double
+        conversion_snapshot:
+          type: number
+          format: double
+        quantity_base:
+          type: number
+          format: double
+        unit_price_snapshot:
+          type: number
+          format: double
+        discount_amount:
+          type: number
+          format: double
+        tax_rate_snapshot:
+          type: number
+          format: double
+        tax_amount_snapshot:
+          type: number
+          format: double
+        line_total:
+          type: number
+          format: double
+      additionalProperties: false
+    CanonicalSalesOrderDto:
+      type: object
+      properties:
+        schema:
+          type: string
+        version:
+          type: string
+        organization_id:
+          type: string
+          format: uuid
+        order_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        order_no:
+          type: string
+        channel:
+          allOf:
+          - $ref: '#/components/schemas/OrderChannel'
+        order_status:
+          allOf:
+          - $ref: '#/components/schemas/SalesOrderStatus'
+        currency_code:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/CanonicalSalesOrderLineDto'
+      additionalProperties: false
+    CanonicalSalesOrderDtoPagedResult:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CanonicalSalesOrderDto'
+        page:
+          type: integer
+          format: int32
+        page_size:
+          type: integer
+          format: int32
+        total_count:
+          type: integer
+          format: int32
+        next_cursor:
+          type: string
+          nullable: true
+      additionalProperties: false
+    CanonicalSaleReturnLineDto:
+      type: object
+      properties:
+        return_line_id:
+          type: string
+          format: uuid
+        invoice_line_id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+        batch_id:
+          type: string
+          format: uuid
+        destination_location_id:
+          type: string
+          format: uuid
+        quantity_base:
+          type: number
+          format: double
+        refund_amount:
+          type: number
+          format: double
+        disposition:
+          allOf:
+          - $ref: '#/components/schemas/ReturnDisposition'
+      additionalProperties: false
+    CanonicalSaleReturnDto:
+      type: object
+      properties:
+        schema:
+          type: string
+        version:
+          type: string
+        organization_id:
+          type: string
+          format: uuid
+        return_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        invoice_id:
+          type: string
+          format: uuid
+        return_no:
+          type: string
+        status:
+          allOf:
+          - $ref: '#/components/schemas/SalesReturnStatus'
+        reason_code:
+          type: string
+        refund_amount:
+          type: number
+          format: double
+        refund_status:
+          allOf:
+          - $ref: '#/components/schemas/SalesRefundStatus'
+        received_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/CanonicalSaleReturnLineDto'
+      additionalProperties: false
+    CanonicalSaleReturnDtoPagedResult:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CanonicalSaleReturnDto'
+        page:
+          type: integer
+          format: int32
+        page_size:
+          type: integer
+          format: int32
+        total_count:
+          type: integer
+          format: int32
+        next_cursor:
+          type: string
+          nullable: true
+      additionalProperties: false
   securitySchemes:
     Bearer:
       type: http
@@ -6321,6 +10099,7 @@ tags:
 - name: CanonicalCapabilities
 - name: CanonicalCatalog
 - name: CanonicalInventory
+- name: CanonicalSales
 - name: Employees
 - name: Inventory
 - name: InventoryLocations
@@ -6328,4 +10107,8 @@ tags:
 - name: ProductCategories
 - name: Products
 - name: ReorderRules
+- name: SalesInvoices
+- name: SalesOrders
+- name: SalesReturns
+- name: Sync
 - name: Users
