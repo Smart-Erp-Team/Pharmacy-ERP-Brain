@@ -1,9 +1,6 @@
+import { createMockWrites } from './mockWrites';
 import { http, HttpResponse } from 'msw';
 import currentUserContext from '@contracts/fixtures/current-user-context.json';
-import {
-  IDEMPOTENCY_KEY_HEADER,
-  IDEMPOTENCY_KEY_MAX_LENGTH,
-} from '../lib/api/idempotency';
 import {
   DEFAULT_PAGE,
   DEFAULT_PAGE_SIZE,
@@ -121,7 +118,10 @@ function cloneEmployee(employee: Employee): Employee {
 let mockEmployees: Employee[] = INITIAL_EMPLOYEES.map(cloneEmployee);
 let createdEmployeeCounter = 0;
 
+const writes = createMockWrites();
+
 export function resetMockEmployees(): void {
+  writes.reset();
   mockEmployees = INITIAL_EMPLOYEES.map(cloneEmployee);
   createdEmployeeCounter = 0;
 }
@@ -347,43 +347,6 @@ function createMockEmployeeId(): string {
   return `11111111-3333-4111-8111-${String(createdEmployeeCounter + 4).padStart(12, '0')}`;
 }
 
-function requireIdempotencyKey(request: Request): Response | null {
-  const key = request.headers.get(IDEMPOTENCY_KEY_HEADER)?.trim() ?? '';
-  if (key.length === 0) {
-    return HttpResponse.json(
-      createMockErrorEnvelope(
-        'MALFORMED_REQUEST',
-        'The idempotency key is required.',
-        'mock-trace-employee-idempotency-missing',
-        [
-          {
-            field: IDEMPOTENCY_KEY_HEADER,
-            issue: 'The idempotency key is required.',
-          },
-        ]
-      ),
-      { status: 400 }
-    );
-  }
-  if (key.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
-    return HttpResponse.json(
-      createMockErrorEnvelope(
-        'MALFORMED_REQUEST',
-        `The idempotency key must be at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`,
-        'mock-trace-employee-idempotency-length',
-        [
-          {
-            field: IDEMPOTENCY_KEY_HEADER,
-            issue: `The idempotency key must be at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`,
-          },
-        ]
-      ),
-      { status: 400 }
-    );
-  }
-  return null;
-}
-
 function malformedRequestResponse(message: string) {
   return HttpResponse.json(
     createMockErrorEnvelope(
@@ -510,12 +473,7 @@ export const employeeHandlers = [
     return HttpResponse.json(cloneEmployee(employee), { status: 200 });
   }),
 
-  http.post('*/api/v1/employees', async ({ request }) => {
-    const idempotencyError = requireIdempotencyKey(request);
-    if (idempotencyError) {
-      return idempotencyError;
-    }
-
+  writes.post('*/api/v1/employees', async ({ request }) => {
     const body: unknown = await request.json().catch(() => null);
     if (!isRecord(body)) {
       return malformedRequestResponse(
@@ -628,117 +586,115 @@ export const employeeHandlers = [
     return HttpResponse.json(cloneEmployee(created), { status: 201 });
   }),
 
-  http.patch('*/api/v1/employees/:employeeId', async ({ params, request }) => {
-    const idempotencyError = requireIdempotencyKey(request);
-    if (idempotencyError) {
-      return idempotencyError;
-    }
-
-    const index = mockEmployees.findIndex(
-      (item) => item.employee_id === params.employeeId
-    );
-    if (index === -1) {
-      return notFoundResponse();
-    }
-
-    const body: unknown = await request.json().catch(() => null);
-    if (!isRecord(body)) {
-      return malformedRequestResponse('Malformed employee patch payload.');
-    }
-
-    const current = mockEmployees[index];
-    const details: NormalizedApiErrorDetail[] = [];
-
-    let nextFullName = current.full_name;
-    if (
-      'full_name' in body &&
-      body.full_name !== null &&
-      body.full_name !== undefined
-    ) {
-      const candidate = readTrimmedString(body.full_name);
-      if (!candidate) {
-        details.push({ field: 'full_name', issue: 'Full name is required.' });
-      } else if (candidate.length > 150) {
-        details.push({
-          field: 'full_name',
-          issue: 'Full name must be at most 150 characters.',
-        });
-      } else {
-        nextFullName = candidate;
-      }
-    }
-
-    let nextJobTitle = current.job_title;
-    if (
-      'job_title' in body &&
-      body.job_title !== null &&
-      body.job_title !== undefined
-    ) {
-      const candidate = readTrimmedString(body.job_title);
-      if (!candidate) {
-        details.push({ field: 'job_title', issue: 'Job title is required.' });
-      } else if (candidate.length > 80) {
-        details.push({
-          field: 'job_title',
-          issue: 'Job title must be at most 80 characters.',
-        });
-      } else {
-        nextJobTitle = candidate;
-      }
-    }
-
-    let nextIsActive = current.is_active;
-    if (
-      'is_active' in body &&
-      body.is_active !== null &&
-      body.is_active !== undefined
-    ) {
-      if (typeof body.is_active !== 'boolean') {
-        details.push({
-          field: 'is_active',
-          issue: 'Active status must be a boolean.',
-        });
-      } else {
-        nextIsActive = body.is_active;
-      }
-    }
-
-    const nextEmail =
-      'email' in body
-        ? validateOptionalField(body.email, 'email', 254, 'Email', details)
-        : current.email;
-
-    const nextPhone =
-      'phone' in body
-        ? validateOptionalField(body.phone, 'phone', 30, 'Phone', details)
-        : current.phone;
-
-    const nextAddress =
-      'address' in body && body.address !== null && body.address !== undefined
-        ? parseAddress(body.address, details)
-        : current.address;
-
-    if (details.length > 0 || !nextAddress) {
-      return validationErrorResponse(
-        'Invalid employee update details.',
-        details
+  writes.patch(
+    '*/api/v1/employees/:employeeId',
+    async ({ params, request }) => {
+      const index = mockEmployees.findIndex(
+        (item) => item.employee_id === params.employeeId
       );
+      if (index === -1) {
+        return notFoundResponse();
+      }
+
+      const body: unknown = await request.json().catch(() => null);
+      if (!isRecord(body)) {
+        return malformedRequestResponse('Malformed employee patch payload.');
+      }
+
+      const current = mockEmployees[index];
+      const details: NormalizedApiErrorDetail[] = [];
+
+      let nextFullName = current.full_name;
+      if (
+        'full_name' in body &&
+        body.full_name !== null &&
+        body.full_name !== undefined
+      ) {
+        const candidate = readTrimmedString(body.full_name);
+        if (!candidate) {
+          details.push({ field: 'full_name', issue: 'Full name is required.' });
+        } else if (candidate.length > 150) {
+          details.push({
+            field: 'full_name',
+            issue: 'Full name must be at most 150 characters.',
+          });
+        } else {
+          nextFullName = candidate;
+        }
+      }
+
+      let nextJobTitle = current.job_title;
+      if (
+        'job_title' in body &&
+        body.job_title !== null &&
+        body.job_title !== undefined
+      ) {
+        const candidate = readTrimmedString(body.job_title);
+        if (!candidate) {
+          details.push({ field: 'job_title', issue: 'Job title is required.' });
+        } else if (candidate.length > 80) {
+          details.push({
+            field: 'job_title',
+            issue: 'Job title must be at most 80 characters.',
+          });
+        } else {
+          nextJobTitle = candidate;
+        }
+      }
+
+      let nextIsActive = current.is_active;
+      if (
+        'is_active' in body &&
+        body.is_active !== null &&
+        body.is_active !== undefined
+      ) {
+        if (typeof body.is_active !== 'boolean') {
+          details.push({
+            field: 'is_active',
+            issue: 'Active status must be a boolean.',
+          });
+        } else {
+          nextIsActive = body.is_active;
+        }
+      }
+
+      const nextEmail =
+        'email' in body
+          ? validateOptionalField(body.email, 'email', 254, 'Email', details)
+          : current.email;
+
+      const nextPhone =
+        'phone' in body
+          ? validateOptionalField(body.phone, 'phone', 30, 'Phone', details)
+          : current.phone;
+
+      const nextAddress =
+        'address' in body && body.address !== null && body.address !== undefined
+          ? parseAddress(body.address, details)
+          : current.address;
+
+      if (details.length > 0 || !nextAddress) {
+        return validationErrorResponse(
+          'Invalid employee update details.',
+          details
+        );
+      }
+
+      const updated: Employee = {
+        ...current,
+        full_name: nextFullName,
+        email: nextEmail,
+        phone: nextPhone,
+        job_title: nextJobTitle,
+        address: nextAddress,
+        is_active: nextIsActive,
+        updated_at: new Date().toISOString(),
+      };
+
+      mockEmployees = mockEmployees.map((item, idx) =>
+        idx === index ? updated : item
+      );
+      return HttpResponse.json(cloneEmployee(updated), { status: 200 });
     }
-
-    const updated: Employee = {
-      ...current,
-      full_name: nextFullName,
-      email: nextEmail,
-      phone: nextPhone,
-      job_title: nextJobTitle,
-      address: nextAddress,
-      is_active: nextIsActive,
-      updated_at: new Date().toISOString(),
-    };
-
-    mockEmployees = mockEmployees.map((item, idx) =>
-      idx === index ? updated : item
-    );
-    return HttpResponse.json(cloneEmployee(updated), { status: 200 });
-  }),
+  ),
 ];

@@ -1260,6 +1260,62 @@ describe('UsersPage', () => {
     });
   });
 
+  it('checks later account pages across both assigned branches before offering employees', async () => {
+    const user = userEvent.setup();
+    setSignedInUser({
+      ...SELF_ADMIN_CONTEXT,
+      branch_scope: 'ASSIGNED',
+      branch_ids: [MED_DT_ID, MED_ALX_ID],
+    });
+    const newEmployee = {
+      ...INITIAL_EMPLOYEES[1],
+      employee_id: '11111111-3333-4111-8111-000000000099',
+      employee_no: 'EMP-099',
+      full_name: 'New Alexandria Employee',
+    };
+    const seenBranches = new Set<string>();
+    server.use(
+      http.get('*/api/v1/employees', () =>
+        HttpResponse.json({
+          items: [...INITIAL_EMPLOYEES, newEmployee],
+          page: 1,
+          page_size: 200,
+          total_count: 5,
+          next_cursor: null,
+        })
+      ),
+      http.get('*/api/v1/users', ({ request }) => {
+        const params = new URL(request.url).searchParams;
+        if (params.get('page_size') !== '200') return;
+        const branch = params.get('branch_id') ?? '';
+        seenBranches.add(branch);
+        if (branch === MED_ALX_ID)
+          return HttpResponse.json(makePagedUsers([], { page_size: 200 }));
+        const page = Number(params.get('page'));
+        const items =
+          page === 1
+            ? Array.from({ length: 200 }, (_, i) => ({
+                ...INITIAL_USERS[0],
+                user_id:
+                  '11111111-4444-4111-8111-' +
+                  String(i + 100).padStart(12, '0'),
+              }))
+            : [INITIAL_USERS[1]];
+        return HttpResponse.json(
+          makePagedUsers(items, { page, page_size: 200, total_count: 201 })
+        );
+      })
+    );
+    renderWithProviders(<UsersPage />);
+    await user.click(await screen.findByRole('button', { name: 'Add user' }));
+    const dialog = within(screen.getByRole('dialog'));
+    expect(
+      await dialog.findByRole('option', { name: /New Alexandria Employee/ })
+    ).toBeDefined();
+    expect(dialog.queryByRole('option', { name: /Mona Adel/ })).toBeNull();
+    expect(seenBranches).toEqual(new Set([MED_DT_ID, MED_ALX_ID]));
+  });
+
   it('enforces mandatory branch_id filter and hierarchical restrictions for ASSIGNED Admin on Cloud', async () => {
     const user = userEvent.setup();
     const seenUserQueries: URL[] = [];

@@ -7,7 +7,11 @@ import {
 } from '../../../features/employees';
 import { useAuth } from '../../../hooks/useAuth';
 import { ApiClientError } from '../../../lib/api/client';
-import { DEFAULT_PAGE, DEFAULT_PAGE_SIZE } from '../../../lib/api/pagination';
+import {
+  hasNextNumberedPage,
+  DEFAULT_PAGE,
+  DEFAULT_PAGE_SIZE,
+} from '../../../lib/api/pagination';
 import type { User, UserRole } from '../../../types/api';
 import {
   normalizeBranchIds,
@@ -15,7 +19,7 @@ import {
   type EditUserFormValues,
 } from '../schemas/userSchema';
 import {
-  useAllUsersQuery,
+  useScopedUsersDirectory,
   usePatchUserMutation,
   useUsersQuery,
 } from './useUsers';
@@ -144,21 +148,15 @@ export function useUsersPageState() {
     page === DEFAULT_PAGE &&
     statusFilter === 'all' &&
     roleFilter === 'all' &&
-    (isOrgAdmin ? effectiveBranchFilter === '' : true) &&
+    (isOrgAdmin ? effectiveBranchFilter === '' : branchIds.length === 1) &&
     usersQuery.isSuccess &&
-    usersQuery.data.next_cursor === null &&
     usersQuery.data.items.length >= usersQuery.data.total_count;
   const needsFullUsersDirectory =
     isCreatingUser && !hasCompleteUnfilteredUsers && canQueryUsers;
 
-  const allUsersQuery = useAllUsersQuery(
-    {
-      include_inactive: true,
-      ...(!isOrgAdmin && effectiveBranchFilter
-        ? { branch_id: effectiveBranchFilter }
-        : {}),
-    },
-    { enabled: needsFullUsersDirectory }
+  const allUsersQuery = useScopedUsersDirectory(
+    isOrgAdmin ? null : branchIds,
+    needsFullUsersDirectory
   );
 
   const employeesQuery = useAllEmployeesQuery({ include_inactive: true });
@@ -296,9 +294,7 @@ export function useUsersPageState() {
   }, [employeesById, searchTerm, users]);
 
   const pageSize = usersQuery.data?.page_size ?? DEFAULT_PAGE_SIZE;
-  const hasNextPage = usersQuery.data
-    ? usersQuery.data.next_cursor !== null
-    : false;
+  const hasNextPage = hasNextNumberedPage(usersQuery.data);
   const hasClientSearch = searchTerm.trim().length > 0;
   const totalCount = hasClientSearch
     ? page === DEFAULT_PAGE && !hasNextPage

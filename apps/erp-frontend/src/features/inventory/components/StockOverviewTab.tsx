@@ -41,14 +41,23 @@ export function StockOverviewTab({
         isLocationsError={data.isLocationsError}
       />
 
-      {!data.isPreviewLoading &&
-      !data.hasPreviewError &&
-      data.truncationNotice ? (
+      {data.truncationNotice ? (
         <Alert variant="info" title="Bounded overview sample">
           {data.truncationNotice}
         </Alert>
       ) : null}
 
+      {data.hasProductError && (
+        <Alert
+          variant="warning"
+          title="Some expiry alert rules are unavailable"
+        >
+          Nearing-expiry results may be incomplete.{' '}
+          <Button variant="secondary" onClick={data.retry}>
+            Retry product details
+          </Button>
+        </Alert>
+      )}
       <Alert variant="ai" title="Brain Telemetry — Unavailable">
         30-day demand forecast: <strong>Unavailable</strong>. Stockout risk
         score: <strong>Unavailable</strong>. Predictive analytics will appear
@@ -79,7 +88,7 @@ export function StockOverviewTab({
           ) : data.flaggedRows.length === 0 ? (
             <EmptyState
               title="No flagged stock batches"
-              description="All active batches in this branch are available and outside their expiry alert window."
+              description="No flagged stock was found in the loaded records."
             />
           ) : (
             <Table>

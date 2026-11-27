@@ -20,6 +20,42 @@ export function InventoryPage() {
   const [activeTab, setActiveTab] = useState<string>(
     'Stock Balances & Batches'
   );
+  return (
+    <div className="flex flex-col gap-6">
+      <PageHeading
+        eyebrow="Operations"
+        title="Inventory"
+        description="Stock balances, FEFO batches, storage locations, adjustments, and ledger history for the selected branch."
+      />
+
+      <InventoryBranchBar
+        branchId={branchState.branchId}
+        branchOptions={branchState.branchOptions}
+        isLoading={branchState.isBranchesLoading}
+        error={branchState.branchesError}
+        onSelectBranch={branchState.onSelectBranch}
+        onRetry={branchState.onRetryBranches}
+      />
+
+      <BranchInventory
+        key={branchState.branchId}
+        branchState={branchState}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+      />
+    </div>
+  );
+}
+
+function BranchInventory({
+  branchState,
+  activeTab,
+  setActiveTab,
+}: {
+  branchState: ReturnType<typeof useInventoryBranchState>;
+  activeTab: string;
+  setActiveTab: (tab: string) => void;
+}) {
   const [pendingReversalTxn, setPendingReversalTxn] =
     useState<InventoryTxn | null>(null);
 
@@ -36,28 +72,8 @@ export function InventoryPage() {
     ? activeTab
     : 'Stock Balances & Batches';
 
-  const handleSelectBranch = (nextBranchId: string) => {
-    setPendingReversalTxn(null);
-    branchState.onSelectBranch(nextBranchId);
-  };
-
   return (
-    <div className="flex flex-col gap-6">
-      <PageHeading
-        eyebrow="Operations"
-        title="Inventory"
-        description="Stock balances, FEFO batches, storage locations, adjustments, and ledger history for the selected branch."
-      />
-
-      <InventoryBranchBar
-        branchId={branchState.branchId}
-        branchOptions={branchState.branchOptions}
-        isLoading={branchState.isBranchesLoading}
-        error={branchState.branchesError}
-        onSelectBranch={handleSelectBranch}
-        onRetry={branchState.onRetryBranches}
-      />
-
+    <>
       <Tabs
         labels={visibleTabs}
         activeLabel={currentTab}
@@ -90,6 +106,6 @@ export function InventoryPage() {
           }}
         />
       ) : null}
-    </div>
+    </>
   );
 }

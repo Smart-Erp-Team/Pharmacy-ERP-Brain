@@ -1,4 +1,5 @@
-﻿/** @vitest-environment jsdom */
+/** @vitest-environment jsdom */
+import { authService } from '../features/auth/api/authService';
 import {
   describe,
   it,
@@ -134,8 +135,11 @@ describe('ProtectedRoute', () => {
 
   it('renders session-init-error recovery screen on initError and restores session when Retry is clicked', async () => {
     const user = userEvent.setup();
-    tokenStorage.setTokens('preserved_access_token', 'preserved_refresh_token');
-    tokenStorage.setOrganizationCode('MEDCARE');
+    await authService.login({
+      organization_code: 'MEDCARE',
+      username: 'admin@medcare.test',
+      password: 'password123',
+    });
     useAuthStore.setState({
       isAuthenticated: false,
       isInitializing: false,

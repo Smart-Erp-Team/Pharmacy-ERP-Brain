@@ -4,7 +4,11 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'react-toastify';
 import { useAuth } from '../../../hooks/useAuth';
 import { ApiClientError } from '../../../lib/api/client';
-import { DEFAULT_PAGE, DEFAULT_PAGE_SIZE } from '../../../lib/api/pagination';
+import {
+  hasNextNumberedPage,
+  DEFAULT_PAGE,
+  DEFAULT_PAGE_SIZE,
+} from '../../../lib/api/pagination';
 import type { Product, ProductCategory } from '../../../types/api';
 import {
   applyCategoryFormApiError,
@@ -184,7 +188,7 @@ export function useProductsPageState(
     [productsQuery.data?.items]
   );
   const totalCount = productsQuery.data ? productsQuery.data.total_count : null;
-  const hasNextPage = (productsQuery.data?.next_cursor ?? null) !== null;
+  const hasNextPage = hasNextNumberedPage(productsQuery.data);
 
   const categoryTree: readonly CategoryTreeNode[] = useMemo(
     () => buildCategoryTree(categories, { includeInactive }),

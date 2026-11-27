@@ -1,4 +1,5 @@
 import { ChevronDown, ChevronRight } from 'lucide-react';
+import { useInventorySummaryQuery } from '../hooks/useInventoryQueries';
 import { Badge } from '../../../components/ui/Badge';
 import { TableCell, TableRow } from '../../../components/ui/Table';
 import type { Product } from '../../products';
@@ -53,6 +54,13 @@ export function StockBalanceProductRow({
   onToggleExpand,
 }: StockBalanceProductRowProps) {
   const firstBalance = items[0]?.balance;
+  const summary = useInventorySummaryQuery(
+    {
+      branch_id: firstBalance?.branch_id ?? '',
+      product_id: productId,
+    },
+    { enabled: expanded }
+  );
   const productName =
     product?.name ??
     firstBalance?.product_name ??
@@ -98,7 +106,8 @@ export function StockBalanceProductRow({
                   <Badge variant="neutral">{baseUomCode}</Badge>
                 ) : null}
                 <span className="text-caption text-text-muted">
-                  {items.length} {items.length === 1 ? 'lot' : 'lots'}
+                  {items.length}{' '}
+                  {items.length === 1 ? 'balance row' : 'balance rows'}
                 </span>
               </div>
             </div>
@@ -117,6 +126,27 @@ export function StockBalanceProductRow({
       {expanded ? (
         <tr className="border-border bg-background/60 border-b">
           <td colSpan={4} className="px-4 py-3">
+            <div className="mb-3" aria-label="Branch totals">
+              {summary.data ? (
+                <p>
+                  Branch totals across all locations and lots. On-hand{' '}
+                  {formatNumericDisplay(summary.data.total_on_hand_qty_base)},
+                  available{' '}
+                  {formatNumericDisplay(summary.data.total_available_qty_base)},
+                  weighted average cost{' '}
+                  {formatNumericDisplay(
+                    summary.data.weighted_average_unit_cost_base
+                  )}
+                  .
+                </p>
+              ) : summary.isError ? (
+                <button type="button" onClick={() => void summary.refetch()}>
+                  Retry branch totals
+                </button>
+              ) : (
+                'Loading branch totals…'
+              )}
+            </div>
             <StockBalanceBatchTable
               items={items}
               expiryAlertDays={product?.expiry_alert_days}

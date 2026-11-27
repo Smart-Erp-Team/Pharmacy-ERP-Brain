@@ -33,19 +33,62 @@ const PHARMACIST_MOCK_USER: NormalizedCurrentUser = normalizeCurrentUser(
 );
 
 const INVALID_CREDENTIALS_PASSWORD = 'invalid';
-const STATIC_CONSUMED_REFRESH_TOKENS: ReadonlySet<string> = new Set([
-  'invalid',
-  'expired',
-  'consumed',
-]);
-const consumedRefreshTokens = new Set<string>();
-let rotationSequence = 0;
-let activeMockUser: NormalizedCurrentUser = ADMIN_MOCK_USER;
+// The mock issuer lives in the browser tab, independently of client token storage.
+const SESSION_KEY = 'erp.msw.auth-session';
+let memorySession: string | null = null;
+
+function readSession() {
+  const raw =
+    typeof sessionStorage === 'undefined'
+      ? memorySession
+      : sessionStorage.getItem(SESSION_KEY);
+  if (!raw) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (
+    !isRecord(value) ||
+    typeof value.access_token !== 'string' ||
+    typeof value.refresh_token !== 'string' ||
+    (value.username !== PHARMACIST_MOCK_USER.username &&
+      value.username !== ADMIN_MOCK_USER.username)
+  )
+    return null;
+  const user =
+    value.username === PHARMACIST_MOCK_USER.username
+      ? PHARMACIST_MOCK_USER
+      : ADMIN_MOCK_USER;
+  return {
+    access_token: value.access_token,
+    refresh_token: value.refresh_token,
+    user,
+  };
+}
+
+function issueTokens(user: NormalizedCurrentUser) {
+  const pair = {
+    ...authTokenPair,
+    user,
+    access_token: 'mock-access-' + crypto.randomUUID(),
+    refresh_token: 'mock-refresh-' + crypto.randomUUID(),
+  };
+  memorySession = JSON.stringify({
+    access_token: pair.access_token,
+    refresh_token: pair.refresh_token,
+    username: user.username,
+  });
+  if (typeof sessionStorage !== 'undefined')
+    sessionStorage.setItem(SESSION_KEY, memorySession);
+  return pair;
+}
 
 export function resetMockAuth(): void {
-  consumedRefreshTokens.clear();
-  rotationSequence = 0;
-  activeMockUser = ADMIN_MOCK_USER;
+  memorySession = null;
+  if (typeof sessionStorage !== 'undefined')
+    sessionStorage.removeItem(SESSION_KEY);
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -135,24 +178,31 @@ export const handlers = [
       typeof body.username === 'string'
         ? body.username.trim().toLowerCase()
         : '';
-    activeMockUser =
+    const user =
       normalizedUsername === PHARMACIST_MOCK_USER.username.toLowerCase()
         ? PHARMACIST_MOCK_USER
         : ADMIN_MOCK_USER;
 
-    consumedRefreshTokens.delete(authTokenPair.refresh_token);
-    return HttpResponse.json(
-      {
-        ...authTokenPair,
-        user: activeMockUser,
-      },
-      { status: 200 }
-    );
+    return HttpResponse.json(issueTokens(user));
   }),
 
   // GET /api/v1/auth/me
-  http.get('*/api/v1/auth/me', () => {
-    return HttpResponse.json(activeMockUser, { status: 200 });
+  http.get('*/api/v1/auth/me', ({ request }) => {
+    const session = readSession();
+    if (
+      !session ||
+      request.headers.get('Authorization') !== 'Bearer ' + session.access_token
+    ) {
+      return HttpResponse.json(
+        createMockErrorEnvelope(
+          'UNAUTHORIZED',
+          'Session is no longer valid.',
+          'mock-trace-auth-me'
+        ),
+        { status: 401 }
+      );
+    }
+    return HttpResponse.json(session.user);
   }),
 
   // POST /api/v1/auth/refresh
@@ -165,11 +215,8 @@ export const handlers = [
         ? body.refresh_token
         : null;
 
-    if (
-      !refreshToken ||
-      STATIC_CONSUMED_REFRESH_TOKENS.has(refreshToken) ||
-      consumedRefreshTokens.has(refreshToken)
-    ) {
+    const session = readSession();
+    if (!session || session.refresh_token !== refreshToken) {
       return HttpResponse.json(
         createMockErrorEnvelope(
           'UNAUTHORIZED',
@@ -180,18 +227,7 @@ export const handlers = [
       );
     }
 
-    consumedRefreshTokens.add(refreshToken);
-    rotationSequence += 1;
-
-    return HttpResponse.json(
-      {
-        ...authTokenPair,
-        user: activeMockUser,
-        access_token: `${authTokenPair.access_token}.${rotationSequence}.rotated`,
-        refresh_token: `${refreshToken}.${rotationSequence}.rotated`,
-      },
-      { status: 200 }
-    );
+    return HttpResponse.json(issueTokens(session.user));
   }),
 
   // POST /api/v1/auth/logout
@@ -220,8 +256,7 @@ export const handlers = [
       );
     }
 
-    consumedRefreshTokens.add(refreshToken);
-    activeMockUser = ADMIN_MOCK_USER;
+    if (readSession()?.refresh_token === refreshToken) resetMockAuth();
     return new HttpResponse(null, { status: 204 });
   }),
 

@@ -61,8 +61,11 @@ describe('authStore (Stage 1)', () => {
   });
 
   it('initialize() restores session and organizationCode when valid token exists in storage', async () => {
-    tokenStorage.setTokens('existing_valid_token');
-    tokenStorage.setOrganizationCode('MEDCARE');
+    await authService.login({
+      organization_code: 'MEDCARE',
+      username: 'admin@medcare.test',
+      password: 'password123',
+    });
 
     await useAuthStore.getState().initialize();
 
@@ -133,7 +136,7 @@ describe('authStore (Stage 1)', () => {
     expect(tokenStorage.getOrganizationCode()).toBeNull();
   });
 
-  it('login() rolls back stored tokens and organizationCode if /auth/me fails', async () => {
+  it('login() preserves issued tokens and retries hydration after a temporary failure', async () => {
     server.use(
       http.get('*/api/v1/auth/me', () =>
         HttpResponse.json(
@@ -162,9 +165,13 @@ describe('authStore (Stage 1)', () => {
     expect(state.isAuthenticated).toBe(false);
     expect(state.currentUser).toBeNull();
     expect(state.organizationCode).toBeNull();
-    expect(tokenStorage.getAccessToken()).toBeNull();
-    expect(tokenStorage.getRefreshToken()).toBeNull();
-    expect(tokenStorage.getOrganizationCode()).toBeNull();
+    expect(tokenStorage.getAccessToken()).toBeTruthy();
+    expect(tokenStorage.getRefreshToken()).toBeTruthy();
+    expect(tokenStorage.getOrganizationCode()).toBe('MEDCARE');
+    expect(state.initError).toBeTruthy();
+    server.resetHandlers();
+    await useAuthStore.getState().initialize();
+    expect(useAuthStore.getState().currentUser?.role).toBe('Admin');
   });
 
   it('session-bound MSW auth returns Pharmacist from both /auth/login and /auth/me for sarah.pharm@medcare.test and Admin for admin@medcare.test', async () => {

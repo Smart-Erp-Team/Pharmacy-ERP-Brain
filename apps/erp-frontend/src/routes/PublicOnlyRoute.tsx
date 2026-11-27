@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
+import { SessionRecovery } from './SessionRecovery';
 import { resolveRedirectPath } from './paths';
 
 interface PublicOnlyRouteProps {
@@ -10,6 +11,7 @@ interface PublicOnlyRouteProps {
 export function PublicOnlyRoute({ children }: PublicOnlyRouteProps) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const isInitializing = useAuthStore((state) => state.isInitializing);
+  const initError = useAuthStore((state) => state.initError);
   const location = useLocation();
 
   if (isInitializing) {
@@ -19,6 +21,8 @@ export function PublicOnlyRoute({ children }: PublicOnlyRouteProps) {
   if (isAuthenticated) {
     return <Navigate to={resolveRedirectPath(location.state)} replace />;
   }
+
+  if (initError) return <SessionRecovery initError={initError} />;
 
   return children ? <>{children}</> : <Outlet />;
 }

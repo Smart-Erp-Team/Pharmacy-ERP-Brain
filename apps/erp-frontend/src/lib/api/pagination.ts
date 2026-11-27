@@ -16,6 +16,13 @@ export const DEFAULT_PAGE_SIZE = 25;
 export const MAX_PAGE_SIZE = 200;
 export const DEFAULT_MAX_PAGES = 50;
 
+export function hasNextNumberedPage(
+  data:
+    Pick<PagedResult<unknown>, 'page' | 'page_size' | 'total_count'> | undefined
+): boolean {
+  return data !== undefined && data.page * data.page_size < data.total_count;
+}
+
 export interface PaginationQueryParams {
   page?: number;
   page_size?: number;
