@@ -8,13 +8,13 @@ import {
 import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
 import { Toggle } from '../../../components/ui/Toggle';
-import type { ProductCategoryDto } from '../../../types/api';
+import type { ProductCategory } from '../../../types/api';
 import { buildProductCategoryOptions } from '../hooks/useProductsPageState';
 import type { CreateProductFormValues } from '../schemas/productSchema';
 import { ProductBaseUomFields } from './ProductBaseUomFields';
 
 export interface CreateProductFormFieldsProps {
-  categories: readonly ProductCategoryDto[];
+  categories: readonly ProductCategory[];
   disabled: boolean;
   register: UseFormRegister<CreateProductFormValues>;
   control: Control<CreateProductFormValues>;
@@ -97,7 +97,7 @@ export function CreateProductFormFields(props: CreateProductFormFieldsProps) {
           inputMode="decimal"
           label="Tax rate (%)"
           placeholder="14"
-          hint="Percentage 0–100 (stored as fractional 4dp, e.g. 14 → 0.1400)"
+          hint="Percentage 0–100 (stored as 0–1 decimal, e.g. 14 → 0.14)"
           disabled={disabled}
           error={errors.tax_percent?.message}
           {...register('tax_percent')}

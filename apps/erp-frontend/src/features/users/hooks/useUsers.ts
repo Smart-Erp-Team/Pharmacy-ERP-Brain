@@ -12,14 +12,17 @@ import {
   patchUser,
   resetUserPassword,
   revokeUserSessions,
+  type AllUsersKeyParams,
   type ListUsersParams,
 } from '../api/usersApi';
 import { usersKeys } from './usersKeys';
 import type {
   CreateUserRequest,
-  PasswordResetRequest,
-  UserPatchRequest,
+  ResetPasswordRequest,
+  UpdateUserRequest,
 } from '../../../types/api';
+
+export type { AllUsersKeyParams, ListUsersParams };
 
 export interface UseUsersQueryOptions {
   enabled?: boolean;
@@ -36,11 +39,16 @@ export function useUsersQuery(
   });
 }
 
-export function useAllUsersQuery(options: UseUsersQueryOptions = {}) {
+export function useAllUsersQuery(
+  params: AllUsersKeyParams = {},
+  options: UseUsersQueryOptions = {}
+) {
   return useQuery({
-    queryKey: usersKeys.allList(),
+    queryKey: usersKeys.allList(params),
     queryFn: () =>
-      fetchAllPages((cursor, limit) => listUsers({ cursor, limit })),
+      fetchAllPages((page, pageSize) =>
+        listUsers({ ...params, page, page_size: pageSize })
+      ),
     enabled: options.enabled ?? true,
   });
 }
@@ -94,7 +102,7 @@ export function useCreateUserMutation() {
 
 export interface PatchUserVariables {
   userId: string;
-  payload: UserPatchRequest;
+  payload: UpdateUserRequest;
   idempotencyKey?: string;
 }
 
@@ -125,7 +133,7 @@ export function usePatchUserMutation() {
 
 export interface ResetUserPasswordVariables {
   userId: string;
-  payload: PasswordResetRequest;
+  payload: ResetPasswordRequest;
   idempotencyKey?: string;
 }
 

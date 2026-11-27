@@ -15,20 +15,19 @@ import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   branchHandlers,
+  MOCK_BRANCH_IDS,
   resetMockBranches,
 } from '../../../mocks/branchHandlers';
 import {
   employeeHandlers,
+  INITIAL_EMPLOYEES,
   resetMockEmployees,
 } from '../../../mocks/employeeHandlers';
 import { renderWithProviders } from '../../../test/renderWithProviders';
 import { EmployeesPage } from './EmployeesPage';
 
-const CAIRO_BRANCH_ID = 'd4e5f6a7-3333-4c44-9d55-bbccddeeffaa';
-const ALEX_BRANCH_ID = 'e5f6a7b8-4444-4d55-9e66-ccddeeff0011';
-
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 const server = setupServer(...branchHandlers, ...employeeHandlers);
@@ -46,7 +45,7 @@ afterEach(() => {
 afterAll(() => server.close());
 
 describe('EmployeesPage', () => {
-  it('shows loading state, renders active employees with branch labels, and has no delete button', async () => {
+  it('shows loading state, renders active MEDCARE employees with branch_code labels, shows Pagination counts, and has no delete button', async () => {
     let resolveEmployees: (() => void) | undefined;
     const employeesGate = new Promise<void>((resolve) => {
       resolveEmployees = resolve;
@@ -55,27 +54,13 @@ describe('EmployeesPage', () => {
     server.use(
       http.get('*/api/v1/employees', async () => {
         await employeesGate;
+        const activeSeeds = INITIAL_EMPLOYEES.filter((item) => item.is_active);
         return HttpResponse.json({
-          items: [
-            {
-              employee_id: 'a1111111-1111-4111-8111-111111111101',
-              organization_id: 'org-1',
-              branch_id: CAIRO_BRANCH_ID,
-              employee_no: 'EMP-001',
-              full_name: 'Omar Khaled',
-              email: 'omar.khaled@pharmaplus.eg',
-              phone: '+20 100 111 2233',
-              job_title: 'Lead Pharmacist',
-              address: {
-                line1: '15 Tahrir Square',
-                city: 'Cairo',
-                country_code: 'EG',
-              },
-              hired_on: '2024-03-01',
-              is_active: true,
-            },
-          ],
-          nextCursor: null,
+          items: activeSeeds,
+          page: 1,
+          page_size: 25,
+          total_count: activeSeeds.length,
+          next_cursor: null,
         });
       })
     );
@@ -91,76 +76,98 @@ describe('EmployeesPage', () => {
     resolveEmployees?.();
 
     expect(await screen.findByText('Omar Khaled')).toBeDefined();
+    expect(screen.getByText('Mona Adel')).toBeDefined();
+    expect(screen.getByText('Karim Hassan')).toBeDefined();
+    expect(screen.queryByText('Salma Nabil')).toBeNull();
+
     const table = screen.getByRole('table');
     expect(
-      await within(table).findByText('CAI-01 — Cairo Main Branch')
+      await within(table).findAllByText('MED-DT — MedCare - Downtown Flagship')
+    ).toHaveLength(2);
+    expect(
+      await within(table).findByText('MED-ALX — MedCare - Alexandria Corniche')
     ).toBeDefined();
+    expect(screen.getByText('Showing 1–3 of 3')).toBeDefined();
     expect(screen.queryByRole('button', { name: /delete/i })).toBeNull();
   });
 
-  it('filters by branch, status, and search fields, and resets filters cleanly', async () => {
+  it('filters via server-side branch_id, include_inactive, and search params, resolves inactive branch labels, and resets filters cleanly', async () => {
     const user = userEvent.setup();
+    const seenQueries: URLSearchParams[] = [];
+
+    server.events.on('request:start', ({ request }) => {
+      const url = new URL(request.url);
+      if (url.pathname.endsWith('/api/v1/employees')) {
+        seenQueries.push(url.searchParams);
+      }
+    });
+
     renderWithProviders(<EmployeesPage />);
 
     expect(await screen.findByText('Omar Khaled')).toBeDefined();
     expect(screen.getByText('Mona Adel')).toBeDefined();
-    expect(screen.getByText('Youssef Tarek')).toBeDefined();
-    expect(screen.queryByText('Salma Hassan')).toBeNull();
+    expect(screen.getByText('Karim Hassan')).toBeDefined();
+    expect(screen.queryByText('Salma Nabil')).toBeNull();
 
-    // Branch filter (server branchId query param)
+    // Server-side branch_id filter
     await user.selectOptions(
       screen.getByLabelText('Home branch'),
-      CAIRO_BRANCH_ID
+      MOCK_BRANCH_IDS.DOWNTOWN
     );
     await waitFor(() => {
       expect(screen.queryByText('Mona Adel')).toBeNull();
     });
     expect(screen.getByText('Omar Khaled')).toBeDefined();
-    expect(screen.getByText('Youssef Tarek')).toBeDefined();
+    expect(screen.getByText('Karim Hassan')).toBeDefined();
+    expect(seenQueries[seenQueries.length - 1]?.get('branch_id')).toBe(
+      MOCK_BRANCH_IDS.DOWNTOWN
+    );
 
-    // Reset branch back to All branches and switch status to all
+    // Reset branch back to All branches and include inactive employees (include_inactive=true)
     await user.selectOptions(screen.getByLabelText('Home branch'), '');
     await user.selectOptions(screen.getByLabelText('Status filter'), 'all');
-    expect(await screen.findByText('Salma Hassan')).toBeDefined();
-
-    // Inactive only
-    await user.selectOptions(
-      screen.getByLabelText('Status filter'),
-      'inactive'
+    expect(await screen.findByText('Salma Nabil')).toBeDefined();
+    expect(
+      within(screen.getByRole('table')).getByText(
+        'MED-GZ — MedCare - Giza Storage'
+      )
+    ).toBeDefined();
+    expect(seenQueries[seenQueries.length - 1]?.get('include_inactive')).toBe(
+      'true'
     );
-    expect(screen.getByText('Salma Hassan')).toBeDefined();
-    expect(screen.queryByText('Omar Khaled')).toBeNull();
 
-    // Search by phone, email, job_title, employee_no, full_name
-    await user.selectOptions(screen.getByLabelText('Status filter'), 'all');
+    // Server-side search by email, employee_no, job_title, and no-match fallback
     const searchInput = screen.getByLabelText('Search employees');
 
-    await user.type(searchInput, '+20 122 333');
+    await user.type(searchInput, 'mona.adel@medcare.test');
+    await waitFor(() => {
+      expect(screen.queryByText('Omar Khaled')).toBeNull();
+    });
     expect(screen.getByText('Mona Adel')).toBeDefined();
-    expect(screen.queryByText('Omar Khaled')).toBeNull();
-
-    await user.clear(searchInput);
-    await user.type(searchInput, 'omar.khaled@');
-    expect(screen.getByText('Omar Khaled')).toBeDefined();
-    expect(screen.queryByText('Mona Adel')).toBeNull();
 
     await user.clear(searchInput);
     await user.type(searchInput, 'EMP-004');
-    expect(screen.getByText('Salma Hassan')).toBeDefined();
-    expect(screen.queryByText('Omar Khaled')).toBeNull();
+    await waitFor(() => {
+      expect(screen.queryByText('Mona Adel')).toBeNull();
+    });
+    expect(screen.getByText('Salma Nabil')).toBeDefined();
 
     await user.clear(searchInput);
-    await user.type(searchInput, 'Inventory Pharmacist');
-    expect(screen.getByText('Youssef Tarek')).toBeDefined();
-    expect(screen.queryByText('Mona Adel')).toBeNull();
+    await user.type(searchInput, 'Dispensing Pharmacist');
+    await waitFor(() => {
+      expect(screen.queryByText('Salma Nabil')).toBeNull();
+    });
+    expect(screen.getByText('Karim Hassan')).toBeDefined();
 
     await user.clear(searchInput);
     await user.type(searchInput, 'NoSuchEmployee');
-    expect(screen.getByText('No employees match your filters')).toBeDefined();
+    expect(
+      await screen.findByText('No employees match your filters')
+    ).toBeDefined();
 
     await user.click(screen.getByRole('button', { name: 'Clear filters' }));
     expect(await screen.findByText('Omar Khaled')).toBeDefined();
-    expect(screen.queryByText('Salma Hassan')).toBeNull();
+    expect(screen.queryByText('Salma Nabil')).toBeNull();
   });
 
   it('shows Branch unavailable when branches endpoint fails and never renders 0', async () => {
@@ -169,8 +176,9 @@ describe('EmployeesPage', () => {
         HttpResponse.json(
           {
             error: {
-              code: 'INTERNAL_ERROR',
+              code: 'INTERNAL_SERVER_ERROR',
               message: 'Branch service unavailable',
+              details: [],
               trace_id: 'trace-branch-err',
             },
           },
@@ -187,15 +195,47 @@ describe('EmployeesPage', () => {
     expect(screen.queryByText('0')).toBeNull();
   });
 
-  it('creates an employee, rejects 409 duplicate employee_no in same branch, and allows same employee_no in another branch', async () => {
+  it('requires job_title on create, omits is_active toggle on create, handles 409 conflict, and creates an active employee', async () => {
     const user = userEvent.setup();
+    const createBodies: Record<string, unknown>[] = [];
+
+    server.events.on('request:start', async ({ request }) => {
+      const url = new URL(request.url);
+      if (
+        request.method === 'POST' &&
+        url.pathname.endsWith('/api/v1/employees')
+      ) {
+        const body: unknown = await request
+          .clone()
+          .json()
+          .catch(() => null);
+        if (isRecord(body)) {
+          createBodies.push(body);
+        }
+      }
+    });
+
     renderWithProviders(<EmployeesPage />);
     await screen.findByText('Omar Khaled');
 
     await user.click(screen.getByRole('button', { name: 'Add employee' }));
     const dialog = screen.getByRole('dialog');
 
-    // Client-side validation check
+    // No optional hint on Job title and no is_active toggle on Create
+    const jobTitleInput = within(dialog).getByLabelText('Job title');
+    expect(jobTitleInput.hasAttribute('required')).toBe(true);
+    expect(within(dialog).queryByText(/Job title \(optional\)/i)).toBeNull();
+    expect(
+      within(dialog).queryByRole('switch', { name: /active employee/i })
+    ).toBeNull();
+
+    // Inactive branch (MED-GZ) is excluded from Create branch selector
+    const branchSelect = within(dialog).getByLabelText('Home branch');
+    expect(within(branchSelect).queryByText(/MED-GZ/i)).toBeNull();
+    expect(within(branchSelect).getByText(/MED-DT/i)).toBeDefined();
+    expect(within(branchSelect).getByText(/MED-ALX/i)).toBeDefined();
+
+    // Client-side validation check including required job_title
     await user.click(
       within(dialog).getByRole('button', { name: 'Create employee' })
     );
@@ -206,21 +246,17 @@ describe('EmployeesPage', () => {
       within(dialog).getByText('Employee number is required')
     ).toBeDefined();
     expect(within(dialog).getByText('Full name is required')).toBeDefined();
+    expect(within(dialog).getByText('Job title is required')).toBeDefined();
     expect(within(dialog).getByText('Hire date is required')).toBeDefined();
 
-    // Duplicate EMP-001 in Cairo branch -> 409 conflict
-    await user.selectOptions(
-      within(dialog).getByLabelText('Home branch'),
-      CAIRO_BRANCH_ID
-    );
+    // Duplicate EMP-001 -> 409 conflict
+    await user.selectOptions(branchSelect, MOCK_BRANCH_IDS.DOWNTOWN);
     await user.type(
       within(dialog).getByLabelText('Employee number'),
       'EMP-001'
     );
-    await user.type(
-      within(dialog).getByLabelText('Full name'),
-      'Duplicate Cairo Emp'
-    );
+    await user.type(within(dialog).getByLabelText('Full name'), 'Nadia Samir');
+    await user.type(jobTitleInput, 'Clinical Pharmacist');
     await user.type(within(dialog).getByLabelText('Hire date'), '2026-03-10');
     await user.type(
       within(dialog).getByLabelText('Address line 1'),
@@ -233,21 +269,21 @@ describe('EmployeesPage', () => {
     );
 
     expect(
-      await within(dialog).findByText(/already exists in this branch/i)
+      await within(dialog).findByText(/EMP-001.*already exists/i)
     ).toBeDefined();
     expect(
       within(dialog).getByText(/Trace: mock-trace-employee-conflict/i)
     ).toBeDefined();
+    expect(
+      within(dialog).getByText(
+        'Employee number must be unique within the organization.'
+      )
+    ).toBeDefined();
 
-    // Same EMP-001 in Alexandria branch succeeds
-    await user.selectOptions(
-      within(dialog).getByLabelText('Home branch'),
-      ALEX_BRANCH_ID
-    );
-    await user.clear(within(dialog).getByLabelText('Full name'));
-    await user.type(within(dialog).getByLabelText('Full name'), 'Nadia Samir');
-    await user.clear(within(dialog).getByLabelText('City'));
-    await user.type(within(dialog).getByLabelText('City'), 'Alexandria');
+    // Unique EMP-010 succeeds and omits is_active from POST body
+    const empNoInput = within(dialog).getByLabelText('Employee number');
+    await user.clear(empNoInput);
+    await user.type(empNoInput, 'EMP-010');
 
     await user.click(
       within(dialog).getByRole('button', { name: 'Create employee' })
@@ -257,6 +293,11 @@ describe('EmployeesPage', () => {
       expect(screen.queryByRole('dialog')).toBeNull();
     });
     expect(await screen.findByText('Nadia Samir')).toBeDefined();
+
+    const lastPayload = createBodies[createBodies.length - 1];
+    expect(lastPayload).toBeDefined();
+    expect(lastPayload?.job_title).toBe('Clinical Pharmacist');
+    expect('is_active' in (lastPayload ?? {})).toBe(false);
   });
 
   it('maps 422 field errors onto inputs without showing a duplicate toast', async () => {
@@ -294,7 +335,7 @@ describe('EmployeesPage', () => {
 
     await user.selectOptions(
       within(dialog).getByLabelText('Home branch'),
-      CAIRO_BRANCH_ID
+      MOCK_BRANCH_IDS.DOWNTOWN
     );
     await user.type(
       within(dialog).getByLabelText('Employee number'),
@@ -303,6 +344,10 @@ describe('EmployeesPage', () => {
     await user.type(
       within(dialog).getByLabelText('Full name'),
       'Karim Mansour'
+    );
+    await user.type(
+      within(dialog).getByLabelText('Job title'),
+      'Night Pharmacist'
     );
     await user.type(
       within(dialog).getByLabelText('Email (optional)'),
@@ -328,7 +373,7 @@ describe('EmployeesPage', () => {
     expect(screen.queryByText(/Validation failed on server/i)).toBeNull();
   });
 
-  it('edits employee with !isDirty guard, normalizes cleared optional fields, and stabilizes Idempotency-Key on retry', async () => {
+  it('edits employee with locked branch_id/employee_no/hired_on, visible is_active toggle, !isDirty guard, mutable-only PATCH, and stable Idempotency-Key', async () => {
     const user = userEvent.setup();
     const seenKeys: Array<string | null> = [];
     const seenBodies: Array<Record<string, unknown>> = [];
@@ -346,32 +391,20 @@ describe('EmployeesPage', () => {
           return HttpResponse.json(
             {
               error: {
-                code: 'INTERNAL_ERROR',
+                code: 'INTERNAL_SERVER_ERROR',
                 message: 'Temporary employee save failure',
+                details: [],
+                trace_id: 'trace-emp-patch-500',
               },
             },
             { status: 500 }
           );
         }
         return HttpResponse.json({
-          employee_id: 'a1111111-1111-4111-8111-111111111101',
-          organization_id: 'org-1',
-          branch_id: CAIRO_BRANCH_ID,
-          employee_no: 'EMP-001',
+          ...INITIAL_EMPLOYEES[0],
           full_name: 'Omar Khaled Updated',
           email: null,
-          phone: '+20 100 111 2233',
-          job_title: 'Lead Pharmacist',
-          address: {
-            line1: '15 Tahrir Square',
-            line2: 'Apt 4',
-            city: 'Cairo',
-            region: 'Cairo Governorate',
-            postal_code: '11511',
-            country_code: 'EG',
-          },
-          hired_on: '2024-03-01',
-          is_active: true,
+          updated_at: '2026-11-26T12:00:00.000Z',
         });
       })
     );
@@ -386,6 +419,18 @@ describe('EmployeesPage', () => {
     await user.click(within(row).getByRole('button', { name: 'Edit' }));
 
     const dialog = screen.getByRole('dialog');
+    const branchSelect = within(dialog).getByLabelText('Home branch');
+    const empNoInput = within(dialog).getByLabelText('Employee number');
+    const hireDateInput = within(dialog).getByLabelText('Hire date');
+    expect(branchSelect.hasAttribute('disabled')).toBe(true);
+    expect(empNoInput.hasAttribute('disabled')).toBe(true);
+    expect(hireDateInput.hasAttribute('disabled')).toBe(true);
+
+    const activeSwitch = within(dialog).getByRole('switch', {
+      name: 'Active employee',
+    });
+    expect(activeSwitch.getAttribute('aria-checked')).toBe('true');
+
     const saveButton = within(dialog).getByRole('button', {
       name: 'Save changes',
     });
@@ -400,7 +445,7 @@ describe('EmployeesPage', () => {
     // First save fails 500
     await user.click(saveButton);
     expect(
-      await within(dialog).findByText('Temporary employee save failure')
+      await within(dialog).findByText(/Temporary employee save failure/i)
     ).toBeDefined();
 
     // Retry identical payload -> identical Idempotency-Key
@@ -411,35 +456,9 @@ describe('EmployeesPage', () => {
     expect(seenKeys[0]).not.toBeNull();
     expect(seenKeys[0]).toBe(seenKeys[1]);
     expect(seenBodies[0]?.email).toBeNull();
-  });
-
-  it('surfaces 409 conflict when editing employee_no to collide in the same branch', async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<EmployeesPage />);
-    await screen.findByText('Omar Khaled');
-
-    const row = screen.getByText('Omar Khaled').closest('tr');
-    if (!row) {
-      throw new Error('Expected Omar Khaled row');
-    }
-    await user.click(within(row).getByRole('button', { name: 'Edit' }));
-
-    const dialog = screen.getByRole('dialog');
-    const empNoInput = within(dialog).getByLabelText('Employee number');
-    await user.clear(empNoInput);
-    await user.type(empNoInput, 'EMP-003');
-    await user.click(
-      within(dialog).getByRole('button', { name: 'Save changes' })
-    );
-
-    expect(
-      await within(dialog).findByText(/already exists in this branch/i)
-    ).toBeDefined();
-    expect(
-      within(dialog).getByText(
-        'Employee number must be unique within the branch.'
-      )
-    ).toBeDefined();
+    expect('branch_id' in (seenBodies[0] ?? {})).toBe(false);
+    expect('employee_no' in (seenBodies[0] ?? {})).toBe(false);
+    expect('hired_on' in (seenBodies[0] ?? {})).toBe(false);
   });
 
   it('toggles employee active status softly without deleting', async () => {
@@ -457,14 +476,11 @@ describe('EmployeesPage', () => {
       expect(screen.queryByText('Omar Khaled')).toBeNull();
     });
 
-    await user.selectOptions(
-      screen.getByLabelText('Status filter'),
-      'inactive'
-    );
+    await user.selectOptions(screen.getByLabelText('Status filter'), 'all');
     expect(await screen.findByText('Omar Khaled')).toBeDefined();
   });
 
-  it('supports error retry, cursor pagination, and keeps pagination visible when page 2 search has zero matches', async () => {
+  it('supports error retry, Stage 1 page-based pagination with total_count, and resets page to 1 when filters change', async () => {
     const user = userEvent.setup();
     let shouldFail = true;
 
@@ -474,60 +490,49 @@ describe('EmployeesPage', () => {
           return HttpResponse.json(
             {
               error: {
-                code: 'INTERNAL_ERROR',
+                code: 'INTERNAL_SERVER_ERROR',
                 message: 'Temporary employee directory error',
+                details: [],
                 trace_id: 'trace-emp-list-err',
               },
             },
             { status: 500 }
           );
         }
-        const cursor = new URL(request.url).searchParams.get('cursor');
-        if (cursor === 'page-2') {
+        const url = new URL(request.url);
+        const page = Number(url.searchParams.get('page') ?? '1');
+        const branchId = url.searchParams.get('branch_id');
+        if (branchId === MOCK_BRANCH_IDS.DOWNTOWN) {
+          return HttpResponse.json({
+            items: [INITIAL_EMPLOYEES[0]],
+            page,
+            page_size: 25,
+            total_count: 1,
+            next_cursor: null,
+          });
+        }
+        if (page === 2) {
           return HttpResponse.json({
             items: [
               {
-                employee_id: 'emp-page-2',
-                organization_id: 'org-1',
-                branch_id: ALEX_BRANCH_ID,
-                employee_no: 'EMP-021',
+                ...INITIAL_EMPLOYEES[1],
+                employee_id: '11111111-3333-4111-8111-000000000026',
+                employee_no: 'EMP-026',
                 full_name: 'Rana Gamal',
-                email: null,
-                phone: null,
-                job_title: 'Pharmacist',
-                address: {
-                  line1: '1 Corniche Rd',
-                  city: 'Alexandria',
-                  country_code: 'EG',
-                },
-                hired_on: '2025-07-01',
-                is_active: true,
               },
             ],
-            nextCursor: null,
+            page: 2,
+            page_size: 25,
+            total_count: 26,
+            next_cursor: null,
           });
         }
         return HttpResponse.json({
-          items: [
-            {
-              employee_id: 'emp-page-1',
-              organization_id: 'org-1',
-              branch_id: CAIRO_BRANCH_ID,
-              employee_no: 'EMP-001',
-              full_name: 'Omar Khaled',
-              email: 'omar.khaled@pharmaplus.eg',
-              phone: '+20 100 111 2233',
-              job_title: 'Lead Pharmacist',
-              address: {
-                line1: '15 Tahrir Square',
-                city: 'Cairo',
-                country_code: 'EG',
-              },
-              hired_on: '2024-03-01',
-              is_active: true,
-            },
-          ],
-          nextCursor: 'page-2',
+          items: [INITIAL_EMPLOYEES[0]],
+          page: 1,
+          page_size: 25,
+          total_count: 26,
+          next_cursor: '2',
         });
       })
     );
@@ -540,26 +545,24 @@ describe('EmployeesPage', () => {
     shouldFail = false;
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText('Omar Khaled')).toBeDefined();
+    expect(screen.getByText('Showing 1–25 of 26')).toBeDefined();
+    expect(screen.getByText('Page 1')).toBeDefined();
 
-    await user.click(screen.getByRole('button', { name: /Next/i }));
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
     expect(await screen.findByText('Rana Gamal')).toBeDefined();
+    expect(screen.getByText('Showing 26–26 of 26')).toBeDefined();
+    expect(screen.getByText('Page 2')).toBeDefined();
+    expect(
+      screen.getByRole('button', { name: 'Next page' }).hasAttribute('disabled')
+    ).toBe(true);
 
-    await user.type(screen.getByLabelText('Search employees'), 'NoMatchHere');
-    expect(screen.getByText('No employees match your filters')).toBeDefined();
-
-    // Pagination remains visible on page 2 even with 0 filtered matches
-    await user.click(screen.getByRole('button', { name: /Previous/i }));
-    await user.click(screen.getByRole('button', { name: 'Clear filters' }));
-    expect(await screen.findByText('Omar Khaled')).toBeDefined();
-
-    // Changing branch filter from page 2 resets cursor back to page 1
-    await user.click(screen.getByRole('button', { name: /Next/i }));
-    expect(await screen.findByText('Rana Gamal')).toBeDefined();
+    // Changing branch filter from page 2 resets back to page 1
     await user.selectOptions(
       screen.getByLabelText('Home branch'),
-      CAIRO_BRANCH_ID
+      MOCK_BRANCH_IDS.DOWNTOWN
     );
     expect(await screen.findByText('Omar Khaled')).toBeDefined();
+    expect(screen.getByText('Showing 1–1 of 1')).toBeDefined();
     expect(screen.getByText('Page 1')).toBeDefined();
   });
 
@@ -577,21 +580,12 @@ describe('EmployeesPage', () => {
         await createGate;
         return HttpResponse.json(
           {
-            employee_id: 'emp-created-lock',
-            organization_id: 'org-1',
-            branch_id: CAIRO_BRANCH_ID,
+            ...INITIAL_EMPLOYEES[0],
+            employee_id: '11111111-3333-4111-8111-000000000050',
             employee_no: 'EMP-050',
             full_name: 'Heba Nabil',
-            email: null,
-            phone: null,
-            job_title: null,
-            address: {
-              line1: '12 Nile St',
-              city: 'Cairo',
-              country_code: 'EG',
-            },
+            job_title: 'Shift Pharmacist',
             hired_on: '2026-05-01',
-            is_active: true,
           },
           { status: 201 }
         );
@@ -606,13 +600,17 @@ describe('EmployeesPage', () => {
 
     await user.selectOptions(
       within(dialog).getByLabelText('Home branch'),
-      CAIRO_BRANCH_ID
+      MOCK_BRANCH_IDS.DOWNTOWN
     );
     await user.type(
       within(dialog).getByLabelText('Employee number'),
       'EMP-050'
     );
     await user.type(within(dialog).getByLabelText('Full name'), 'Heba Nabil');
+    await user.type(
+      within(dialog).getByLabelText('Job title'),
+      'Shift Pharmacist'
+    );
     await user.type(within(dialog).getByLabelText('Hire date'), '2026-05-01');
     await user.type(
       within(dialog).getByLabelText('Address line 1'),
@@ -634,7 +632,6 @@ describe('EmployeesPage', () => {
         .hasAttribute('disabled')
     ).toBe(true);
 
-    // Attempting a second click or Escape while pending does nothing
     await user.click(submitButton);
     await user.keyboard('{Escape}');
     expect(screen.getByRole('dialog')).toBeDefined();
@@ -646,89 +643,17 @@ describe('EmployeesPage', () => {
     });
   });
 
-  it('shows empty state when no employees exist and preserves current branch on edit when branches fail, retry, or omit the branch', async () => {
-    const user = userEvent.setup();
-    let branchesShouldFail = true;
-
-    server.use(
-      http.get('*/api/v1/branches', () => {
-        if (branchesShouldFail) {
-          return HttpResponse.json(
-            {
-              error: {
-                code: 'INTERNAL_ERROR',
-                message: 'Branch service down',
-                trace_id: 'trace-b-down',
-              },
-            },
-            { status: 500 }
-          );
-        }
-        return HttpResponse.json({
-          items: [
-            {
-              branch_id: ALEX_BRANCH_ID,
-              organization_id: 'org-1',
-              code: 'ALX-01',
-              name: 'Alexandria Corniche Branch',
-              is_active: true,
-              address: {
-                line1: '240 El Geish Road',
-                city: 'Alexandria',
-                country_code: 'EG',
-              },
-            },
-          ],
-          nextCursor: null,
-        });
-      })
-    );
-
-    renderWithProviders(<EmployeesPage />);
-    await screen.findByText('Omar Khaled');
-
-    const row = screen.getByText('Omar Khaled').closest('tr');
-    if (!row) {
-      throw new Error('Expected Omar Khaled row');
-    }
-    await user.click(within(row).getByRole('button', { name: 'Edit' }));
-
-    const dialog = screen.getByRole('dialog');
-    const branchSelect = within(dialog).getByLabelText('Home branch');
-    if (!(branchSelect instanceof HTMLSelectElement)) {
-      throw new Error('Expected Home branch select element');
-    }
-    expect(branchSelect.value).toBe(CAIRO_BRANCH_ID);
-    expect(within(dialog).getByText('Branches unavailable')).toBeDefined();
-
-    // Retry inside modal succeeds, even though returned branches omit CAIRO_BRANCH_ID
-    branchesShouldFail = false;
-    await user.click(within(dialog).getByRole('button', { name: 'Retry' }));
-    await waitFor(() => {
-      expect(within(dialog).queryByText('Branches unavailable')).toBeNull();
-    });
-
-    // Current employee branch_id must remain preserved as an option instead of resetting to ""
-    expect(branchSelect.value).toBe(CAIRO_BRANCH_ID);
-
-    const nameInput = within(dialog).getByLabelText('Full name');
-    await user.clear(nameInput);
-    await user.type(nameInput, 'Omar Khaled Preserved');
-    await user.click(
-      within(dialog).getByRole('button', { name: 'Save changes' })
-    );
-
-    await waitFor(() => {
-      expect(screen.queryByRole('dialog')).toBeNull();
-    });
-    expect(await screen.findByText('Omar Khaled Preserved')).toBeDefined();
-  });
-
   it('shows No employees yet empty state when server has zero employees and opens modal from CTA', async () => {
     const user = userEvent.setup();
     server.use(
       http.get('*/api/v1/employees', () =>
-        HttpResponse.json({ items: [], nextCursor: null })
+        HttpResponse.json({
+          items: [],
+          page: 1,
+          page_size: 25,
+          total_count: 0,
+          next_cursor: null,
+        })
       )
     );
 
@@ -742,46 +667,9 @@ describe('EmployeesPage', () => {
     expect(screen.getByRole('dialog')).toBeDefined();
   });
 
-  it('shows No active employees with Show all employees CTA when page only contains inactive employees', async () => {
+  it('preserves locked home branch on Edit when branches fail, retry, or load asynchronously', async () => {
     const user = userEvent.setup();
-    server.use(
-      http.get('*/api/v1/employees', () =>
-        HttpResponse.json({
-          items: [
-            {
-              employee_id: 'a1111111-1111-4111-8111-111111111104',
-              organization_id: 'org-1',
-              branch_id: ALEX_BRANCH_ID,
-              employee_no: 'EMP-004',
-              full_name: 'Salma Hassan',
-              email: null,
-              phone: '+20 109 777 8899',
-              job_title: 'Cashier',
-              address: {
-                line1: '18 Stanley Bridge St',
-                city: 'Alexandria',
-                country_code: 'EG',
-              },
-              hired_on: '2025-02-20',
-              is_active: false,
-            },
-          ],
-          nextCursor: null,
-        })
-      )
-    );
-
-    renderWithProviders(<EmployeesPage />);
-
-    expect(await screen.findByText('No active employees')).toBeDefined();
-    await user.click(
-      screen.getByRole('button', { name: 'Show all employees' })
-    );
-    expect(await screen.findByText('Salma Hassan')).toBeDefined();
-  });
-
-  it('preserves selected home branch when Edit modal opens before branches finish loading', async () => {
-    const user = userEvent.setup();
+    let branchesShouldFail = true;
     let resolveBranches: (() => void) | undefined;
     const branchesGate = new Promise<void>((resolve) => {
       resolveBranches = resolve;
@@ -789,35 +677,44 @@ describe('EmployeesPage', () => {
 
     server.use(
       http.get('*/api/v1/branches', async () => {
+        if (branchesShouldFail) {
+          return HttpResponse.json(
+            {
+              error: {
+                code: 'INTERNAL_SERVER_ERROR',
+                message: 'Branch service down',
+                details: [],
+                trace_id: 'trace-b-down',
+              },
+            },
+            { status: 500 }
+          );
+        }
         await branchesGate;
         return HttpResponse.json({
           items: [
             {
-              branch_id: CAIRO_BRANCH_ID,
-              organization_id: 'org-1',
-              code: 'CAI-01',
-              name: 'Cairo Main Branch',
-              is_active: true,
-              address: {
-                line1: '15 Tahrir Square',
-                city: 'Cairo',
-                country_code: 'EG',
-              },
-            },
-            {
-              branch_id: ALEX_BRANCH_ID,
-              organization_id: 'org-1',
-              code: 'ALX-01',
-              name: 'Alexandria Corniche Branch',
+              branch_id: MOCK_BRANCH_IDS.ALEXANDRIA,
+              organization_id: INITIAL_EMPLOYEES[1].organization_id,
+              branch_code: 'MED-ALX',
+              name: 'MedCare - Alexandria Corniche',
               is_active: true,
               address: {
                 line1: '240 El Geish Road',
+                line2: null,
                 city: 'Alexandria',
+                region: 'Alexandria Governorate',
+                postal_code: '21500',
                 country_code: 'EG',
               },
+              created_at: '2026-01-16T10:30:00+00:00',
+              updated_at: '2026-11-25T10:00:00+00:00',
             },
           ],
-          nextCursor: null,
+          page: 1,
+          page_size: 200,
+          total_count: 1,
+          next_cursor: null,
         });
       })
     );
@@ -837,13 +734,23 @@ describe('EmployeesPage', () => {
       throw new Error('Expected Home branch select element');
     }
     expect(branchSelect.disabled).toBe(true);
-    expect(branchSelect.value).toBe(ALEX_BRANCH_ID);
+    expect(branchSelect.value).toBe(MOCK_BRANCH_IDS.ALEXANDRIA);
+    expect(within(dialog).getByText('Branches unavailable')).toBeDefined();
+
+    // Retry inside modal transitions to Loading branch... then resolves to MED-ALX while remaining locked
+    branchesShouldFail = false;
+    await user.click(within(dialog).getByRole('button', { name: 'Retry' }));
+    expect(branchSelect.disabled).toBe(true);
+    expect(branchSelect.value).toBe(MOCK_BRANCH_IDS.ALEXANDRIA);
 
     resolveBranches?.();
-
-    await waitFor(() => {
-      expect(branchSelect.disabled).toBe(false);
-    });
-    expect(branchSelect.value).toBe(ALEX_BRANCH_ID);
+    expect(
+      await within(branchSelect).findByText(
+        'MED-ALX — MedCare - Alexandria Corniche'
+      )
+    ).toBeDefined();
+    expect(within(dialog).queryByText('Branches unavailable')).toBeNull();
+    expect(branchSelect.disabled).toBe(true);
+    expect(branchSelect.value).toBe(MOCK_BRANCH_IDS.ALEXANDRIA);
   });
 });

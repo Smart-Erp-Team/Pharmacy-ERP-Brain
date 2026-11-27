@@ -2,10 +2,12 @@ export {
   useAllProductCategoriesQuery,
   useAllProductsQuery,
   useProductCategoriesQuery,
-  useProductsQuery,
   useProductQuery,
+  useProductsQuery,
   useProductUomsQuery,
+  useReorderRuleQuery,
 } from './hooks/useCatalogQueries';
+export type { UseCatalogQueryOptions } from './hooks/useCatalogQueries';
 export type {
   AllProductCategoriesKeyParams,
   AllProductsKeyParams,
@@ -13,9 +15,15 @@ export type {
 export type {
   ListProductCategoriesParams,
   ListProductsParams,
+  ListProductUomsParams,
 } from './api/catalogApi';
 export type {
+  Product,
+  ProductCategory,
   ProductCategoryDto,
   ProductDto,
+  ProductUom,
   ProductUomDto,
+  ReorderRule,
+  ReorderRuleDto,
 } from '../../types/api';

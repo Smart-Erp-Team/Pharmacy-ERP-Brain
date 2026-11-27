@@ -2,17 +2,13 @@ import { Alert } from '../../../components/ui/Alert';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
 import { Toggle } from '../../../components/ui/Toggle';
-import type {
-  ProductDto,
-  ReorderRuleDto,
-  RuntimeMode,
-} from '../../../types/api';
+import type { Product, ReorderRule, RuntimeMode } from '../../../types/api';
 import { useReorderRuleForm } from '../hooks/useReorderRuleForm';
 
 export interface ReorderRuleFormProps {
   branchId: string;
-  product: ProductDto;
-  rule: ReorderRuleDto | null;
+  product: Product;
+  rule: ReorderRule | null;
   canWrite: boolean;
   runtime: RuntimeMode | null;
 }
@@ -56,7 +52,7 @@ export function ReorderRuleForm({
         <Alert variant="info">
           {runtime === 'BranchLocal'
             ? 'Reorder configuration writes require the Cloud deployment'
-            : 'Reorder configuration writes require inventory write permission on the Cloud deployment.'}
+            : 'Read-only access — reorder configuration writes require Admin or Pharmacist inventory write access on Cloud.'}
         </Alert>
       )}
       {rule === null && (

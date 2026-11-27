@@ -3,11 +3,11 @@ import { Alert } from '../../../components/ui/Alert';
 import { Badge } from '../../../components/ui/Badge';
 import { Input } from '../../../components/ui/Input';
 import { Toggle } from '../../../components/ui/Toggle';
-import type { ProductUomDto } from '../../../types/api';
+import type { ProductUom } from '../../../types/api';
 import type { UomBoolField, UomFormValues } from '../hooks/useProductUomForm';
 
 export interface ProductUomFormFieldsProps {
-  uom: ProductUomDto | null;
+  uom: ProductUom | null;
   hasBaseUom: boolean;
   isPending: boolean;
   isBase: boolean;
@@ -19,8 +19,8 @@ export interface ProductUomFormFieldsProps {
   onToggleBool: (field: UomBoolField, next: boolean) => void;
 }
 
-const fmtFactor = (v: string) =>
-  v.includes('.') ? v.replace(/\.?0+$/, '') : v;
+const fmtFactor = (value: number): string =>
+  Number.isFinite(value) ? String(Number(value.toPrecision(12))) : '—';
 
 export function ProductUomFormFields({
   uom,

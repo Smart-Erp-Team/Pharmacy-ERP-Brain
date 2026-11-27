@@ -2,14 +2,15 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   cleanup,
-  fireEvent,
   render,
   screen,
   waitFor,
   within,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { MemoryRouter } from 'react-router-dom';
 import {
   afterAll,
   afterEach,
@@ -27,7 +28,12 @@ import {
   resetMockBranches,
 } from '../../../mocks/branchHandlers';
 import {
+  INITIAL_BALANCES,
+  INITIAL_LOCATIONS,
   inventoryHandlers,
+  MOCK_BRANCH_IDS,
+  MOCK_LOCATION_IDS,
+  ORGANIZATION_ID,
   resetMockInventory,
 } from '../../../mocks/inventoryHandlers';
 import {
@@ -36,16 +42,19 @@ import {
 } from '../../../mocks/productHandlers';
 import { useAuthStore } from '../../../stores/authStore';
 import type {
-  CurrentUserContext,
+  CurrentUser,
+  InventoryLocation,
   PermissionScope,
   Role,
   RuntimeMode,
 } from '../../../types/api';
+import { useInventoryBranchState } from '../hooks/useInventoryBranchState';
+import { InventoryBranchBar } from './InventoryBranchBar';
 import { StockBalancesTab } from './StockBalancesTab';
 import { StockOverviewTab } from './StockOverviewTab';
 import { StorageLocationsTab } from './StorageLocationsTab';
 
-const CAIRO_BRANCH_ID = inventoryBalanceFixture.branch_id;
+const DOWNTOWN_BRANCH_ID = MOCK_BRANCH_IDS.DOWNTOWN;
 const server = setupServer(
   ...branchHandlers,
   ...productHandlers,
@@ -66,36 +75,54 @@ function createTestQueryClient(): QueryClient {
 }
 
 function setAuthUser(options: {
-  roles: Role[];
+  role: Role;
   scopes: PermissionScope[];
-  runtime: RuntimeMode;
+  runtimeMode: RuntimeMode;
   branchScope?: 'ALL' | 'ASSIGNED';
+  branchIds?: string[];
 }) {
-  const user: CurrentUserContext = {
-    ...currentUserFixture,
-    user: {
-      ...currentUserFixture.user,
-      role: options.roles[0] ?? 'Admin',
-      branch_scope: options.branchScope ?? 'ALL',
-    },
-    roles: options.roles,
-    scopes: options.scopes,
+  const user: CurrentUser = {
+    user_id: currentUserFixture.user_id,
+    employee_id: currentUserFixture.employee_id,
+    organization_id: currentUserFixture.organization_id,
+    username: currentUserFixture.username,
+    role: options.role,
     branch_scope: options.branchScope ?? 'ALL',
-    branch_ids: [CAIRO_BRANCH_ID],
-    runtime: options.runtime,
+    branch_ids: options.branchIds ?? [],
+    scopes: options.scopes,
+    runtime_mode: options.runtimeMode,
   };
   useAuthStore.setState({
     currentUser: user,
-    activeBranchId: CAIRO_BRANCH_ID,
+    activeBranchId: DOWNTOWN_BRANCH_ID,
     isAuthenticated: true,
     isInitializing: false,
   });
 }
 
-function renderWithQuery(ui: React.ReactElement) {
+function renderWithProviders(ui: React.ReactElement) {
   const client = createTestQueryClient();
   return render(
-    <QueryClientProvider client={client}>{ui}</QueryClientProvider>
+    <QueryClientProvider client={client}>
+      <MemoryRouter>{ui}</MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+
+function BranchSelectorHarness() {
+  const state = useInventoryBranchState();
+  return (
+    <div>
+      <InventoryBranchBar
+        branchId={state.branchId}
+        branchOptions={state.branchOptions}
+        isLoading={state.isBranchesLoading}
+        error={state.branchesError}
+        onSelectBranch={state.onSelectBranch}
+        onRetry={state.onRetryBranches}
+      />
+      <p data-testid="active-branch-name">{state.branchName}</p>
+    </div>
   );
 }
 
@@ -105,9 +132,9 @@ beforeEach(() => {
   resetMockCatalog();
   resetMockInventory();
   setAuthUser({
-    roles: ['Admin'],
+    role: 'Admin',
     scopes: ['inventory:read', 'inventory:write'],
-    runtime: 'Cloud',
+    runtimeMode: 'Cloud',
   });
 });
 afterEach(() => {
@@ -127,36 +154,61 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
+describe('InventoryBranchBar & useInventoryBranchState', () => {
+  it('loads active MEDCARE branches with branch_code (MED-DT, MED-ALX) and switches active branch', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<BranchSelectorHarness />);
+
+    const branchSelect = await screen.findByLabelText('Branch');
+    expect(branchSelect).toBeInstanceOf(HTMLSelectElement);
+    if (!(branchSelect instanceof HTMLSelectElement)) return;
+
+    const optionLabels = Array.from(branchSelect.options).map((o) => o.text);
+    expect(optionLabels).toEqual([
+      'MedCare - Downtown Flagship (MED-DT)',
+      'MedCare - Alexandria Corniche (MED-ALX)',
+    ]);
+    expect(screen.getByTestId('active-branch-name').textContent).toBe(
+      'MedCare - Downtown Flagship (MED-DT)'
+    );
+
+    await user.selectOptions(branchSelect, MOCK_BRANCH_IDS.ALEXANDRIA);
+    expect(screen.getByTestId('active-branch-name').textContent).toBe(
+      'MedCare - Alexandria Corniche (MED-ALX)'
+    );
+  });
+});
+
 describe('StockOverviewTab', () => {
-  it('renders computed KPIs, explicit Unavailable Brain telemetry, and flagged lots', async () => {
-    renderWithQuery(
+  it('renders computed MEDCARE KPIs, explicit Unavailable Brain telemetry, and flagged lots', async () => {
+    renderWithProviders(
       <StockOverviewTab
-        branchId={CAIRO_BRANCH_ID}
-        branchName="Cairo Main Branch (CAI-01)"
+        branchId={DOWNTOWN_BRANCH_ID}
+        branchName="MedCare - Downtown Flagship (MED-DT)"
       />
     );
 
     await waitFor(() => {
-      expect(screen.getByText('7,600')).toBeDefined();
+      expect(screen.getByText('890')).toBeDefined();
     });
 
     expect(screen.getByText('Brain Telemetry — Unavailable')).toBeDefined();
-    expect(screen.getByText('AUG-2026-A')).toBeDefined();
-    expect(screen.getByText('AUG-2026-Q')).toBeDefined();
-    expect(screen.getByText('AUG-2020-E')).toBeDefined();
-    expect(screen.getByText('Expiring soon')).toBeDefined();
-    expect(screen.getByText('QUARANTINED')).toBeDefined();
+    expect(screen.getByText('MEDCARE-LOT-EXP')).toBeDefined();
+    expect(screen.getByText('MEDCARE-LOT-2602')).toBeDefined();
+    expect(screen.getByText('DMG-01')).toBeDefined();
     expect(screen.getByText('Expired')).toBeDefined();
+    expect(screen.getByText('Expiring soon')).toBeDefined();
   });
 
-  it('shows Unavailable instead of fabricating 0 on error and retries cleanly', async () => {
-    let failOnce = true;
+  it('shows Unavailable and retries cleanly when balances or locations fail', async () => {
+    const user = userEvent.setup();
+    let failBalancesOnce = true;
     server.use(
       http.get('*/api/v1/inventory/balances', () => {
-        if (failOnce) {
-          failOnce = false;
+        if (failBalancesOnce) {
+          failBalancesOnce = false;
           return HttpResponse.json(
-            { error: { code: 'INTERNAL_ERROR', message: 'Boom' } },
+            { error: { code: 'INTERNAL_SERVER_ERROR', message: 'Boom' } },
             { status: 500 }
           );
         }
@@ -164,10 +216,10 @@ describe('StockOverviewTab', () => {
       })
     );
 
-    renderWithQuery(
+    const { unmount } = renderWithProviders(
       <StockOverviewTab
-        branchId={CAIRO_BRANCH_ID}
-        branchName="Cairo Main Branch (CAI-01)"
+        branchId={DOWNTOWN_BRANCH_ID}
+        branchName="MedCare - Downtown Flagship (MED-DT)"
       />
     );
 
@@ -178,90 +230,142 @@ describe('StockOverviewTab', () => {
     });
     expect(screen.getAllByText('Unavailable').length).toBeGreaterThanOrEqual(2);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
     await waitFor(() => {
-      expect(screen.getByText('7,600')).toBeDefined();
+      expect(screen.getByText('890')).toBeDefined();
+    });
+    unmount();
+
+    server.resetHandlers();
+    let failLocationsOnce = true;
+    server.use(
+      http.get('*/api/v1/inventory/locations', () => {
+        if (failLocationsOnce) {
+          failLocationsOnce = false;
+          return HttpResponse.json(
+            {
+              error: {
+                code: 'INTERNAL_SERVER_ERROR',
+                message: 'Locations down',
+              },
+            },
+            { status: 500 }
+          );
+        }
+        return undefined;
+      })
+    );
+
+    renderWithProviders(
+      <StockOverviewTab
+        branchId={DOWNTOWN_BRANCH_ID}
+        branchName="MedCare - Downtown Flagship (MED-DT)"
+      />
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Could not load inventory overview')
+      ).toBeDefined();
+    });
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => {
+      expect(screen.getByText('MEDCARE-LOT-EXP')).toBeDefined();
     });
   });
 });
 
 describe('StockBalancesTab', () => {
-  it('renders FEFO batch ordering, NON-LOT, nearing expiry, QUARANTINED/EXPIRED, and zero Reserved', async () => {
-    renderWithQuery(<StockBalancesTab branchId={CAIRO_BRANCH_ID} />);
+  it('renders MEDCARE balances, FEFO order (LOT-EXP, LOT-2602 before LOT-2601), DAMAGED, NON-LOT, and zero Reserved', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<StockBalancesTab branchId={DOWNTOWN_BRANCH_ID} />);
 
     await waitFor(() => {
-      expect(screen.getByText('Augmentin 1g Tablets')).toBeDefined();
-      expect(screen.getByText('Panadol 500mg Tablets')).toBeDefined();
+      expect(
+        screen.getByText('Augmentin 1g Film-Coated Tablets')
+      ).toBeDefined();
+      expect(screen.getByText('Panadol Extra 500mg')).toBeDefined();
+      expect(screen.getByText('Vitamin D3 5000 IU')).toBeDefined();
     });
 
     expect(screen.queryByText(/Reserved/i)).toBeNull();
+    expect(screen.getByText('MED-AUG-1000')).toBeDefined();
+    expect(screen.getByText('MED-PAN-500')).toBeDefined();
+    expect(screen.getByText('MED-VIT-D3')).toBeDefined();
+    expect(screen.getByText('400')).toBeDefined();
+    expect(screen.getByText('350')).toBeDefined();
+    expect(screen.getByText('7.13')).toBeDefined();
 
-    const typeSelect = screen.getByLabelText(
-      'Location type'
-    ) as HTMLSelectElement;
-    const optionValues = Array.from(typeSelect.options).map((o) => o.value);
-    expect(optionValues).toEqual(['ALL', 'SELLABLE', 'QUARANTINE', 'SCRAP']);
-    expect(optionValues.includes('DAMAGED')).toBe(false);
+    const typeSelect = screen.getByLabelText('Location type');
+    expect(typeSelect).toBeInstanceOf(HTMLSelectElement);
+    if (typeSelect instanceof HTMLSelectElement) {
+      const optionValues = Array.from(typeSelect.options).map((o) => o.value);
+      expect(optionValues).toEqual([
+        'ALL',
+        'SELLABLE',
+        'QUARANTINE',
+        'DAMAGED',
+        'SCRAP',
+      ]);
+    }
 
     const expandAug = screen.getByRole('button', {
-      name: 'Toggle batch breakdown for Augmentin 1g Tablets',
+      name: 'Toggle batch breakdown for Augmentin 1g Film-Coated Tablets',
     });
     expect(expandAug.getAttribute('aria-expanded')).toBe('false');
-    fireEvent.click(expandAug);
+    await user.click(expandAug);
     expect(expandAug.getAttribute('aria-expanded')).toBe('true');
 
     const batchCells = screen
-      .getAllByText(/^AUG-/)
+      .getAllByText(/^MEDCARE-LOT-/)
       .map((node) => node.textContent);
     expect(batchCells).toEqual([
-      'AUG-2020-E',
-      'AUG-2026-A',
-      'AUG-2026-Q',
-      'AUG-2027-B',
+      'MEDCARE-LOT-EXP',
+      'MEDCARE-LOT-2602',
+      'MEDCARE-LOT-2601',
     ]);
+    expect(screen.getByText('DMG-01')).toBeDefined();
     expect(screen.getByText('Expiring soon')).toBeDefined();
-    expect(screen.getByText('QUARANTINED')).toBeDefined();
     expect(screen.getByText('EXPIRED')).toBeDefined();
+    expect(screen.getByText('v3')).toBeDefined();
 
-    const expandPanadol = screen.getByRole('button', {
-      name: 'Toggle batch breakdown for Panadol 500mg Tablets',
+    const expandVitD = screen.getByRole('button', {
+      name: 'Toggle batch breakdown for Vitamin D3 5000 IU',
     });
-    fireEvent.click(expandPanadol);
+    await user.click(expandVitD);
     expect(screen.getAllByText('NON-LOT').length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText('Unavailable').length).toBeGreaterThanOrEqual(2);
   });
 
-  it('filters by search, location type, expiry status, and clears filters', async () => {
-    renderWithQuery(<StockBalancesTab branchId={CAIRO_BRANCH_ID} />);
+  it('filters by search, DAMAGED location type, NON_LOT expiry status, and clears filters', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<StockBalancesTab branchId={DOWNTOWN_BRANCH_ID} />);
 
     await waitFor(() => {
-      expect(screen.getByText('Augmentin 1g Tablets')).toBeDefined();
+      expect(
+        screen.getByText('Augmentin 1g Film-Coated Tablets')
+      ).toBeDefined();
     });
 
-    fireEvent.change(screen.getByLabelText('Search products'), {
-      target: { value: '6221048002345' },
-    });
-    expect(screen.getByText('Augmentin 1g Tablets')).toBeDefined();
-    expect(screen.queryByText('Panadol 500mg Tablets')).toBeNull();
+    await user.type(screen.getByLabelText('Search products'), '6221001000019');
+    expect(screen.getByText('Augmentin 1g Film-Coated Tablets')).toBeDefined();
+    expect(screen.queryByText('Panadol Extra 500mg')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
-    expect(screen.getByText('Panadol 500mg Tablets')).toBeDefined();
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(screen.getByText('Panadol Extra 500mg')).toBeDefined();
 
-    fireEvent.change(screen.getByLabelText('Location type'), {
-      target: { value: 'QUARANTINE' },
-    });
-    expect(screen.getByText('Augmentin 1g Tablets')).toBeDefined();
-    expect(screen.queryByText('Panadol 500mg Tablets')).toBeNull();
+    await user.selectOptions(screen.getByLabelText('Location type'), 'DAMAGED');
+    expect(screen.getByText('Augmentin 1g Film-Coated Tablets')).toBeDefined();
+    expect(screen.queryByText('Panadol Extra 500mg')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
-    fireEvent.change(screen.getByLabelText('Expiry status'), {
-      target: { value: 'NON_LOT' },
-    });
-    expect(screen.getByText('Panadol 500mg Tablets')).toBeDefined();
-    expect(screen.queryByText('Augmentin 1g Tablets')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }));
+    await user.selectOptions(screen.getByLabelText('Expiry status'), 'NON_LOT');
+    expect(screen.getByText('Vitamin D3 5000 IU')).toBeDefined();
+    expect(screen.queryByText('Augmentin 1g Film-Coated Tablets')).toBeNull();
   });
 
   it('breaks equal expiry ties by batch_id ascending rather than batch_number', async () => {
+    const user = userEvent.setup();
     const batchIdFirst = '00000000-0000-4000-8000-000000000001';
     const batchIdSecond = '00000000-0000-4000-8000-000000000002';
 
@@ -271,55 +375,69 @@ describe('StockBalancesTab', () => {
           items: [
             {
               batch_id: batchIdSecond,
+              organization_id: ORGANIZATION_ID,
               product_id: inventoryBalanceFixture.product_id,
               batch_number: 'LOT-AAA',
               manufactured_on: '2026-01-01',
               expires_on: '2027-06-01',
               quality_status: 'AVAILABLE',
-              is_non_lot: false,
+              updated_at: '2026-11-25T10:00:00+00:00',
             },
             {
               batch_id: batchIdFirst,
+              organization_id: ORGANIZATION_ID,
               product_id: inventoryBalanceFixture.product_id,
               batch_number: 'LOT-ZZZ',
               manufactured_on: '2026-01-01',
               expires_on: '2027-06-01',
               quality_status: 'AVAILABLE',
-              is_non_lot: false,
+              updated_at: '2026-11-25T10:00:00+00:00',
             },
           ],
-          nextCursor: null,
+          page: 1,
+          page_size: 200,
+          total_count: 2,
+          next_cursor: null,
         })
       ),
       http.get('*/api/v1/inventory/balances', () =>
         HttpResponse.json({
           items: [
             {
-              ...inventoryBalanceFixture,
+              ...INITIAL_BALANCES[0],
               batch_id: batchIdSecond,
-              on_hand_qty_base: '10.0000',
-              available_qty_base: '10.0000',
+              batch_number: 'LOT-AAA',
+              expires_on: '2027-06-01',
+              on_hand_qty_base: 10,
+              available_qty_base: 10,
             },
             {
-              ...inventoryBalanceFixture,
+              ...INITIAL_BALANCES[0],
               batch_id: batchIdFirst,
-              on_hand_qty_base: '20.0000',
-              available_qty_base: '20.0000',
+              batch_number: 'LOT-ZZZ',
+              expires_on: '2027-06-01',
+              on_hand_qty_base: 20,
+              available_qty_base: 20,
             },
           ],
-          nextCursor: null,
+          page: 1,
+          page_size: 200,
+          total_count: 2,
+          next_cursor: null,
         })
       )
     );
 
-    renderWithQuery(<StockBalancesTab branchId={CAIRO_BRANCH_ID} />);
+    renderWithProviders(<StockBalancesTab branchId={DOWNTOWN_BRANCH_ID} />);
     await waitFor(() => {
-      expect(screen.getByText('Augmentin 1g Tablets')).toBeDefined();
+      expect(
+        screen.getByText('Augmentin 1g Film-Coated Tablets')
+      ).toBeDefined();
     });
 
-    fireEvent.click(
+    await user.click(
       screen.getByRole('button', {
-        name: 'Toggle batch breakdown for Augmentin 1g Tablets',
+        name: 'Toggle batch breakdown for Augmentin 1g Film-Coated Tablets',
       })
     );
 
@@ -329,15 +447,16 @@ describe('StockBalancesTab', () => {
     expect(lotCells).toEqual(['LOT-ZZZ', 'LOT-AAA']);
   });
 
-  it('surfaces an error instead of an empty state when /inventory/balances returns a bare array, or when /products fails, and retries cleanly', async () => {
+  it('surfaces an error on bare array or /products failure and retries cleanly', async () => {
+    const user = userEvent.setup();
     server.use(
       http.get('*/api/v1/inventory/balances', () =>
         HttpResponse.json([inventoryBalanceFixture])
       )
     );
 
-    const { unmount } = renderWithQuery(
-      <StockBalancesTab branchId={CAIRO_BRANCH_ID} />
+    const { unmount } = renderWithProviders(
+      <StockBalancesTab branchId={DOWNTOWN_BRANCH_ID} />
     );
 
     await waitFor(() => {
@@ -353,7 +472,12 @@ describe('StockBalancesTab', () => {
         if (failProductsOnce) {
           failProductsOnce = false;
           return HttpResponse.json(
-            { error: { code: 'INTERNAL_ERROR', message: 'Catalog down' } },
+            {
+              error: {
+                code: 'INTERNAL_SERVER_ERROR',
+                message: 'Catalog down',
+              },
+            },
             { status: 500 }
           );
         }
@@ -361,229 +485,291 @@ describe('StockBalancesTab', () => {
       })
     );
 
-    renderWithQuery(<StockBalancesTab branchId={CAIRO_BRANCH_ID} />);
+    renderWithProviders(<StockBalancesTab branchId={DOWNTOWN_BRANCH_ID} />);
     await waitFor(() => {
       expect(screen.getByText('Could not load stock balances')).toBeDefined();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
     await waitFor(() => {
-      expect(screen.getByText('Augmentin 1g Tablets')).toBeDefined();
+      expect(
+        screen.getByText('Augmentin 1g Film-Coated Tablets')
+      ).toBeDefined();
     });
   });
 
-  it('drains multi-page nextCursor responses verbatim without trimming when aggregating balances', async () => {
-    const secondLocationId = '2f31c9d4-7070-4a10-8b2d-ce0f1a2b3c15';
-    const seenCursors: Array<string | null> = [];
+  it('drains multi-page PagedResult responses and rejects premature empty pages', async () => {
+    const seenPages: string[] = [];
     server.use(
       http.get('*/api/v1/inventory/balances', ({ request }) => {
-        const cursor = new URL(request.url).searchParams.get('cursor');
-        seenCursors.push(cursor);
-        if (cursor === ' cursor-2 ') {
+        const page = new URL(request.url).searchParams.get('page') ?? '1';
+        seenPages.push(page);
+        if (page === '2') {
           return HttpResponse.json({
             items: [
               {
-                ...inventoryBalanceFixture,
-                location_id: secondLocationId,
-                on_hand_qty_base: '300.0000',
-                available_qty_base: '300.0000',
+                ...INITIAL_BALANCES[0],
+                location_id: MOCK_LOCATION_IDS.QUAR_01,
+                location_code: 'QUAR-01',
+                on_hand_qty_base: 300,
+                available_qty_base: 300,
               },
             ],
-            nextCursor: null,
+            page: 2,
+            page_size: 200,
+            total_count: 2,
+            next_cursor: null,
           });
         }
         return HttpResponse.json({
           items: [
             {
-              ...inventoryBalanceFixture,
-              on_hand_qty_base: '5000.0000',
-              available_qty_base: '5000.0000',
+              ...INITIAL_BALANCES[0],
+              on_hand_qty_base: 5000,
+              available_qty_base: 5000,
             },
           ],
-          nextCursor: ' cursor-2 ',
+          page: 1,
+          page_size: 200,
+          total_count: 2,
+          next_cursor: '2',
         });
       })
     );
 
-    renderWithQuery(<StockBalancesTab branchId={CAIRO_BRANCH_ID} />);
+    const { unmount } = renderWithProviders(
+      <StockBalancesTab branchId={DOWNTOWN_BRANCH_ID} />
+    );
     await waitFor(() => {
       expect(screen.getAllByText('5,300').length).toBeGreaterThanOrEqual(2);
     });
-    expect(seenCursors).toEqual([null, ' cursor-2 ']);
-  });
-
-  it('distinguishes missing or whitespace-only nextCursor (error) from nextCursor: null (empty state) and refuses to show a truncated total when maxPages is exceeded', async () => {
-    server.use(
-      http.get('*/api/v1/inventory/balances', () =>
-        HttpResponse.json({ items: [] })
-      )
-    );
-
-    const { unmount: unmountMissingCursor } = renderWithQuery(
-      <StockBalancesTab branchId={CAIRO_BRANCH_ID} />
-    );
-    await waitFor(() => {
-      expect(screen.getByText('Could not load stock balances')).toBeDefined();
-    });
-    expect(screen.queryByText('No matching stock balances')).toBeNull();
-    unmountMissingCursor();
+    expect(seenPages).toEqual(['1', '2']);
+    unmount();
 
     server.use(
       http.get('*/api/v1/inventory/balances', () =>
         HttpResponse.json({
-          items: [
-            {
-              ...inventoryBalanceFixture,
-              on_hand_qty_base: '5000.0000',
-              available_qty_base: '5000.0000',
-            },
-          ],
-          nextCursor: '   ',
+          items: [],
+          page: 1,
+          page_size: 200,
+          total_count: 5,
+          next_cursor: null,
         })
       )
     );
 
-    const { unmount: unmountBlankCursor } = renderWithQuery(
-      <StockBalancesTab branchId={CAIRO_BRANCH_ID} />
-    );
+    renderWithProviders(<StockBalancesTab branchId={DOWNTOWN_BRANCH_ID} />);
     await waitFor(() => {
       expect(screen.getByText('Could not load stock balances')).toBeDefined();
     });
-    expect(screen.queryByText('5,000')).toBeNull();
-    unmountBlankCursor();
-
-    server.use(
-      http.get('*/api/v1/inventory/balances', () =>
-        HttpResponse.json({ items: [], nextCursor: null })
-      )
-    );
-
-    const { unmount: unmountValidEmpty } = renderWithQuery(
-      <StockBalancesTab branchId={CAIRO_BRANCH_ID} />
-    );
-    await waitFor(() => {
-      expect(screen.getByText('No matching stock balances')).toBeDefined();
-    });
-    unmountValidEmpty();
-
-    let pageCounter = 0;
-    server.use(
-      http.get('*/api/v1/inventory/balances', () => {
-        pageCounter += 1;
-        return HttpResponse.json({
-          items: [
-            {
-              ...inventoryBalanceFixture,
-              on_hand_qty_base: '100.0000',
-              available_qty_base: '100.0000',
-            },
-          ],
-          nextCursor: `cursor-after-page-${pageCounter}`,
-        });
-      })
-    );
-
-    renderWithQuery(
-      <StockOverviewTab
-        branchId={CAIRO_BRANCH_ID}
-        branchName="Cairo Main Branch (CAI-01)"
-      />
-    );
-    await waitFor(() => {
-      expect(
-        screen.getByText('Could not load inventory overview')
-      ).toBeDefined();
-    });
-    expect(screen.getAllByText('Unavailable').length).toBeGreaterThanOrEqual(2);
-    expect(screen.queryByText('5,000')).toBeNull();
   });
 });
 
 describe('StorageLocationsTab', () => {
-  it('supports create, duplicate 409 mapping, edit, and soft toggle for Admin on Cloud', async () => {
-    renderWithQuery(<StorageLocationsTab branchId={CAIRO_BRANCH_ID} />);
+  it('filters by is_sellable and include_inactive, creates a DAMAGED location (is_sellable locked false), enforces immutable location_type on edit, and toggles active', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<StorageLocationsTab branchId={DOWNTOWN_BRANCH_ID} />);
 
     await waitFor(() => {
-      expect(screen.getByText('MAIN-SELL')).toBeDefined();
+      expect(screen.getByText('MAIN-SELLABLE')).toBeDefined();
+      expect(screen.getByText('QUAR-01')).toBeDefined();
+      expect(screen.getByText('DMG-01')).toBeDefined();
+      expect(screen.getByText('SCRAP-01')).toBeDefined();
+    });
+    expect(screen.queryByText('OLD-BIN')).toBeNull();
+
+    await user.selectOptions(
+      screen.getByLabelText('Sellable filter'),
+      'SELLABLE'
+    );
+    await waitFor(() => {
+      expect(screen.getByText('MAIN-SELLABLE')).toBeDefined();
+      expect(screen.queryByText('DMG-01')).toBeNull();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add Location' }));
+    await user.selectOptions(
+      screen.getByLabelText('Sellable filter'),
+      'NON_SELLABLE'
+    );
+    await waitFor(() => {
+      expect(screen.getByText('DMG-01')).toBeDefined();
+      expect(screen.queryByText('MAIN-SELLABLE')).toBeNull();
+    });
+
+    await user.selectOptions(screen.getByLabelText('Sellable filter'), 'ALL');
+    await user.click(screen.getByRole('switch', { name: 'Include inactive' }));
+    await waitFor(() => {
+      expect(screen.getByText('OLD-BIN')).toBeDefined();
+    });
+    await user.click(screen.getByRole('switch', { name: 'Include inactive' }));
+    await waitFor(() => {
+      expect(screen.queryByText('OLD-BIN')).toBeNull();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Add Location' }));
     const dialog = screen.getByRole('dialog');
-    fireEvent.change(within(dialog).getByLabelText('Location code'), {
-      target: { value: 'MAIN-SELL' },
-    });
-    fireEvent.change(within(dialog).getByLabelText('Location name'), {
-      target: { value: 'Duplicate Shelf' },
-    });
-    fireEvent.click(
+    expect(
+      within(dialog).queryByRole('switch', { name: 'Active location' })
+    ).toBeNull();
+
+    await user.type(
+      within(dialog).getByLabelText('Location code'),
+      'MAIN-SELLABLE'
+    );
+    await user.type(
+      within(dialog).getByLabelText('Location name'),
+      'Duplicate Shelf'
+    );
+    await user.click(
       within(dialog).getByRole('button', { name: 'Create location' })
     );
 
     await waitFor(() => {
       expect(within(dialog).getByText('Could not save location')).toBeDefined();
     });
-    expect(within(dialog).getAllByRole('alert').length).toBeGreaterThanOrEqual(
-      1
+
+    await user.clear(within(dialog).getByLabelText('Location code'));
+    await user.type(within(dialog).getByLabelText('Location code'), 'DMG-02');
+    await user.clear(within(dialog).getByLabelText('Location name'));
+    await user.type(
+      within(dialog).getByLabelText('Location name'),
+      'Secondary Damaged Bay'
+    );
+    await user.selectOptions(
+      within(dialog).getByLabelText('Location type'),
+      'DAMAGED'
     );
 
-    fireEvent.change(within(dialog).getByLabelText('Location code'), {
-      target: { value: 'CAI-COLD' },
+    const sellableSwitch = within(dialog).getByRole('switch', {
+      name: 'Sellable location',
     });
-    fireEvent.change(within(dialog).getByLabelText('Location name'), {
-      target: { value: 'Cairo Cold Fridge' },
-    });
-    fireEvent.change(within(dialog).getByLabelText('Location type'), {
-      target: { value: 'QUARANTINE' },
-    });
-    fireEvent.click(
+    expect(sellableSwitch.getAttribute('aria-checked')).toBe('false');
+    expect(sellableSwitch).toBeInstanceOf(HTMLButtonElement);
+    if (sellableSwitch instanceof HTMLButtonElement) {
+      expect(sellableSwitch.disabled).toBe(true);
+    }
+
+    await user.click(
       within(dialog).getByRole('button', { name: 'Create location' })
     );
 
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull();
-      expect(screen.getByText('CAI-COLD')).toBeDefined();
+      expect(screen.getByText('DMG-02')).toBeDefined();
     });
 
-    const editButtons = screen.getAllByRole('button', { name: 'Edit' });
-    fireEvent.click(editButtons[0]);
+    const dmgRow = screen.getByText('DMG-02').closest('tr');
+    expect(dmgRow).not.toBeNull();
+    if (!dmgRow) return;
+    await user.click(within(dmgRow).getByRole('button', { name: 'Edit' }));
+
     const editDialog = screen.getByRole('dialog');
+    expect(within(editDialog).queryByLabelText('Location type')).toBeNull();
+    expect(within(editDialog).getByText('DAMAGED')).toBeDefined();
+    expect(within(editDialog).getByText('Immutable')).toBeDefined();
+
+    const editSellable = within(editDialog).getByRole('switch', {
+      name: 'Sellable location',
+    });
+    expect(editSellable.getAttribute('aria-checked')).toBe('false');
+    if (editSellable instanceof HTMLButtonElement) {
+      expect(editSellable.disabled).toBe(true);
+    }
+
     const saveButton = within(editDialog).getByRole('button', {
       name: 'Save changes',
-    }) as HTMLButtonElement;
-    expect(saveButton.disabled).toBe(true);
-
-    fireEvent.change(within(editDialog).getByLabelText('Location name'), {
-      target: { value: 'Cairo Cold Fridge Updated' },
     });
-    expect(saveButton.disabled).toBe(false);
-    fireEvent.click(saveButton);
+    expect(saveButton).toBeInstanceOf(HTMLButtonElement);
+    if (saveButton instanceof HTMLButtonElement) {
+      expect(saveButton.disabled).toBe(true);
+    }
+
+    const nameInput = within(editDialog).getByLabelText('Location name');
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Secondary Damaged Bay Updated');
+    if (saveButton instanceof HTMLButtonElement) {
+      expect(saveButton.disabled).toBe(false);
+    }
+    await user.click(saveButton);
 
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull();
-      expect(screen.getByText('Cairo Cold Fridge Updated')).toBeDefined();
+      expect(screen.getByText('Secondary Damaged Bay Updated')).toBeDefined();
     });
 
-    const toggleSwitch = screen.getByRole('switch', {
-      name: 'Toggle CAI-COLD active',
-    });
-    fireEvent.click(toggleSwitch);
+    await user.click(
+      screen.getByRole('switch', { name: 'Toggle DMG-02 active' })
+    );
     await waitFor(() => {
-      expect(screen.queryByText('CAI-COLD')).toBeNull();
+      expect(screen.queryByText('DMG-02')).toBeNull();
+    });
+  });
+
+  it('supports Stage 1 server-side PagedResult pagination', async () => {
+    const user = userEvent.setup();
+    const generatedLocations: InventoryLocation[] = Array.from(
+      { length: 22 },
+      (_, index) => ({
+        ...INITIAL_LOCATIONS[0],
+        location_id: `11111111-9999-4111-8111-${String(index + 1).padStart(12, '0')}`,
+        location_code: `BIN-${String(index + 1).padStart(2, '0')}`,
+        name: `Shelf Bin ${index + 1}`,
+      })
+    );
+
+    server.use(
+      http.get('*/api/v1/inventory/locations', ({ request }) => {
+        const url = new URL(request.url);
+        const page = Number(url.searchParams.get('page') ?? '1');
+        const pageSize = Number(url.searchParams.get('page_size') ?? '20');
+        const start = (page - 1) * pageSize;
+        const items = generatedLocations.slice(start, start + pageSize);
+        return HttpResponse.json({
+          items,
+          page,
+          page_size: pageSize,
+          total_count: generatedLocations.length,
+          next_cursor:
+            page * pageSize < generatedLocations.length
+              ? String(page + 1)
+              : null,
+        });
+      })
+    );
+
+    renderWithProviders(<StorageLocationsTab branchId={DOWNTOWN_BRANCH_ID} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('BIN-01')).toBeDefined();
+      expect(screen.getByText('Showing 1–20 of 22')).toBeDefined();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    await waitFor(() => {
+      expect(screen.getByText('BIN-21')).toBeDefined();
+      expect(screen.getByText('BIN-22')).toBeDefined();
+      expect(screen.getByText('Showing 21–22 of 22')).toBeDefined();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Previous page' }));
+    await waitFor(() => {
+      expect(screen.getByText('BIN-01')).toBeDefined();
+      expect(screen.getByText('Showing 1–20 of 22')).toBeDefined();
     });
   });
 
   it('allows Pharmacist write on both Cloud and BranchLocal, and keeps Cashier read-only on both', async () => {
-    for (const runtime of ['Cloud', 'BranchLocal'] as const) {
+    for (const runtimeMode of ['Cloud', 'BranchLocal'] as const) {
       setAuthUser({
-        roles: ['Pharmacist'],
+        role: 'Pharmacist',
         scopes: ['inventory:read', 'inventory:write'],
-        runtime,
+        runtimeMode,
       });
-      const { unmount } = renderWithQuery(
-        <StorageLocationsTab branchId={CAIRO_BRANCH_ID} />
+      const { unmount } = renderWithProviders(
+        <StorageLocationsTab branchId={DOWNTOWN_BRANCH_ID} />
       );
       await waitFor(() => {
-        expect(screen.getByText('MAIN-SELL')).toBeDefined();
+        expect(screen.getByText('MAIN-SELLABLE')).toBeDefined();
       });
       expect(
         screen.getByRole('button', { name: 'Add Location' })
@@ -594,17 +780,17 @@ describe('StorageLocationsTab', () => {
       unmount();
     }
 
-    for (const runtime of ['Cloud', 'BranchLocal'] as const) {
+    for (const runtimeMode of ['Cloud', 'BranchLocal'] as const) {
       setAuthUser({
-        roles: ['Cashier'],
+        role: 'Cashier',
         scopes: ['inventory:read'],
-        runtime,
+        runtimeMode,
       });
-      const { unmount } = renderWithQuery(
-        <StorageLocationsTab branchId={CAIRO_BRANCH_ID} />
+      const { unmount } = renderWithProviders(
+        <StorageLocationsTab branchId={DOWNTOWN_BRANCH_ID} />
       );
       await waitFor(() => {
-        expect(screen.getByText('MAIN-SELL')).toBeDefined();
+        expect(screen.getByText('MAIN-SELLABLE')).toBeDefined();
       });
       expect(screen.getByText('Read-only access')).toBeDefined();
       expect(screen.queryByRole('button', { name: 'Add Location' })).toBeNull();

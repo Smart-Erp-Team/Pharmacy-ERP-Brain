@@ -1,29 +1,42 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ChangeEvent } from 'react';
 import {
   useAllEmployeesQuery,
-  type EmployeeDto,
+  type Employee,
 } from '../../../features/employees';
-import {
-  useAllProductsQuery,
-  type ProductDto,
-} from '../../../features/products';
+import { useAllProductsQuery, type Product } from '../../../features/products';
 import { useAuth } from '../../../hooks/useAuth';
+import { isInventoryTransactionType } from '../../../lib/api/catalogInventoryNormalizers';
 import { ApiClientError } from '../../../lib/api/client';
+import { DEFAULT_PAGE_SIZE } from '../../../lib/api/pagination';
 import type {
-  InventoryBatchDto,
-  InventoryLocationDto,
-  InventoryTxnStatus,
-  InventoryTxnType,
+  InventoryLocation,
+  InventoryTransactionStatus,
+  InventoryTransactionType,
+  InventoryTxn,
 } from '../../../types/api';
 import { formatNumericDisplay } from '../schemas/inventoryAdjustmentSchema';
 import {
-  useAllInventoryBatchesQuery,
   useAllInventoryLocationsQuery,
-  useInventoryTransactionQuery,
   useInventoryTransactionsQuery,
 } from './useInventoryQueries';
 
-export const LEDGER_PAGE_SIZE = 20;
+export const LEDGER_PAGE_SIZE = DEFAULT_PAGE_SIZE;
+
+export const LEDGER_HEADERS = [
+  'Transaction No',
+  'Type',
+  'Status',
+  'Reason code',
+  'Posted at',
+  'Created by',
+] as const;
+
+export const NUMERIC_LINE_HEADERS = [
+  'Entered qty',
+  'Conversion',
+  'Delta (base)',
+  'Unit cost (base)',
+] as const;
 
 export const LEDGER_TXN_TYPE_OPTIONS = [
   { value: '', label: 'All types' },
@@ -37,22 +50,6 @@ export const LEDGER_TXN_TYPE_OPTIONS = [
   { value: 'SCRAP_OUT', label: 'Scrap out' },
   { value: 'REVERSAL', label: 'Reversal' },
 ] as const;
-
-const VALID_TXN_TYPES: ReadonlySet<string> = new Set<InventoryTxnType>([
-  'OPENING_BALANCE',
-  'ADJUSTMENT_IN',
-  'ADJUSTMENT_OUT',
-  'SALE_ISSUE',
-  'SALES_RETURN_IN',
-  'PURCHASE_RECEIPT',
-  'VENDOR_RETURN_OUT',
-  'SCRAP_OUT',
-  'REVERSAL',
-]);
-
-function isInventoryTxnType(value: string): value is InventoryTxnType {
-  return VALID_TXN_TYPES.has(value);
-}
 
 function normalizeDateBoundary(
   raw: string,
@@ -100,20 +97,19 @@ export function formatUtcTimestamp(value: string | null | undefined): string {
   return `${formatted} UTC`;
 }
 
-export function formatSignedDelta(value: string | null | undefined): string {
-  if (!value || !value.trim()) {
+export function formatSignedDelta(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
     return 'Unavailable';
   }
-  const trimmed = value.trim();
-  const formatted = formatNumericDisplay(trimmed);
+  const formatted = formatNumericDisplay(value);
   if (formatted === 'Unavailable') {
     return 'Unavailable';
   }
-  return trimmed.startsWith('-') ? formatted : `+${formatted}`;
+  return value > 0 ? `+${formatted}` : formatted;
 }
 
 export function getTxnStatusBadgeVariant(
-  status: InventoryTxnStatus
+  status: InventoryTransactionStatus
 ): 'success' | 'warning' | 'neutral' {
   switch (status) {
     case 'POSTED':
@@ -130,7 +126,7 @@ export function getTxnStatusBadgeVariant(
 }
 
 export function getTxnTypeBadgeVariant(
-  txnType: InventoryTxnType
+  txnType: InventoryTransactionType
 ): 'neutral' | 'success' | 'warning' | 'danger' | 'info' {
   switch (txnType) {
     case 'OPENING_BALANCE':
@@ -157,7 +153,6 @@ export function getTxnTypeBadgeVariant(
 export interface LedgerLookupFormatters {
   getProductLabel: (productId: string) => string;
   getLocationLabel: (locationId: string) => string;
-  getBatchLabel: (batchId: string) => string;
   getEmployeeLabel: (employeeId?: string | null) => string;
   getUomLabel: (productId: string, uomId: string) => string;
 }
@@ -168,100 +163,134 @@ export function buildLedgerTxnMetaRows(
     posted_at?: string | null;
     created_by_employee_id?: string;
     note?: string | null;
+    reverses_inventory_txn_id?: string | null;
   },
   getEmployeeLabel: (employeeId?: string | null) => string
 ) {
-  return [
-    { label: 'Reason code', value: txn.reason_code?.trim() || 'Unavailable' },
+  const rows: Array<{
+    label: string;
+    value: string;
+    wrapClass?: string;
+    valueClass: string;
+  }> = [
+    {
+      label: 'Reason code',
+      value: txn.reason_code?.trim() || 'Unavailable',
+      valueClass: 'text-body-sm text-text mt-1',
+    },
     {
       label: 'Posted at',
       value: txn.posted_at ? formatUtcTimestamp(txn.posted_at) : 'Unavailable',
+      valueClass: 'text-body-sm text-text mt-1',
     },
     {
       label: 'Created by',
       value: getEmployeeLabel(txn.created_by_employee_id),
+      valueClass: 'text-body-sm text-text mt-1',
     },
-    { label: 'Note', value: txn.note?.trim() || 'None' },
+    {
+      label: 'Note',
+      value: txn.note?.trim() || 'None',
+      valueClass: 'text-body-sm text-text mt-1',
+    },
   ];
+
+  if (txn.reverses_inventory_txn_id) {
+    rows.push({
+      label: 'Reverses transaction',
+      value: txn.reverses_inventory_txn_id,
+      wrapClass: 'col-span-2',
+      valueClass: 'text-body-sm text-text mt-1 font-mono',
+    });
+  }
+
+  return rows;
+}
+
+export function formatLedgerTxnLines(
+  txn: InventoryTxn,
+  lookups: LedgerLookupFormatters
+) {
+  return txn.lines.map((line) => ({
+    id: line.inventory_txn_line_id,
+    product: lookups.getProductLabel(line.product_id),
+    location: lookups.getLocationLabel(line.location_id),
+    batch: line.batch_number.trim() || 'Unavailable',
+    entered: `${formatNumericDisplay(line.entered_qty)} ${lookups.getUomLabel(
+      line.product_id,
+      line.product_uom_id
+    )}`,
+    conversion: formatNumericDisplay(line.conversion_snapshot),
+    delta: formatSignedDelta(line.quantity_delta_base),
+    cost: formatNumericDisplay(line.unit_cost_base),
+  }));
 }
 
 export interface UseLedgerHistoryStateOptions {
   branchId: string;
   pageSize?: number;
+  onRequestReversal?: (txn: InventoryTxn) => void;
 }
 
 export function useLedgerHistoryState({
   branchId,
-  pageSize = LEDGER_PAGE_SIZE,
+  pageSize = DEFAULT_PAGE_SIZE,
+  onRequestReversal,
 }: UseLedgerHistoryStateOptions) {
   const { hasRole, hasAnyRole, can, runtime } = useAuth();
   const canReadLedger =
     hasAnyRole(['Admin', 'Pharmacist']) && can('inventory:read');
   const canWriteAdjustments =
+    runtime === 'BranchLocal' &&
     hasAnyRole(['Admin', 'Pharmacist']) &&
-    can('inventory:write') &&
-    runtime === 'BranchLocal';
-  const canReadEmployees =
-    canReadLedger && hasRole('Admin') && can('user:admin');
+    can('inventory:write');
+  const isAdmin = canReadLedger && hasRole('Admin');
 
   const [prevBranchId, setPrevBranchId] = useState(branchId);
-  const [transactionType, setTransactionType] = useState<InventoryTxnType | ''>(
-    ''
-  );
+  const [transactionType, setTransactionType] = useState<
+    InventoryTransactionType | ''
+  >('');
   const [productId, setProductId] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
-  const [cursorStack, setCursorStack] = useState<(string | undefined)[]>([
-    undefined,
-  ]);
-  const [pageIndex, setPageIndex] = useState(0);
-  const [selectedTxnId, setSelectedTxnId] = useState<string | null>(null);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [page, setPage] = useState(1);
+  const [selectedTxn, setSelectedTxn] = useState<InventoryTxn | null>(null);
 
   if (branchId !== prevBranchId) {
     setPrevBranchId(branchId);
-    setCursorStack([undefined]);
-    setPageIndex(0);
-    setSelectedTxnId(null);
+    setPage(1);
+    setSelectedTxn(null);
   }
 
-  const normalizedFrom = normalizeDateBoundary(from, false);
-  const normalizedTo = normalizeDateBoundary(to, true);
+  const normalizedFromDate = normalizeDateBoundary(fromDate, false);
+  const normalizedToDate = normalizeDateBoundary(toDate, true);
 
   const transactionsQuery = useInventoryTransactionsQuery(
     {
-      branchId,
-      cursor: cursorStack[pageIndex],
-      limit: pageSize,
-      transactionType: transactionType || undefined,
-      productId: productId || undefined,
-      from: normalizedFrom,
-      to: normalizedTo,
+      branch_id: branchId,
+      type: transactionType || undefined,
+      product_id: productId || undefined,
+      from_date: normalizedFromDate,
+      to_date: normalizedToDate,
+      page,
+      page_size: pageSize,
     },
     { enabled: canReadLedger }
   );
 
-  const selectedTxnQuery = useInventoryTransactionQuery(selectedTxnId, {
-    enabled: canReadLedger && Boolean(selectedTxnId),
-  });
-
   const productsQuery = useAllProductsQuery(
-    { includeInactive: true },
+    { include_inactive: true },
     { enabled: canReadLedger }
   );
 
   const locationsQuery = useAllInventoryLocationsQuery(
-    { branchId, includeInactive: true },
-    { enabled: canReadLedger }
-  );
-
-  const batchesQuery = useAllInventoryBatchesQuery(
-    { branchId },
+    { branch_id: branchId, include_inactive: true },
     { enabled: canReadLedger }
   );
 
   const employeesQuery = useAllEmployeesQuery(
-    {},
-    { enabled: canReadEmployees }
+    { include_inactive: true },
+    { enabled: isAdmin }
   );
 
   const transactions = useMemo(
@@ -275,7 +304,7 @@ export function useLedgerHistoryState({
   );
 
   const productsById = useMemo(() => {
-    const map = new Map<string, ProductDto>();
+    const map = new Map<string, Product>();
     for (const item of products) {
       map.set(item.product_id, item);
     }
@@ -283,23 +312,15 @@ export function useLedgerHistoryState({
   }, [products]);
 
   const locationsById = useMemo(() => {
-    const map = new Map<string, InventoryLocationDto>();
+    const map = new Map<string, InventoryLocation>();
     for (const loc of locationsQuery.data ?? []) {
       map.set(loc.location_id, loc);
     }
     return map;
   }, [locationsQuery.data]);
 
-  const batchesById = useMemo(() => {
-    const map = new Map<string, InventoryBatchDto>();
-    for (const batch of batchesQuery.data ?? []) {
-      map.set(batch.batch_id, batch);
-    }
-    return map;
-  }, [batchesQuery.data]);
-
   const employeesById = useMemo(() => {
-    const map = new Map<string, EmployeeDto>();
+    const map = new Map<string, Employee>();
     for (const emp of employeesQuery.data ?? []) {
       map.set(emp.employee_id, emp);
     }
@@ -316,22 +337,12 @@ export function useLedgerHistoryState({
     return loc ? `${loc.name} (${loc.location_code})` : 'Unavailable';
   };
 
-  const getBatchLabel = (id: string): string => {
-    const batch = batchesById.get(id);
-    if (!batch) {
-      return 'Unavailable';
-    }
-    return batch.is_non_lot || batch.batch_number === 'NON-LOT'
-      ? 'NON-LOT'
-      : batch.batch_number;
-  };
-
   const getEmployeeLabel = (id: string | null | undefined): string => {
     const trimmed = id?.trim() ?? '';
     if (!trimmed) {
       return 'Unavailable';
     }
-    if (canReadEmployees) {
+    if (isAdmin) {
       const employee = employeesById.get(trimmed);
       if (employee) {
         return employee.full_name;
@@ -349,59 +360,51 @@ export function useLedgerHistoryState({
     return product?.base_uom_code ?? 'Unavailable';
   };
 
-  const resetPagination = () => {
-    setCursorStack([undefined]);
-    setPageIndex(0);
-  };
-
   const handleTransactionTypeChange = (nextValue: string) => {
-    setTransactionType(isInventoryTxnType(nextValue) ? nextValue : '');
-    resetPagination();
+    setTransactionType(isInventoryTransactionType(nextValue) ? nextValue : '');
+    setPage(1);
   };
 
   const handleProductChange = (nextProductId: string) => {
     setProductId(nextProductId);
-    resetPagination();
+    setPage(1);
   };
 
-  const handleFromChange = (nextFrom: string) => {
-    setFrom(nextFrom);
-    resetPagination();
+  const handleFromDateChange = (nextFrom: string) => {
+    setFromDate(nextFrom);
+    setPage(1);
   };
 
-  const handleToChange = (nextTo: string) => {
-    setTo(nextTo);
-    resetPagination();
+  const handleToDateChange = (nextTo: string) => {
+    setToDate(nextTo);
+    setPage(1);
   };
 
   const clearFilters = () => {
     setTransactionType('');
     setProductId('');
-    setFrom('');
-    setTo('');
-    resetPagination();
+    setFromDate('');
+    setToDate('');
+    setPage(1);
   };
+
+  const totalCount = transactionsQuery.data?.total_count ?? null;
+  const hasNextPage = (transactionsQuery.data?.next_cursor ?? null) !== null;
 
   const handlePageChange = (nextPage: number) => {
-    const nextIndex = nextPage - 1;
-    if (nextIndex < 0) {
+    if (nextPage < 1) {
       return;
     }
-    if (nextIndex < pageIndex && nextIndex < cursorStack.length) {
-      setPageIndex(nextIndex);
+    if (nextPage > page && !hasNextPage) {
       return;
     }
-    if (nextIndex === pageIndex + 1) {
-      const nextCursor = transactionsQuery.data?.nextCursor;
-      if (nextCursor) {
-        setCursorStack((prev) => [...prev.slice(0, nextIndex), nextCursor]);
-        setPageIndex(nextIndex);
-      }
-    }
+    setPage(nextPage);
   };
 
-  const hasActiveFilters = Boolean(transactionType || productId || from || to);
-  const hasNextPage = Boolean(transactionsQuery.data?.nextCursor);
+  const hasActiveFilters = Boolean(
+    transactionType || productId || fromDate || toDate
+  );
+
   const productOptions = useMemo(
     () => [
       { value: '', label: 'All products' },
@@ -416,93 +419,114 @@ export function useLedgerHistoryState({
   const lookups: LedgerLookupFormatters = {
     getProductLabel,
     getLocationLabel,
-    getBatchLabel,
     getEmployeeLabel,
     getUomLabel,
   };
-
-  const detailErrorMessage = selectedTxnQuery.isError
-    ? formatInventoryApiError(
-        selectedTxnQuery.error,
-        'Unable to load transaction details.'
-      )
-    : undefined;
 
   const filterSelects = [
     {
       label: 'Transaction type',
       options: LEDGER_TXN_TYPE_OPTIONS,
       value: transactionType,
-      onChange: handleTransactionTypeChange,
+      onChange: (e: ChangeEvent<HTMLSelectElement>) =>
+        handleTransactionTypeChange(e.target.value),
     },
     {
       label: 'Product',
       options: productOptions,
       value: productId,
-      onChange: handleProductChange,
+      onChange: (e: ChangeEvent<HTMLSelectElement>) =>
+        handleProductChange(e.target.value),
     },
   ];
 
   const filterDates = [
-    { label: 'From date', value: from, onChange: handleFromChange },
-    { label: 'To date', value: to, onChange: handleToChange },
+    {
+      label: 'From date',
+      value: fromDate,
+      onChange: (e: ChangeEvent<HTMLInputElement>) =>
+        handleFromDateChange(e.target.value),
+    },
+    {
+      label: 'To date',
+      value: toDate,
+      onChange: (e: ChangeEvent<HTMLInputElement>) =>
+        handleToDateChange(e.target.value),
+    },
   ];
 
   const detailModalProps = {
-    open: selectedTxnId !== null,
-    txn: selectedTxnQuery.data,
-    isLoading: selectedTxnQuery.isLoading,
-    isError: selectedTxnQuery.isError,
-    errorMessage: detailErrorMessage,
-    isRetrying: selectedTxnQuery.isFetching,
+    open: selectedTxn !== null,
+    txn: selectedTxn,
     canWriteAdjustments,
     lookups,
-    onRetry: () => {
-      void selectedTxnQuery.refetch();
+    onClose: () => setSelectedTxn(null),
+    onReverseTransaction: (txn: InventoryTxn) => {
+      setSelectedTxn(null);
+      onRequestReversal?.(txn);
     },
-    onClose: () => setSelectedTxnId(null),
   };
+
+  const paginationProps = {
+    page,
+    pageSize,
+    itemCount: totalCount,
+    hasNextPage,
+    onPageChange: handlePageChange,
+  };
+
+  const tableRows = transactions.map((txn) => ({
+    txn,
+    createdByLabel: getEmployeeLabel(txn.created_by_employee_id),
+  }));
 
   return {
     canReadLedger,
     canWriteAdjustments,
-    pageIndex,
+    page,
     pageSize,
+    totalCount,
     hasNextPage,
     hasActiveFilters,
     transactionType,
     productId,
-    from,
-    to,
-    selectedTxnId,
+    fromDate,
+    toDate,
+    selectedTxn,
     transactions,
+    tableRows,
     products,
     productOptions,
     filterSelects,
     filterDates,
     lookups,
     detailModalProps,
+    paginationProps,
     transactionsQuery,
-    selectedTxnQuery,
+    retryList: () => void transactionsQuery.refetch(),
     listErrorMessage: transactionsQuery.isError
       ? formatInventoryApiError(
           transactionsQuery.error,
           'Unable to load inventory ledger history.'
         )
       : undefined,
-    detailErrorMessage,
+    emptyTitle: hasActiveFilters
+      ? 'No matching ledger transactions'
+      : 'No ledger transactions',
+    emptyDescription: hasActiveFilters
+      ? 'Adjust or clear the ledger filters to see transactions.'
+      : 'No inventory ledger transactions have been recorded for this branch yet.',
     getProductLabel,
     getLocationLabel,
-    getBatchLabel,
     getEmployeeLabel,
     getUomLabel,
     handleTransactionTypeChange,
     handleProductChange,
-    handleFromChange,
-    handleToChange,
+    handleFromDateChange,
+    handleToDateChange,
     clearFilters,
     handlePageChange,
-    openDetailModal: (txnId: string) => setSelectedTxnId(txnId),
-    closeDetailModal: () => setSelectedTxnId(null),
+    openDetailModal: (txn: InventoryTxn) => setSelectedTxn(txn),
+    closeDetailModal: () => setSelectedTxn(null),
   };
 }

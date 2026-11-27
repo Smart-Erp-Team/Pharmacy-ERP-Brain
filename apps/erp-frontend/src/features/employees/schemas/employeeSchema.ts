@@ -6,9 +6,9 @@ import {
   toAddressDto,
 } from '../../../lib/schemas/addressSchema';
 import type {
-  EmployeeDto,
-  EmployeePatchRequest,
-  EmployeeRequest,
+  CreateEmployeeRequest,
+  Employee,
+  UpdateEmployeeRequest,
 } from '../../../types/api';
 
 function isValidIsoDate(value: string): boolean {
@@ -37,7 +37,14 @@ const optionalEmailSchema = z
   );
 
 export const employeeFormSchema = z.object({
-  branch_id: z.string().trim().min(1, 'Home branch is required'),
+  branch_id: z
+    .string()
+    .trim()
+    .min(1, 'Home branch is required')
+    .refine(
+      (value) => value === '' || z.string().uuid().safeParse(value).success,
+      'Home branch must be a valid UUID'
+    ),
   employee_no: z
     .string()
     .trim()
@@ -51,6 +58,7 @@ export const employeeFormSchema = z.object({
   job_title: z
     .string()
     .trim()
+    .min(1, 'Job title is required')
     .max(80, 'Job title must be at most 80 characters'),
   email: optionalEmailSchema,
   phone: z
@@ -84,13 +92,13 @@ export const DEFAULT_EMPLOYEE_FORM_VALUES: EmployeeFormValues = {
 };
 
 export function employeeDtoToFormValues(
-  employee: EmployeeDto
+  employee: Employee
 ): EmployeeFormValues {
   return {
     branch_id: employee.branch_id,
     employee_no: employee.employee_no,
     full_name: employee.full_name,
-    job_title: employee.job_title ?? '',
+    job_title: employee.job_title,
     email: employee.email ?? '',
     phone: employee.phone ?? '',
     hired_on: employee.hired_on,
@@ -106,31 +114,27 @@ function normalizeOptionalString(value: string): string | null {
 
 export function toEmployeeCreatePayload(
   values: EmployeeFormValues
-): EmployeeRequest {
+): CreateEmployeeRequest {
   return {
     branch_id: values.branch_id.trim(),
     employee_no: values.employee_no.trim(),
     full_name: values.full_name.trim(),
-    job_title: normalizeOptionalString(values.job_title),
+    job_title: values.job_title.trim(),
     email: normalizeOptionalString(values.email),
     phone: normalizeOptionalString(values.phone),
     hired_on: values.hired_on.trim(),
-    is_active: values.is_active,
     address: toAddressDto(values.address),
   };
 }
 
 export function toEmployeePatchPayload(
   values: EmployeeFormValues
-): EmployeePatchRequest {
+): UpdateEmployeeRequest {
   return {
-    branch_id: values.branch_id.trim(),
-    employee_no: values.employee_no.trim(),
     full_name: values.full_name.trim(),
-    job_title: normalizeOptionalString(values.job_title),
+    job_title: values.job_title.trim(),
     email: normalizeOptionalString(values.email),
     phone: normalizeOptionalString(values.phone),
-    hired_on: values.hired_on.trim(),
     is_active: values.is_active,
     address: toAddressDto(values.address),
   };

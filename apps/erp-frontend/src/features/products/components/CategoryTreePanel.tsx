@@ -4,7 +4,7 @@ import { Button } from '../../../components/ui/Button';
 import { Card, CardHeader } from '../../../components/ui/Card';
 import { EmptyState } from '../../../components/ui/EmptyState';
 import { Skeleton } from '../../../components/ui/Skeleton';
-import type { ProductCategoryDto } from '../../../types/api';
+import type { ProductCategory } from '../../../types/api';
 import type { CategoryTreeNode as CategoryTreeNodeModel } from '../schemas/categorySchema';
 import { CategoryTreeNode } from './CategoryTreeNode';
 
@@ -18,7 +18,7 @@ export interface CategoryTreePanelProps {
   onRetry: () => void;
   onSelectCategory: (categoryId: string) => void;
   onAddCategory: () => void;
-  onEditCategory: (category: ProductCategoryDto) => void;
+  onEditCategory: (category: ProductCategory) => void;
 }
 
 export function CategoryTreePanel({

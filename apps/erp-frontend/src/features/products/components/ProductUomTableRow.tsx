@@ -3,27 +3,26 @@ import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { TableCell, TableRow } from '../../../components/ui/Table';
 import { Toggle } from '../../../components/ui/Toggle';
-import type { ProductUomDto } from '../../../types/api';
+import type { ProductUom } from '../../../types/api';
 
 export interface ProductUomTableRowProps {
-  uom: ProductUomDto;
+  uom: ProductUom;
   canWrite: boolean;
   isToggling: boolean;
-  onToggleActive: (uom: ProductUomDto, next: boolean) => void;
-  onEdit: (uom: ProductUomDto) => void;
+  onToggleActive: (uom: ProductUom, next: boolean) => void;
+  onEdit: (uom: ProductUom) => void;
 }
 
-const fmtFactor = (v: string) => {
-  const c = v.trim().includes('.') ? v.trim().replace(/\.?0+$/, '') : v.trim();
-  return c.startsWith('.') ? `0${c}` : c;
-};
+const fmtFactor = (value: number): string =>
+  Number.isFinite(value) ? String(Number(value.toPrecision(12))) : '—';
 
-const fmtPrice = (v: string | null | undefined): string | null => {
-  const t = v?.trim() ?? '';
-  if (!t) return null;
-  const [rawInt = '0', frac = ''] = t.split('.');
-  const i = rawInt.replace(/^0+(?=\d)/, '') || '0';
-  return `EGP ${i}.${frac.slice(0, 2).padEnd(2, '0')}${frac.slice(2).replace(/0+$/, '')}`;
+const fmtPrice = (value: number | null | undefined): string | null => {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return null;
+  }
+  const clean = String(Number(value.toPrecision(12)));
+  const [intPart = '0', fracPart = ''] = clean.split('.');
+  return `EGP ${intPart}.${fracPart.length <= 2 ? fracPart.padEnd(2, '0') : fracPart}`;
 };
 
 export function ProductUomTableRow({

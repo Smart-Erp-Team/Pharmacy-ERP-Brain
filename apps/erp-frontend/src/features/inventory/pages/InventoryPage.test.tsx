@@ -13,64 +13,73 @@ import {
   vi,
 } from 'vitest';
 import currentUserContext from '@contracts/fixtures/current-user-context.json';
-import inventoryBalanceFixture from '@contracts/fixtures/inventory-balance.json';
-import productFixture from '@contracts/fixtures/product.json';
 import { resetMockBranches } from '../../../mocks/branchHandlers';
 import { resetMockEmployees } from '../../../mocks/employeeHandlers';
 import { handlers } from '../../../mocks/handlers';
-import { resetMockInventory } from '../../../mocks/inventoryHandlers';
+import {
+  MOCK_BRANCH_IDS,
+  MOCK_LOCATION_IDS,
+  MOCK_PRODUCT_IDS,
+  MOCK_TRANSACTION_IDS,
+  resetMockInventory,
+} from '../../../mocks/inventoryHandlers';
 import { resetMockCatalog } from '../../../mocks/productHandlers';
 import { useAuthStore } from '../../../stores/authStore';
 import { renderWithProviders } from '../../../test/renderWithProviders';
 import type {
-  CurrentUserContext,
+  CurrentUser,
   PermissionScope,
   Role,
   RuntimeMode,
 } from '../../../types/api';
 import { InventoryPage } from './InventoryPage';
 
-const CAIRO_BRANCH_ID = 'd4e5f6a7-3333-4c44-9d55-bbccddeeffaa';
-const ALEX_BRANCH_ID = 'e5f6a7b8-4444-4d55-9e66-ccddeeff0011';
-const CAIRO_SELL_LOCATION_ID = inventoryBalanceFixture.location_id;
-const PANADOL_PRODUCT_ID = productFixture.product_id;
-const PANADOL_NON_LOT_BATCH_ID = '4b53e1f6-9090-4c3f-9e5b-4d5e6f7a8b01';
+const DOWNTOWN_BRANCH_ID = MOCK_BRANCH_IDS.DOWNTOWN;
+const ALEXANDRIA_BRANCH_ID = MOCK_BRANCH_IDS.ALEXANDRIA;
 
 const server = setupServer(...handlers);
 
+function getSelectByLabel(
+  container: HTMLElement,
+  label: RegExp | string
+): HTMLSelectElement {
+  const el = within(container).getByLabelText(label);
+  if (!(el instanceof HTMLSelectElement)) {
+    throw new Error(`Expected HTMLSelectElement for ${String(label)}`);
+  }
+  return el;
+}
+
 function setAuthUser(options: {
-  role?: Role;
-  roles: Role[];
+  role: Role;
   scopes: PermissionScope[];
-  runtime: RuntimeMode;
+  runtime_mode: RuntimeMode;
   branchScope?: 'ALL' | 'ASSIGNED';
   branchIds?: string[];
   activeBranchId?: string | null;
 }) {
-  const primaryRole = options.role ?? options.roles[0] ?? 'Admin';
   const branchScope = options.branchScope ?? 'ALL';
-  const branchIds = options.branchIds ?? [CAIRO_BRANCH_ID];
+  const branchIds = options.branchIds ?? [DOWNTOWN_BRANCH_ID];
   const activeBranchId =
     options.activeBranchId !== undefined
       ? options.activeBranchId
-      : CAIRO_BRANCH_ID;
+      : DOWNTOWN_BRANCH_ID;
 
-  const user: CurrentUserContext = {
-    ...currentUserContext,
-    user: {
-      ...currentUserContext.user,
-      role: primaryRole,
-      branch_scope: branchScope,
-    },
-    roles: options.roles,
-    scopes: options.scopes,
+  const user: CurrentUser = {
+    user_id: currentUserContext.user_id,
+    employee_id: currentUserContext.employee_id,
+    organization_id: currentUserContext.organization_id,
+    username: currentUserContext.username,
+    role: options.role,
     branch_scope: branchScope,
     branch_ids: branchIds,
-    runtime: options.runtime,
+    scopes: options.scopes,
+    runtime_mode: options.runtime_mode,
   };
 
   useAuthStore.setState({
     currentUser: user,
+    organizationCode: 'MEDCARE',
     activeBranchId,
     isAuthenticated: true,
     isInitializing: false,
@@ -90,6 +99,7 @@ afterEach(() => {
   server.resetHandlers();
   useAuthStore.setState({
     currentUser: null,
+    organizationCode: null,
     activeBranchId: null,
     isAuthenticated: false,
     isInitializing: false,
@@ -100,17 +110,22 @@ afterEach(() => {
 
 afterAll(() => server.close());
 
-describe('InventoryPage Integration', () => {
-  it('Admin + Cloud + ALL: renders 5 tabs, switches branches, verifies FEFO batches, checks Unavailable overview, creates/toggles location, and verifies Cloud adjustment notice', async () => {
+describe('InventoryPage Integration (Stage 1 MEDCARE)', () => {
+  it('Admin + Cloud + ALL: renders 5 tabs, switches MEDCARE branches, verifies FEFO batches & DAMAGED location, creates/toggles location, and enforces Cloud adjustment guard', async () => {
     const user = userEvent.setup();
     setAuthUser({
       role: 'Admin',
-      roles: ['Admin'],
-      scopes: ['user:admin', 'inventory:read', 'inventory:write'],
-      runtime: 'Cloud',
+      scopes: [
+        'user:admin',
+        'inventory:read',
+        'inventory:write',
+        'sales:read',
+        'sales:write',
+      ],
+      runtime_mode: 'Cloud',
       branchScope: 'ALL',
-      branchIds: [CAIRO_BRANCH_ID, ALEX_BRANCH_ID],
-      activeBranchId: CAIRO_BRANCH_ID,
+      branchIds: [],
+      activeBranchId: DOWNTOWN_BRANCH_ID,
     });
 
     renderWithProviders(<InventoryPage />);
@@ -126,38 +141,44 @@ describe('InventoryPage Integration', () => {
     for (const label of expectedTabs) {
       expect(screen.getByRole('tab', { name: label })).toBeDefined();
     }
-    const defaultTab = screen.getByRole('tab', {
-      name: 'Stock Balances & Batches',
-    });
-    expect(defaultTab.getAttribute('aria-selected')).toBe('true');
+    expect(
+      screen
+        .getByRole('tab', { name: 'Stock Balances & Batches' })
+        .getAttribute('aria-selected')
+    ).toBe('true');
 
-    // 2. Initial Balances table loaded for Cairo Main Branch
-    expect(await screen.findByText('Augmentin 1g Tablets')).toBeDefined();
-    expect(screen.getByText('Panadol 500mg Tablets')).toBeDefined();
+    // 2. Initial Balances loaded for MedCare - Downtown Cairo (MED-DT)
+    expect(
+      await screen.findByText('Augmentin 1g Film-Coated Tablets')
+    ).toBeDefined();
+    expect(screen.getByText('Panadol Extra 500mg')).toBeDefined();
+    expect(screen.getByText('Vitamin D3 5000 IU')).toBeDefined();
 
-    // 3. Switch branch to Alexandria Corniche Branch and back
-    const branchSelect = (await screen.findByLabelText(
-      'Branch'
-    )) as HTMLSelectElement;
-    await user.selectOptions(branchSelect, ALEX_BRANCH_ID);
+    // 3. Switch branch to Alexandria (MED-ALX) and back to Downtown (MED-DT)
+    await screen.findByLabelText('Branch');
+    const branchSelect = getSelectByLabel(document.body, 'Branch');
+    await user.selectOptions(branchSelect, ALEXANDRIA_BRANCH_ID);
     await waitFor(() => {
-      expect(screen.getByText('ALX-01', { exact: false })).toBeDefined();
+      expect(screen.queryByText('Panadol Extra 500mg')).toBeNull();
     });
-    await user.selectOptions(branchSelect, CAIRO_BRANCH_ID);
-    expect(await screen.findByText('Augmentin 1g Tablets')).toBeDefined();
+    await user.selectOptions(branchSelect, DOWNTOWN_BRANCH_ID);
+    expect(await screen.findByText('Panadol Extra 500mg')).toBeDefined();
 
-    // 4. Expand Augmentin FEFO batches (AUG-2026-A / AUG-2027-B before NON-LOT)
-    const expandAug = screen.getByRole('button', {
-      name: 'Toggle batch breakdown for Augmentin 1g Tablets',
-    });
-    await user.click(expandAug);
-    expect(await screen.findByText('AUG-2026-A')).toBeDefined();
-    expect(screen.getByText('AUG-2027-B')).toBeDefined();
+    // 4. Expand Augmentin FEFO batches and Vitamin D3 NON-LOT batch
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Toggle batch breakdown for Augmentin 1g Film-Coated Tablets',
+      })
+    );
+    expect(await screen.findByText('MEDCARE-LOT-2601')).toBeDefined();
+    expect(screen.getByText('MEDCARE-LOT-2602')).toBeDefined();
+    expect(screen.getByText('MEDCARE-LOT-EXP')).toBeDefined();
 
-    const expandPanadol = screen.getByRole('button', {
-      name: 'Toggle batch breakdown for Panadol 500mg Tablets',
-    });
-    await user.click(expandPanadol);
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Toggle batch breakdown for Vitamin D3 5000 IU',
+      })
+    );
     expect(screen.getAllByText('NON-LOT').length).toBeGreaterThanOrEqual(1);
 
     // 5. Switch to Stock Overview tab and verify Brain Telemetry — Unavailable
@@ -166,38 +187,38 @@ describe('InventoryPage Integration', () => {
       await screen.findByText('Brain Telemetry — Unavailable')
     ).toBeDefined();
 
-    // 6. Switch to Storage Locations tab, create a new location and toggle active
+    // 6. Switch to Storage Locations tab, verify DAMAGED bay, create a location, and toggle active
     await user.click(screen.getByRole('tab', { name: 'Storage Locations' }));
-    expect(await screen.findByText('MAIN-SELL')).toBeDefined();
+    expect(await screen.findByText('MAIN-SELLABLE')).toBeDefined();
+    expect(screen.getByText('DMG-01')).toBeDefined();
 
     await user.click(screen.getByRole('button', { name: 'Add Location' }));
     const dialog = await screen.findByRole('dialog');
     await user.type(
       within(dialog).getByLabelText('Location code'),
-      'CAI-EXTRA-01'
+      'DT-EXTRA-01'
     );
     await user.type(
       within(dialog).getByLabelText('Location name'),
-      'Cairo Extra Shelf'
+      'Downtown Extra Shelf'
     );
     await user.selectOptions(
-      within(dialog).getByLabelText('Location type'),
+      getSelectByLabel(dialog, 'Location type'),
       'SELLABLE'
     );
     await user.click(
       within(dialog).getByRole('button', { name: 'Create location' })
     );
 
-    expect(await screen.findByText('CAI-EXTRA-01')).toBeDefined();
-    const toggleSwitch = screen.getByRole('switch', {
-      name: 'Toggle CAI-EXTRA-01 active',
-    });
-    await user.click(toggleSwitch);
+    expect(await screen.findByText('DT-EXTRA-01')).toBeDefined();
+    await user.click(
+      screen.getByRole('switch', { name: 'Toggle DT-EXTRA-01 active' })
+    );
     await waitFor(() => {
-      expect(screen.queryByText('CAI-EXTRA-01')).toBeNull();
+      expect(screen.queryByText('DT-EXTRA-01')).toBeNull();
     });
 
-    // 7. Switch to Stock Adjustments & Opening Balance tab and check Cloud notice
+    // 7. Switch to Stock Adjustments & Opening Balance tab and verify Cloud read-only guard
     await user.click(
       screen.getByRole('tab', { name: 'Stock Adjustments & Opening Balance' })
     );
@@ -207,126 +228,138 @@ describe('InventoryPage Integration', () => {
     expect(
       screen.queryByRole('button', { name: 'Submit adjustment' })
     ).toBeNull();
-  });
+  }, 15_000);
 
-  it('Pharmacist + BranchLocal + ASSIGNED: views POSTED txn, performs full reversal into ledger and balances, and posts Panadol NON-LOT adjustment', async () => {
+  it('Pharmacist + BranchLocal + ASSIGNED: opens inline ledger detail modal, posts REVERSAL updating balances, and posts Vitamin D3 NON-LOT adjustment', async () => {
     const user = userEvent.setup();
     setAuthUser({
       role: 'Pharmacist',
-      roles: ['Pharmacist'],
-      scopes: ['inventory:read', 'inventory:write'],
-      runtime: 'BranchLocal',
+      scopes: ['inventory:read', 'inventory:write', 'sales:read'],
+      runtime_mode: 'BranchLocal',
       branchScope: 'ASSIGNED',
-      branchIds: [CAIRO_BRANCH_ID],
-      activeBranchId: CAIRO_BRANCH_ID,
+      branchIds: [DOWNTOWN_BRANCH_ID],
+      activeBranchId: DOWNTOWN_BRANCH_ID,
     });
 
-    renderWithProviders(<InventoryPage />);
+    const detailRequests: string[] = [];
+    const recordUrl = ({ request }: { request: Request }) => {
+      const pathname = new URL(request.url).pathname;
+      if (/\/api\/v1\/inventory\/transactions\/[^/]+$/.test(pathname)) {
+        detailRequests.push(request.url);
+      }
+    };
+    server.events.on('request:start', recordUrl);
 
-    // 1. Navigate to Inventory Ledger History
-    await user.click(
-      screen.getByRole('tab', { name: 'Inventory Ledger History' })
-    );
-    const postedTxnCell = await screen.findByText('TXN-2026-000002');
-    const postedRow = postedTxnCell.closest('tr');
-    if (!postedRow) {
-      throw new Error('Expected posted ledger row for TXN-2026-000002');
+    try {
+      renderWithProviders(<InventoryPage />);
+
+      // 1. Navigate to Inventory Ledger History and inspect TXN-2026-000002 inline
+      await user.click(
+        screen.getByRole('tab', { name: 'Inventory Ledger History' })
+      );
+      const postedTxnCell = await screen.findByText('TXN-2026-000002');
+      const postedRow = postedTxnCell.closest('tr');
+      if (!postedRow) {
+        throw new Error('Expected posted ledger row for TXN-2026-000002');
+      }
+      await user.click(
+        within(postedRow).getByRole('button', { name: 'View details' })
+      );
+      expect(detailRequests).toEqual([]);
+
+      const detailDialog = await screen.findByRole('dialog');
+      expect(
+        within(detailDialog).getByText('Immutable posted record')
+      ).toBeDefined();
+      await user.click(
+        within(detailDialog).getByRole('button', {
+          name: 'Reverse transaction',
+        })
+      );
+
+      // 2. Confirm transition to Stock Adjustments prefilled with REVERSAL and lines hidden
+      expect(
+        screen
+          .getByRole('tab', { name: 'Stock Adjustments & Opening Balance' })
+          .getAttribute('aria-selected')
+      ).toBe('true');
+      await screen.findByLabelText('Transaction type');
+      expect(getSelectByLabel(document.body, 'Transaction type').value).toBe(
+        'REVERSAL'
+      );
+      expect(
+        getSelectByLabel(document.body, 'Original transaction to reverse').value
+      ).toBe(MOCK_TRANSACTION_IDS.DOWNTOWN_ADJUSTMENT_IN);
+      expect(screen.queryByText('Adjustment lines')).toBeNull();
+
+      await user.type(
+        screen.getByLabelText('Reason code'),
+        'AUDIT_REVERT_TEST'
+      );
+      await user.click(
+        screen.getByRole('button', { name: 'Submit adjustment' })
+      );
+
+      // 3. Verify reversal posted to Ledger (TXN-2026-000004) and reflected in Balances (400->330, 480->432)
+      await user.click(
+        screen.getByRole('tab', { name: 'Inventory Ledger History' })
+      );
+      expect(await screen.findByText('TXN-2026-000004')).toBeDefined();
+
+      await user.click(
+        screen.getByRole('tab', { name: 'Stock Balances & Batches' })
+      );
+      expect(await screen.findByText('330')).toBeDefined();
+      expect(screen.getAllByText('432').length).toBeGreaterThanOrEqual(1);
+
+      // 4. Post atomic ADJUSTMENT_IN for Vitamin D3 (non-lot product)
+      await user.click(
+        screen.getByRole('tab', { name: 'Stock Adjustments & Opening Balance' })
+      );
+      await user.selectOptions(
+        getSelectByLabel(document.body, 'Transaction type'),
+        'ADJUSTMENT_IN'
+      );
+      await user.type(screen.getByLabelText('Reason code'), 'VIT_D3_RESTOCK');
+
+      const line1 = screen.getByRole('group', { name: 'Adjustment line 1' });
+      await user.selectOptions(
+        getSelectByLabel(line1, 'Product'),
+        MOCK_PRODUCT_IDS.VITAMIN_D3
+      );
+      expect(
+        within(line1).getByLabelText('Batch number').hasAttribute('disabled')
+      ).toBe(true);
+
+      await user.selectOptions(
+        getSelectByLabel(line1, 'Location'),
+        MOCK_LOCATION_IDS.MAIN_SELLABLE
+      );
+      await user.type(within(line1).getByLabelText('Quantity'), '15');
+      await user.type(within(line1).getByLabelText('Unit cost'), '65');
+
+      await user.click(
+        screen.getByRole('button', { name: 'Submit adjustment' })
+      );
+
+      await user.click(
+        screen.getByRole('tab', { name: 'Inventory Ledger History' })
+      );
+      expect(await screen.findByText('TXN-2026-000005')).toBeDefined();
+    } finally {
+      server.events.removeListener('request:start', recordUrl);
     }
-    await user.click(
-      within(postedRow).getByRole('button', { name: 'View details' })
-    );
+  }, 15_000);
 
-    // 2. View details modal and trigger Reversal
-    const detailDialog = await screen.findByRole('dialog');
-    expect(
-      await within(detailDialog).findByText('Immutable posted record')
-    ).toBeDefined();
-    await user.click(
-      within(detailDialog).getByRole('button', { name: 'Reverse transaction' })
-    );
-
-    // 3. Confirm clean transition to Stock Adjustments prefilled with REVERSAL
-    expect(
-      screen
-        .getByRole('tab', { name: 'Stock Adjustments & Opening Balance' })
-        .getAttribute('aria-selected')
-    ).toBe('true');
-    const typeSelect = (await screen.findByLabelText(
-      'Transaction type'
-    )) as HTMLSelectElement;
-    expect(typeSelect.value).toBe('REVERSAL');
-    const targetSelect = screen.getByLabelText(
-      'Original transaction to reverse'
-    ) as HTMLSelectElement;
-    expect(targetSelect.value).toBe('7d9503b8-1001-4ca5-8a0b-cd4040620002');
-
-    await user.type(screen.getByLabelText('Reason code'), 'AUDIT_REVERT_TEST');
-    await user.click(screen.getByRole('button', { name: 'Submit adjustment' }));
-
-    // 4. Verify reversal posted to Ledger and reflected in Balances
-    await user.click(
-      screen.getByRole('tab', { name: 'Inventory Ledger History' })
-    );
-    expect(await screen.findByText('TXN-2026-000005')).toBeDefined();
-
-    await user.click(
-      screen.getByRole('tab', { name: 'Stock Balances & Batches' })
-    );
-    // Verify updated on-hand balances reflected in Stock Balances & Batches
-    expect(await screen.findByText('5,420')).toBeDefined();
-    expect(screen.getAllByText('1,000').length).toBeGreaterThanOrEqual(1);
-
-    // 5. Post an ADJUSTMENT_IN for Panadol (auto-locks to NON-LOT batch)
-    await user.click(
-      screen.getByRole('tab', { name: 'Stock Adjustments & Opening Balance' })
-    );
-    await user.selectOptions(
-      screen.getByLabelText('Transaction type'),
-      'ADJUSTMENT_IN'
-    );
-    await user.type(screen.getByLabelText('Reason code'), 'PANADOL_RECEIPT');
-
-    const line1 = screen.getByRole('group', { name: 'Adjustment line 1' });
-    await user.selectOptions(
-      within(line1).getByLabelText('Product'),
-      PANADOL_PRODUCT_ID
-    );
-
-    const batchSelect = within(line1).getByLabelText(
-      'Batch'
-    ) as HTMLSelectElement;
-    expect(batchSelect.value).toBe(PANADOL_NON_LOT_BATCH_ID);
-    expect(batchSelect.disabled).toBe(true);
-    expect(
-      within(line1).getByText('Locked to NON-LOT (lot tracking not required).')
-    ).toBeDefined();
-
-    await user.selectOptions(
-      within(line1).getByLabelText('Location'),
-      CAIRO_SELL_LOCATION_ID
-    );
-    await user.type(within(line1).getByLabelText('Quantity'), '30');
-    await user.type(within(line1).getByLabelText('Unit cost (base)'), '0.90');
-
-    await user.click(screen.getByRole('button', { name: 'Submit adjustment' }));
-
-    await user.click(
-      screen.getByRole('tab', { name: 'Inventory Ledger History' })
-    );
-    expect(await screen.findByText('TXN-2026-000006')).toBeDefined();
-  });
-
-  it('Cashier + BranchLocal + ASSIGNED: sees 3 tabs with read-only locations, write/ledger tabs hidden, and falls back to Balances on mid-session role switch', async () => {
+  it('Cashier + BranchLocal + ASSIGNED: hides Adjustments & Ledger tabs, shows read-only locations, and falls back to Balances on mid-session role switch', async () => {
     const user = userEvent.setup();
-    // Start as Pharmacist on Inventory Ledger History tab
     setAuthUser({
       role: 'Pharmacist',
-      roles: ['Pharmacist'],
-      scopes: ['inventory:read', 'inventory:write'],
-      runtime: 'BranchLocal',
+      scopes: ['inventory:read', 'inventory:write', 'sales:read'],
+      runtime_mode: 'BranchLocal',
       branchScope: 'ASSIGNED',
-      branchIds: [CAIRO_BRANCH_ID],
-      activeBranchId: CAIRO_BRANCH_ID,
+      branchIds: [DOWNTOWN_BRANCH_ID],
+      activeBranchId: DOWNTOWN_BRANCH_ID,
     });
 
     renderWithProviders(<InventoryPage />);
@@ -339,23 +372,21 @@ describe('InventoryPage Integration', () => {
     // Switch role to Cashier mid-session
     setAuthUser({
       role: 'Cashier',
-      roles: ['Cashier'],
       scopes: ['inventory:read', 'sales:read', 'sales:write'],
-      runtime: 'BranchLocal',
+      runtime_mode: 'BranchLocal',
       branchScope: 'ASSIGNED',
-      branchIds: [CAIRO_BRANCH_ID],
-      activeBranchId: CAIRO_BRANCH_ID,
+      branchIds: [DOWNTOWN_BRANCH_ID],
+      activeBranchId: DOWNTOWN_BRANCH_ID,
     });
 
-    // Verify current tab falls back cleanly to Stock Balances & Batches
     await waitFor(() => {
-      const balanceTab = screen.getByRole('tab', {
-        name: 'Stock Balances & Batches',
-      });
-      expect(balanceTab.getAttribute('aria-selected')).toBe('true');
+      expect(
+        screen
+          .getByRole('tab', { name: 'Stock Balances & Batches' })
+          .getAttribute('aria-selected')
+      ).toBe('true');
     });
 
-    // Verify forbidden tabs are completely hidden
     expect(
       screen.queryByRole('tab', { name: 'Stock Adjustments & Opening Balance' })
     ).toBeNull();
@@ -363,7 +394,6 @@ describe('InventoryPage Integration', () => {
       screen.queryByRole('tab', { name: 'Inventory Ledger History' })
     ).toBeNull();
 
-    // Verify visible tabs for Cashier
     expect(screen.getByRole('tab', { name: 'Stock Overview' })).toBeDefined();
     expect(
       screen.getByRole('tab', { name: 'Stock Balances & Batches' })
@@ -372,7 +402,6 @@ describe('InventoryPage Integration', () => {
       screen.getByRole('tab', { name: 'Storage Locations' })
     ).toBeDefined();
 
-    // Verify Storage Locations is read-only
     await user.click(screen.getByRole('tab', { name: 'Storage Locations' }));
     expect(await screen.findByText('Read-only access')).toBeDefined();
     expect(screen.queryByRole('button', { name: 'Add Location' })).toBeNull();

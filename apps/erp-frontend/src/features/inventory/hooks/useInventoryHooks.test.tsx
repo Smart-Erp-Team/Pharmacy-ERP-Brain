@@ -15,59 +15,55 @@ import {
   vi,
 } from 'vitest';
 import inventoryBalanceFixture from '@contracts/fixtures/inventory-balance.json';
-import productFixture from '@contracts/fixtures/product.json';
 import { ApiClientError, apiClient } from '../../../lib/api/client';
 import {
-  INITIAL_INVENTORY_BALANCES,
-  INITIAL_INVENTORY_BATCHES,
-  INITIAL_INVENTORY_LOCATIONS,
-  INITIAL_INVENTORY_TXNS,
+  INITIAL_BALANCES,
+  INITIAL_BATCHES,
+  INITIAL_LOCATIONS,
+  INITIAL_TRANSACTIONS,
   inventoryHandlers,
+  MOCK_BATCH_IDS,
+  MOCK_BRANCH_IDS,
+  MOCK_EMPLOYEE_IDS,
+  MOCK_LOCATION_IDS,
+  MOCK_PRODUCT_IDS,
+  MOCK_PRODUCT_UOM_IDS,
+  MOCK_TRANSACTION_IDS,
+  ORGANIZATION_ID,
   resetMockInventory,
 } from '../../../mocks/inventoryHandlers';
-import type { InventoryLocationDto, InventoryTxnDto } from '../../../types/api';
+import type {
+  CreateInventoryAdjustmentRequest,
+  CreateInventoryLocationRequest,
+  InventoryTxn,
+} from '../../../types/api';
 import {
-  cancelInventoryAdjustment,
+  createInventoryAdjustment,
   createInventoryLocation,
-  getInventoryLocation,
-  getInventoryTransaction,
+  getInventorySummary,
   listInventoryBalances,
   listInventoryBatches,
   listInventoryLocations,
   listInventoryTransactions,
-  patchInventoryAdjustment,
   patchInventoryLocation,
-  postInventoryAdjustment,
-  postInventoryAdjustmentById,
 } from '../api/inventoryApi';
 import { inventoryKeys } from './inventoryKeys';
 import {
-  useCancelInventoryAdjustmentMutation,
+  useCreateInventoryAdjustmentMutation,
   useCreateInventoryLocationMutation,
-  usePatchInventoryAdjustmentMutation,
   usePatchInventoryLocationMutation,
-  usePostInventoryAdjustmentByIdMutation,
-  usePostInventoryAdjustmentMutation,
 } from './useInventoryMutations';
 import {
+  useAllInventoryBalancesQuery,
+  useAllInventoryBatchesQuery,
+  useAllInventoryLocationsQuery,
+  useAllInventoryTransactionsQuery,
   useInventoryBalancesQuery,
   useInventoryBatchesQuery,
-  useInventoryLocationQuery,
   useInventoryLocationsQuery,
-  useInventoryTransactionQuery,
+  useInventorySummaryQuery,
   useInventoryTransactionsQuery,
 } from './useInventoryQueries';
-
-const CAIRO_BRANCH_ID = inventoryBalanceFixture.branch_id;
-const ALEX_BRANCH_ID = 'e5f6a7b8-4444-4d55-9e66-ccddeeff0011';
-const AUGMENTIN_ID = inventoryBalanceFixture.product_id;
-const AUGMENTIN_BOX_UOM_ID = 'c1d2e3f4-1111-4aaa-8a1b-111111110002';
-const AUGMENTIN_BASE_UOM_ID = 'c1d2e3f4-1111-4aaa-8a1b-111111110001';
-const CAIRO_MAIN_SELL_ID = inventoryBalanceFixture.location_id;
-const AUGMENTIN_BATCH_A_ID = inventoryBalanceFixture.batch_id;
-const AUGMENTIN_BATCH_B_ID = '3a42d0e5-8080-4b2f-8d4a-3c4d5e6f8a17';
-const DRAFT_TXN_ID = '7d9503b8-1001-4ca5-8a0b-cd4040620003';
-const POSTED_SURPLUS_TXN_ID = '7d9503b8-1001-4ca5-8a0b-cd4040620002';
 
 const server = setupServer(...inventoryHandlers);
 
@@ -76,7 +72,7 @@ let activeQueryClient: QueryClient | null = null;
 function createTestQueryClient(): QueryClient {
   const client = new QueryClient({
     defaultOptions: {
-      queries: { retry: false },
+      queries: { retry: false, gcTime: Infinity },
       mutations: { retry: false },
     },
   });
@@ -94,7 +90,7 @@ function createQueryWrapper(queryClient: QueryClient) {
   };
 }
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 beforeEach(() => {
   resetMockInventory();
 });
@@ -109,264 +105,553 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
-describe('inventoryApi and inventoryHandlers integration', () => {
-  it('omits blank optional params and encodes path segments across inventory endpoints', async () => {
+describe('inventoryHandlers Stage 1 MEDCARE seed invariants', () => {
+  it('exposes verbatim inventory-balance.json, DAMAGED location, FEFO/expired/NON-LOT batches, and POSTED ledger history', () => {
+    expect(ORGANIZATION_ID).toBe('11111111-1111-4111-8111-111111111101');
+    expect(INITIAL_LOCATIONS).toHaveLength(6);
+    expect(INITIAL_LOCATIONS.map((loc) => loc.location_code)).toEqual([
+      'MAIN-SELLABLE',
+      'QUAR-01',
+      'DMG-01',
+      'SCRAP-01',
+      'OLD-BIN',
+      'ALX-SELL-01',
+    ]);
+    expect(
+      INITIAL_LOCATIONS.find(
+        (loc) => loc.location_id === MOCK_LOCATION_IDS.DMG_01
+      )
+    ).toMatchObject({
+      location_type: 'DAMAGED',
+      is_sellable: false,
+      is_active: true,
+    });
+
+    expect(INITIAL_BATCHES).toHaveLength(5);
+    expect(INITIAL_BATCHES.map((batch) => batch.batch_number)).toEqual([
+      'MEDCARE-LOT-2601',
+      'MEDCARE-LOT-2602',
+      'MEDCARE-LOT-EXP',
+      'MEDCARE-PAN-01',
+      'NON-LOT',
+    ]);
+
+    expect(INITIAL_BALANCES).toHaveLength(6);
+    expect(INITIAL_BALANCES[0]).toEqual(inventoryBalanceFixture);
+
+    expect(INITIAL_TRANSACTIONS).toHaveLength(3);
+    expect(INITIAL_TRANSACTIONS.every((txn) => txn.status === 'POSTED')).toBe(
+      true
+    );
+    expect(
+      INITIAL_TRANSACTIONS.map((txn) => txn.created_by_employee_id)
+    ).toEqual([
+      MOCK_EMPLOYEE_IDS.EMP_002,
+      MOCK_EMPLOYEE_IDS.EMP_001,
+      MOCK_EMPLOYEE_IDS.EMP_002,
+    ]);
+  });
+});
+
+describe('inventoryApi and inventoryHandlers Stage 1 integration', () => {
+  it('serializes snake_case query params, omits blank strings, encodes location IDs, and wraps malformed wire payloads as INVALID_RESPONSE', async () => {
     const requestedUrls: string[] = [];
     server.use(
       http.get('*/api/v1/inventory/locations', ({ request }) => {
         requestedUrls.push(request.url);
-        return HttpResponse.json({ items: [], nextCursor: null });
+        return HttpResponse.json({
+          items: [],
+          page: 1,
+          page_size: 10,
+          total_count: 0,
+          next_cursor: null,
+        });
       }),
-      http.get('*/api/v1/inventory/locations/:locationId', ({ request }) => {
+      http.patch('*/api/v1/inventory/locations/:id', ({ request }) => {
         requestedUrls.push(request.url);
-        return HttpResponse.json(INITIAL_INVENTORY_LOCATIONS[0]);
+        return HttpResponse.json(INITIAL_LOCATIONS[0]);
       }),
       http.get('*/api/v1/inventory/batches', ({ request }) => {
         requestedUrls.push(request.url);
-        return HttpResponse.json({ items: [], nextCursor: null });
+        return HttpResponse.json({
+          items: [],
+          page: 1,
+          page_size: 25,
+          total_count: 0,
+          next_cursor: null,
+        });
       }),
       http.get('*/api/v1/inventory/balances', ({ request }) => {
         requestedUrls.push(request.url);
-        return HttpResponse.json({ items: [], nextCursor: null });
+        return HttpResponse.json({
+          items: [],
+          page: 1,
+          page_size: 25,
+          total_count: 0,
+          next_cursor: null,
+        });
+      }),
+      http.get('*/api/v1/inventory/summary', ({ request }) => {
+        requestedUrls.push(request.url);
+        return HttpResponse.json({
+          organization_id: ORGANIZATION_ID,
+          branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+          product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+          base_uom_code: 'TAB',
+          total_on_hand_qty_base: 0,
+          total_available_qty_base: 0,
+          weighted_average_unit_cost_base: 0,
+          locations_and_lots: [],
+        });
       }),
       http.get('*/api/v1/inventory/transactions', ({ request }) => {
         requestedUrls.push(request.url);
-        return HttpResponse.json({ items: [], nextCursor: null });
-      }),
-      http.get('*/api/v1/inventory/transactions/:txnId', ({ request }) => {
-        requestedUrls.push(request.url);
-        return HttpResponse.json(INITIAL_INVENTORY_TXNS[0]);
+        return HttpResponse.json({
+          items: [],
+          page: 2,
+          page_size: 15,
+          total_count: 0,
+          next_cursor: null,
+        });
       })
     );
 
     await listInventoryLocations({
-      branchId: ` ${CAIRO_BRANCH_ID} `,
-      cursor: '   ',
-      limit: 10,
-      includeInactive: false,
+      branch_id: ` ${MOCK_BRANCH_IDS.DOWNTOWN} `,
+      is_sellable: true,
+      include_inactive: false,
+      page: 1,
+      page_size: 10,
     });
-    await getInventoryLocation(' loc/1 ');
+    await patchInventoryLocation(
+      ' loc/1 ',
+      { name: 'Updated Shelf' },
+      { idempotencyKey: 'patch-loc-key-1' }
+    );
     await listInventoryBatches({
-      branchId: CAIRO_BRANCH_ID,
-      cursor: '  ',
-      productId: '   ',
+      product_id: '   ',
+      status: 'AVAILABLE',
+      expiring_before: ' ',
     });
     await listInventoryBalances({
-      branchId: CAIRO_BRANCH_ID,
-      productId: ' ',
-      locationId: '',
-      batchId: ' ',
+      branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+      product_id: ' ',
+      location_id: '',
+      batch_id: '  ',
+    });
+    await getInventorySummary({
+      branch_id: ` ${MOCK_BRANCH_IDS.DOWNTOWN} `,
+      product_id: ` ${MOCK_PRODUCT_IDS.AUGMENTIN_1G} `,
     });
     await listInventoryTransactions({
-      branchId: CAIRO_BRANCH_ID,
-      from: '  ',
-      to: '',
-      productId: '  ',
+      branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+      type: 'ADJUSTMENT_IN',
+      product_id: '  ',
+      from_date: ' ',
+      to_date: '',
+      page: 2,
+      page_size: 15,
     });
-    await getInventoryTransaction(' txn/1 ');
 
     expect(requestedUrls).toHaveLength(6);
 
     const locUrl = new URL(requestedUrls[0] ?? '');
-    expect(locUrl.searchParams.get('branchId')).toBe(CAIRO_BRANCH_ID);
-    expect(locUrl.searchParams.has('cursor')).toBe(false);
-    expect(locUrl.searchParams.get('limit')).toBe('10');
+    expect(locUrl.searchParams.get('branch_id')).toBe(MOCK_BRANCH_IDS.DOWNTOWN);
+    expect(locUrl.searchParams.get('is_sellable')).toBe('true');
+    expect(locUrl.searchParams.get('include_inactive')).toBe('false');
+    expect(locUrl.searchParams.get('page_size')).toBe('10');
 
     expect(new URL(requestedUrls[1] ?? '').pathname).toBe(
       '/api/v1/inventory/locations/loc%2F1'
     );
 
     const batchUrl = new URL(requestedUrls[2] ?? '');
-    expect(batchUrl.searchParams.has('productId')).toBe(false);
+    expect(batchUrl.searchParams.get('status')).toBe('AVAILABLE');
+    expect(batchUrl.searchParams.has('product_id')).toBe(false);
+    expect(batchUrl.searchParams.has('expiring_before')).toBe(false);
 
     const balUrl = new URL(requestedUrls[3] ?? '');
-    expect(balUrl.searchParams.has('locationId')).toBe(false);
-    expect(balUrl.searchParams.has('batchId')).toBe(false);
+    expect(balUrl.searchParams.get('branch_id')).toBe(MOCK_BRANCH_IDS.DOWNTOWN);
+    expect(balUrl.searchParams.has('product_id')).toBe(false);
+    expect(balUrl.searchParams.has('location_id')).toBe(false);
+    expect(balUrl.searchParams.has('batch_id')).toBe(false);
 
-    const txnListUrl = new URL(requestedUrls[4] ?? '');
-    expect(txnListUrl.searchParams.has('from')).toBe(false);
-    expect(txnListUrl.searchParams.has('to')).toBe(false);
-
-    expect(new URL(requestedUrls[5] ?? '').pathname).toBe(
-      '/api/v1/inventory/transactions/txn%2F1'
+    const summaryUrl = new URL(requestedUrls[4] ?? '');
+    expect(summaryUrl.searchParams.get('branch_id')).toBe(
+      MOCK_BRANCH_IDS.DOWNTOWN
     );
+    expect(summaryUrl.searchParams.get('product_id')).toBe(
+      MOCK_PRODUCT_IDS.AUGMENTIN_1G
+    );
+
+    const txnUrl = new URL(requestedUrls[5] ?? '');
+    expect(txnUrl.searchParams.get('type')).toBe('ADJUSTMENT_IN');
+    expect(txnUrl.searchParams.get('page')).toBe('2');
+    expect(txnUrl.searchParams.has('from_date')).toBe(false);
+    expect(txnUrl.searchParams.has('to_date')).toBe(false);
+
+    // Reject legacy string decimals on wire with INVALID_RESPONSE
+    server.use(
+      http.get('*/api/v1/inventory/balances', () =>
+        HttpResponse.json({
+          items: [{ ...inventoryBalanceFixture, on_hand_qty_base: '280.0000' }],
+          page: 1,
+          page_size: 25,
+          total_count: 1,
+          next_cursor: null,
+        })
+      )
+    );
+    await expect(
+      listInventoryBalances({ branch_id: MOCK_BRANCH_IDS.DOWNTOWN })
+    ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
-  it('enforces branchId required, manages locations, and updates balance availability when location type changes', async () => {
-    await expect(
-      listInventoryLocations({ branchId: '   ' })
-    ).rejects.toMatchObject({ status: 400, code: 'MALFORMED_REQUEST' });
-
-    const cairoActive = await listInventoryLocations({
-      branchId: CAIRO_BRANCH_ID,
+  it('lists, creates, and patches locations (including DAMAGED), enforces sellability rules, and updates balance availability', async () => {
+    await expect(listInventoryLocations({})).rejects.toMatchObject({
+      status: 422,
+      code: 'VALIDATION_ERROR',
+      details: [{ field: 'branch_id', issue: expect.any(String) }],
     });
-    expect(cairoActive.items).toHaveLength(3);
-    expect(cairoActive.items.every((loc) => loc.is_active)).toBe(true);
 
-    const cairoAll = await listInventoryLocations({
-      branchId: CAIRO_BRANCH_ID,
-      includeInactive: true,
+    const dtActive = await listInventoryLocations({
+      branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
     });
-    expect(cairoAll.items).toHaveLength(4);
-    expect(
-      cairoAll.items.some((loc) => loc.location_code === 'CAI-SELL-OLD')
-    ).toBe(true);
+    expect(dtActive.items).toHaveLength(4);
+    expect(dtActive.total_count).toBe(4);
+    expect(dtActive.items.map((loc) => loc.location_type)).toEqual([
+      'SELLABLE',
+      'QUARANTINE',
+      'DAMAGED',
+      'SCRAP',
+    ]);
 
-    const alexSellable = await listInventoryLocations({
-      branchId: ALEX_BRANCH_ID,
-      locationType: 'SELLABLE',
+    const dtAll = await listInventoryLocations({
+      branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+      include_inactive: true,
     });
-    expect(alexSellable.items).toHaveLength(1);
-    expect(alexSellable.items[0]?.location_code).toBe('ALX-SELL');
+    expect(dtAll.items).toHaveLength(5);
+    expect(dtAll.items.some((loc) => loc.location_code === 'OLD-BIN')).toBe(
+      true
+    );
 
-    const createdLoc = await createInventoryLocation({
-      branch_id: CAIRO_BRANCH_ID,
-      location_code: 'CAI-COLD-01',
-      name: 'Cairo Cold Storage',
-      location_type: 'QUARANTINE',
-      is_active: true,
+    const dtSellable = await listInventoryLocations({
+      branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+      is_sellable: true,
     });
-    expect(createdLoc.is_sellable).toBe(false);
+    expect(dtSellable.items.map((loc) => loc.location_code)).toEqual([
+      'MAIN-SELLABLE',
+    ]);
 
+    // Reject non-SELLABLE location marked as is_sellable: true
     await expect(
       createInventoryLocation({
-        branch_id: CAIRO_BRANCH_ID,
-        location_code: 'main-sell',
-        name: 'Duplicate',
+        branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+        location_code: 'DMG-BAD',
+        name: 'Invalid Sellable Damaged Bay',
+        location_type: 'DAMAGED',
+        is_sellable: true,
+      })
+    ).rejects.toMatchObject({
+      status: 422,
+      code: 'VALIDATION_ERROR',
+      details: [{ field: 'is_sellable', issue: expect.any(String) }],
+    });
+
+    const createdDamaged = await createInventoryLocation({
+      branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+      location_code: 'DMG-02',
+      name: 'Secondary Damaged Cage',
+      location_type: 'DAMAGED',
+      is_sellable: false,
+    });
+    expect(createdDamaged.location_type).toBe('DAMAGED');
+    expect(createdDamaged.is_sellable).toBe(false);
+    expect(createdDamaged.is_active).toBe(true);
+
+    // Duplicate location_code in same branch -> 409 CONFLICT
+    await expect(
+      createInventoryLocation({
+        branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+        location_code: 'main-sellable',
+        name: 'Duplicate Main Shelf',
         location_type: 'SELLABLE',
-        is_active: true,
+        is_sellable: true,
       })
     ).rejects.toMatchObject({
       status: 409,
       code: 'CONFLICT',
-      details: expect.arrayContaining([
-        expect.objectContaining({ field: 'location_code' }),
-      ]),
+      details: [{ field: 'location_code', issue: expect.any(String) }],
     });
 
-    // Patching MAIN-SELL to QUARANTINE turns derived available_qty_base to 0.0000 while keeping location_code immutable
-    const rawPatched = await apiClient.patch<InventoryLocationDto>(
-      `/inventory/locations/${CAIRO_MAIN_SELL_ID}`,
+    // Reject PATCH setting is_sellable: true on DAMAGED location
+    await expect(
+      patchInventoryLocation(MOCK_LOCATION_IDS.DMG_01, { is_sellable: true })
+    ).rejects.toMatchObject({
+      status: 422,
+      code: 'VALIDATION_ERROR',
+      details: [{ field: 'is_sellable', issue: expect.any(String) }],
+    });
+
+    // Toggling MAIN-SELLABLE to is_sellable: false sets derived available_qty_base to 0 while keeping location_code immutable
+    const rawPatched = await apiClient.patch(
+      `/inventory/locations/${MOCK_LOCATION_IDS.MAIN_SELLABLE}`,
       {
-        location_code: 'HACKED-CODE',
-        location_type: 'QUARANTINE',
+        location_code: 'IGNORED-CODE',
+        name: 'Downtown Main Shelf (Hold)',
+        is_sellable: false,
       }
     );
-    expect(rawPatched.data.location_code).toBe('MAIN-SELL');
-    expect(rawPatched.data.is_sellable).toBe(false);
-
-    const balancesAfterQuarantine = await listInventoryBalances({
-      branchId: CAIRO_BRANCH_ID,
-      locationId: CAIRO_MAIN_SELL_ID,
+    expect(rawPatched.data).toMatchObject({
+      location_code: 'MAIN-SELLABLE',
+      name: 'Downtown Main Shelf (Hold)',
+      is_sellable: false,
     });
-    expect(
-      balancesAfterQuarantine.items.every(
-        (b) => b.available_qty_base === '0.0000'
-      )
-    ).toBe(true);
 
-    const fetchedLoc = await getInventoryLocation(CAIRO_MAIN_SELL_ID);
-    expect(fetchedLoc.location_type).toBe('QUARANTINE');
-
-    const restoredLoc = await patchInventoryLocation(CAIRO_MAIN_SELL_ID, {
-      name: 'Main Pharmacy Shelf (Restored)',
-      location_type: 'SELLABLE',
-      is_active: true,
+    const heldSummary = await getInventorySummary({
+      branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+      product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
     });
-    expect(restoredLoc.is_sellable).toBe(true);
-    expect(restoredLoc.name).toBe('Main Pharmacy Shelf (Restored)');
+    expect(heldSummary.total_on_hand_qty_base).toBe(400);
+    expect(heldSummary.total_available_qty_base).toBe(0);
+
+    const restored = await patchInventoryLocation(
+      MOCK_LOCATION_IDS.MAIN_SELLABLE,
+      {
+        name: 'Downtown Main Dispensary Shelf',
+        is_sellable: true,
+        is_active: true,
+      }
+    );
+    expect(restored.is_sellable).toBe(true);
   });
 
-  it('serves batches and balances with strict derived availability across lot and NON-LOT items', async () => {
-    expect(INITIAL_INVENTORY_BATCHES.length).toBeGreaterThanOrEqual(5);
-    expect(INITIAL_INVENTORY_BALANCES.length).toBeGreaterThanOrEqual(5);
-
-    const augBatches = await listInventoryBatches({
-      branchId: CAIRO_BRANCH_ID,
-      productId: AUGMENTIN_ID,
-    });
-    expect(augBatches.items.map((b) => b.batch_number)).toEqual([
-      'AUG-2026-A',
-      'AUG-2027-B',
-      'AUG-2026-Q',
-      'AUG-2020-E',
+  it('serves org-scoped batches in FEFO order and computes InventorySummary aggregates and error responses', async () => {
+    const allBatches = await listInventoryBatches();
+    expect(allBatches.items.map((b) => b.batch_number)).toEqual([
+      'MEDCARE-LOT-EXP',
+      'MEDCARE-LOT-2602',
+      'MEDCARE-PAN-01',
+      'MEDCARE-LOT-2601',
+      'NON-LOT',
     ]);
 
-    const panadolBatches = await listInventoryBatches({
-      branchId: CAIRO_BRANCH_ID,
-      productId: productFixture.product_id,
+    const augAvailable = await listInventoryBatches({
+      product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+      status: 'AVAILABLE',
     });
-    expect(panadolBatches.items).toHaveLength(1);
-    expect(panadolBatches.items[0]?.batch_number).toBe('NON-LOT');
-    expect(panadolBatches.items[0]?.is_non_lot).toBe(true);
-    expect(panadolBatches.items[0]?.expires_on).toBeNull();
+    expect(augAvailable.items.map((b) => b.batch_number)).toEqual([
+      'MEDCARE-LOT-2602',
+      'MEDCARE-LOT-2601',
+    ]);
 
-    const cairoBalances = await listInventoryBalances({
-      branchId: CAIRO_BRANCH_ID,
-      productId: AUGMENTIN_ID,
+    const expiringSoon = await listInventoryBatches({
+      expiring_before: '2026-12-31',
     });
-    const batchABal = cairoBalances.items.find(
-      (b) => b.batch_id === AUGMENTIN_BATCH_A_ID
-    );
-    const batchQBal = cairoBalances.items.find(
-      (b) => b.batch_id === '3a42d0e5-8080-4b2f-8d4a-3c4d5e6f8a18'
-    );
-    expect(batchABal?.on_hand_qty_base).toBe('5000.0000');
-    expect(batchABal?.available_qty_base).toBe('5000.0000');
-    expect(batchQBal?.on_hand_qty_base).toBe('280.0000');
-    expect(batchQBal?.available_qty_base).toBe('0.0000');
+    expect(expiringSoon.items.map((b) => b.batch_number)).toEqual([
+      'MEDCARE-LOT-EXP',
+      'MEDCARE-LOT-2602',
+    ]);
+
+    const summary = await getInventorySummary({
+      branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+      product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+    });
+    expect(summary).toMatchObject({
+      organization_id: ORGANIZATION_ID,
+      branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+      product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+      base_uom_code: 'TAB',
+      total_on_hand_qty_base: 400,
+      total_available_qty_base: 350,
+      weighted_average_unit_cost_base: 7.13,
+    });
+    expect(summary.locations_and_lots.map((b) => b.batch_number)).toEqual([
+      'MEDCARE-LOT-EXP',
+      'MEDCARE-LOT-2602',
+      'MEDCARE-LOT-2601',
+    ]);
+
+    // Known product with zero stock in Alexandria returns 0s and empty locations_and_lots
+    const zeroSummary = await getInventorySummary({
+      branch_id: MOCK_BRANCH_IDS.ALEXANDRIA,
+      product_id: MOCK_PRODUCT_IDS.PANADOL_EXTRA,
+    });
+    expect(zeroSummary.total_on_hand_qty_base).toBe(0);
+    expect(zeroSummary.weighted_average_unit_cost_base).toBe(0);
+    expect(zeroSummary.locations_and_lots).toEqual([]);
+
+    // Missing params -> 422 VALIDATION_ERROR; unknown product -> 404 NOT_FOUND
+    await expect(
+      getInventorySummary({
+        branch_id: '',
+        product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+      })
+    ).rejects.toMatchObject({ status: 422, code: 'VALIDATION_ERROR' });
+
+    await expect(
+      getInventorySummary({
+        branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+        product_id: '99999999-9999-4999-8999-999999999999',
+      })
+    ).rejects.toMatchObject({ status: 404, code: 'NOT_FOUND' });
   });
 
-  it('enforces UOM conversion snapshots, BigInt weighted-avg balance updates, 409 OUT_OF_STOCK, DRAFT lifecycle, and REVERSAL', async () => {
-    // 1. Post ADJUSTMENT_IN using Box of 14 UOM (2 boxes = 28 base units)
-    const postedIn = await postInventoryAdjustment({
-      transaction_type: 'ADJUSTMENT_IN',
-      branch_id: CAIRO_BRANCH_ID,
-      reason_code: 'FOUND_BOXES',
-      note: 'Two unopened boxes found',
+  it('executes atomic POST /inventory/adjustments for OPENING_BALANCE, ADJUSTMENT_IN (UOM conversion), EXPIRY_POLICY_VIOLATION, ADJUSTMENT_OUT (409 OUT_OF_STOCK), and REVERSAL', async () => {
+    // 1. OPENING_BALANCE for a brand-new batch succeeds once, then rejects repeat with 409 INVALID_STATE_TRANSITION
+    const openingTxn = await createInventoryAdjustment({
+      branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+      transaction_type: 'OPENING_BALANCE',
+      reason_code: 'NEW_LOT_OPENING',
+      note: 'Initial count for new Panadol lot',
       reverses_inventory_txn_id: null,
       lines: [
         {
-          product_id: AUGMENTIN_ID,
-          location_id: CAIRO_MAIN_SELL_ID,
-          batch_id: AUGMENTIN_BATCH_B_ID,
-          product_uom_id: AUGMENTIN_BOX_UOM_ID,
-          entered_qty: '2.0000',
-          unit_cost_base: '1.5000',
+          product_id: MOCK_PRODUCT_IDS.PANADOL_EXTRA,
+          product_uom_id: MOCK_PRODUCT_UOM_IDS.PANADOL_BOX,
+          location_id: MOCK_LOCATION_IDS.QUAR_01,
+          batch_number: 'MEDCARE-PAN-OPEN-01',
+          manufactured_on: '2026-06-01',
+          expires_on: '2028-06-01',
+          entered_qty: 5,
+          unit_cost_entered: 48,
         },
       ],
     });
-
-    expect(postedIn.status).toBe('POSTED');
-    expect(postedIn.lines[0]?.product_uom_id).toBe(AUGMENTIN_BASE_UOM_ID);
-    expect(postedIn.lines[0]?.entered_qty).toBe('28.0000');
-    expect(postedIn.lines[0]?.conversion_snapshot).toBe('1.000000');
-    expect(postedIn.lines[0]?.quantity_delta_base).toBe('28.0000');
-
-    // Old balance on AUG-2027-B was 1400.0000 @ 1.2500 -> + 28.0000 @ 1.5000 = 1428.0000 @ 1.2549
-    const updatedBalances = await listInventoryBalances({
-      branchId: CAIRO_BRANCH_ID,
-      locationId: CAIRO_MAIN_SELL_ID,
-      batchId: AUGMENTIN_BATCH_B_ID,
+    expect(openingTxn.status).toBe('POSTED');
+    expect(openingTxn.lines[0]).toMatchObject({
+      product_uom_id: MOCK_PRODUCT_UOM_IDS.PANADOL_TAB,
+      batch_number: 'MEDCARE-PAN-OPEN-01',
+      entered_qty: 120,
+      conversion_snapshot: 1,
+      quantity_delta_base: 120,
+      unit_cost_base: 2,
     });
-    expect(updatedBalances.items[0]?.on_hand_qty_base).toBe('1428.0000');
-    expect(updatedBalances.items[0]?.average_unit_cost).toBe('1.2549');
 
-    // 2. Reject ADJUSTMENT_OUT exceeding on_hand_qty_base with 409 OUT_OF_STOCK
     await expect(
-      postInventoryAdjustment({
+      createInventoryAdjustment({
+        branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+        transaction_type: 'OPENING_BALANCE',
+        reason_code: 'DUPLICATE_OPENING',
+        note: null,
+        reverses_inventory_txn_id: null,
+        lines: [
+          {
+            product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+            product_uom_id: MOCK_PRODUCT_UOM_IDS.AUGMENTIN_TAB,
+            location_id: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+            batch_number: 'MEDCARE-LOT-2601',
+            manufactured_on: '2026-01-10',
+            expires_on: '2027-07-31',
+            entered_qty: 10,
+            unit_cost_entered: 7.2,
+          },
+        ],
+      })
+    ).rejects.toMatchObject({
+      status: 409,
+      code: 'INVALID_STATE_TRANSITION',
+    });
+
+    // 2. Expired batch into sellable location -> 422 EXPIRY_POLICY_VIOLATION
+    await expect(
+      createInventoryAdjustment({
+        branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+        transaction_type: 'ADJUSTMENT_IN',
+        reason_code: 'BAD_RECEIVE',
+        note: null,
+        reverses_inventory_txn_id: null,
+        lines: [
+          {
+            product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+            product_uom_id: MOCK_PRODUCT_UOM_IDS.AUGMENTIN_TAB,
+            location_id: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+            batch_number: 'MEDCARE-LOT-EXP',
+            manufactured_on: null,
+            expires_on: '2025-06-01',
+            entered_qty: 10,
+            unit_cost_entered: 6.5,
+          },
+        ],
+      })
+    ).rejects.toMatchObject({
+      status: 422,
+      code: 'EXPIRY_POLICY_VIOLATION',
+    });
+
+    // 3. ADJUSTMENT_IN with Box of 14 UOM (2 boxes @ 112/box -> 28 tabs @ 8.0/tab) + NON-LOT Vitamin D3
+    const adjIn = await createInventoryAdjustment({
+      branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+      transaction_type: 'ADJUSTMENT_IN',
+      reason_code: 'CYCLE_SURPLUS',
+      note: 'Found 2 unopened boxes and 5 Vitamin D3 bottles',
+      reverses_inventory_txn_id: null,
+      lines: [
+        {
+          product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+          product_uom_id: MOCK_PRODUCT_UOM_IDS.AUGMENTIN_BOX,
+          location_id: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+          batch_number: 'MEDCARE-LOT-2601',
+          manufactured_on: null,
+          expires_on: null,
+          entered_qty: 2,
+          unit_cost_entered: 112,
+        },
+        {
+          product_id: MOCK_PRODUCT_IDS.VITAMIN_D3,
+          product_uom_id: MOCK_PRODUCT_UOM_IDS.VITAMIN_D3_BOTTLE,
+          location_id: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+          batch_number: null,
+          manufactured_on: null,
+          expires_on: null,
+          entered_qty: 5,
+          unit_cost_entered: 65,
+        },
+      ],
+    });
+    expect(adjIn.lines[0]).toMatchObject({
+      product_uom_id: MOCK_PRODUCT_UOM_IDS.AUGMENTIN_TAB,
+      entered_qty: 28,
+      conversion_snapshot: 1,
+      quantity_delta_base: 28,
+      unit_cost_base: 8,
+    });
+    expect(adjIn.lines[1]).toMatchObject({
+      batch_number: 'NON-LOT',
+      quantity_delta_base: 5,
+    });
+
+    // Balance on MEDCARE-LOT-2601 was 280 @ 7.2 (row_version 3) -> + 28 @ 8.0 = 308 @ 7.2727 (row_version 4)
+    const updatedLot2601 = await listInventoryBalances({
+      branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+      location_id: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+      batch_id: MOCK_BATCH_IDS.MEDCARE_LOT_2601,
+    });
+    expect(updatedLot2601.items[0]).toMatchObject({
+      on_hand_qty_base: 308,
+      available_qty_base: 308,
+      average_unit_cost: 7.2727,
+      row_version: 4,
+    });
+
+    // 4. ADJUSTMENT_OUT exceeding on_hand_qty_base -> 409 OUT_OF_STOCK without mutating state
+    await expect(
+      createInventoryAdjustment({
+        branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
         transaction_type: 'ADJUSTMENT_OUT',
-        branch_id: CAIRO_BRANCH_ID,
         reason_code: 'SHRINKAGE',
         note: null,
         reverses_inventory_txn_id: null,
         lines: [
           {
-            product_id: AUGMENTIN_ID,
-            location_id: CAIRO_MAIN_SELL_ID,
-            batch_id: AUGMENTIN_BATCH_B_ID,
-            product_uom_id: AUGMENTIN_BASE_UOM_ID,
-            entered_qty: '2000.0000',
+            product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+            product_uom_id: MOCK_PRODUCT_UOM_IDS.AUGMENTIN_TAB,
+            location_id: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+            batch_number: 'MEDCARE-LOT-2601',
+            manufactured_on: null,
+            expires_on: null,
+            entered_qty: 1000,
+            unit_cost_entered: null,
           },
         ],
       })
@@ -376,191 +661,174 @@ describe('inventoryApi and inventoryHandlers integration', () => {
       details: [{ field: 'lines[0].entered_qty', issue: expect.any(String) }],
     });
 
-    // 3. Valid ADJUSTMENT_OUT subtracts stock
-    const postedOut = await postInventoryAdjustment({
+    // Valid ADJUSTMENT_OUT subtracts 8 tabs at current average_unit_cost (7.2727) -> 300 on hand, row_version 5
+    const adjOut = await createInventoryAdjustment({
+      branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
       transaction_type: 'ADJUSTMENT_OUT',
-      branch_id: CAIRO_BRANCH_ID,
-      reason_code: 'SAMPLE_DISPENSE',
+      reason_code: 'DAMAGED_TABS',
       note: null,
       reverses_inventory_txn_id: null,
       lines: [
         {
-          product_id: AUGMENTIN_ID,
-          location_id: CAIRO_MAIN_SELL_ID,
-          batch_id: AUGMENTIN_BATCH_B_ID,
-          product_uom_id: AUGMENTIN_BOX_UOM_ID,
-          entered_qty: '2.0000',
+          product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+          product_uom_id: MOCK_PRODUCT_UOM_IDS.AUGMENTIN_TAB,
+          location_id: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+          batch_number: 'MEDCARE-LOT-2601',
+          manufactured_on: null,
+          expires_on: null,
+          entered_qty: 8,
+          unit_cost_entered: null,
         },
       ],
     });
-    expect(postedOut.lines[0]?.quantity_delta_base).toBe('-28.0000');
-    expect(postedOut.lines[0]?.unit_cost_base).toBe('1.2549');
-
-    const afterOutBalances = await listInventoryBalances({
-      branchId: CAIRO_BRANCH_ID,
-      locationId: CAIRO_MAIN_SELL_ID,
-      batchId: AUGMENTIN_BATCH_B_ID,
+    expect(adjOut.lines[0]).toMatchObject({
+      quantity_delta_base: -8,
+      unit_cost_base: 7.2727,
     });
-    expect(afterOutBalances.items[0]?.on_hand_qty_base).toBe('1400.0000');
 
-    // 4. Draft PATCH then POST by ID, then POSTED immutability (409)
-    const patchedDraft = await patchInventoryAdjustment(DRAFT_TXN_ID, {
-      reason_code: 'RECOUNT_VERIFIED',
-      note: 'Verified 1 box = 14 tabs',
-      lines: [
-        {
-          product_id: AUGMENTIN_ID,
-          location_id: CAIRO_MAIN_SELL_ID,
-          batch_id: AUGMENTIN_BATCH_B_ID,
-          product_uom_id: AUGMENTIN_BOX_UOM_ID,
-          entered_qty: '1.0000',
-          unit_cost_base: '1.2549',
-        },
-      ],
-    });
-    expect(patchedDraft.status).toBe('DRAFT');
-    expect(patchedDraft.lines[0]?.entered_qty).toBe('14.0000');
-
-    const postedDraft = await postInventoryAdjustmentById(DRAFT_TXN_ID);
-    expect(postedDraft.status).toBe('POSTED');
-    expect(postedDraft.posted_at).not.toBeNull();
-
-    await expect(
-      patchInventoryAdjustment(DRAFT_TXN_ID, { reason_code: 'ILLEGAL' })
-    ).rejects.toMatchObject({ status: 409, code: 'CONFLICT' });
-    await expect(
-      postInventoryAdjustmentById(DRAFT_TXN_ID)
-    ).rejects.toMatchObject({ status: 409, code: 'CONFLICT' });
-    await expect(cancelInventoryAdjustment(DRAFT_TXN_ID)).rejects.toMatchObject(
-      { status: 409, code: 'CONFLICT' }
-    );
-
-    // 5. Reversal of POSTED transaction negates lines and stays unique
-    const reversal = await postInventoryAdjustment({
+    // 5. REVERSAL of seeded DOWNTOWN_ADJUSTMENT_IN negates lines and blocks second reversal with 409 INVALID_STATE_TRANSITION
+    const reversal = await createInventoryAdjustment({
+      branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
       transaction_type: 'REVERSAL',
-      branch_id: CAIRO_BRANCH_ID,
-      reason_code: 'CORRECTION',
-      note: 'Reversing posted surplus',
-      reverses_inventory_txn_id: POSTED_SURPLUS_TXN_ID,
-      lines: [
-        {
-          product_id: productFixture.product_id,
-          location_id: CAIRO_MAIN_SELL_ID,
-          batch_id: '4b53e1f6-9090-4c3f-9e5b-4d5e6f7a8b01',
-          product_uom_id: 'f1a2b3c4-0101-4fff-8a1b-56789012abcd',
-          entered_qty: '200.0000',
-        },
-      ],
+      reason_code: 'POSTED_IN_ERROR',
+      note: 'Reversing seeded surplus',
+      reverses_inventory_txn_id: MOCK_TRANSACTION_IDS.DOWNTOWN_ADJUSTMENT_IN,
+      lines: null,
     });
     expect(reversal.status).toBe('POSTED');
-    expect(reversal.lines[0]?.quantity_delta_base).toBe('-200.0000');
+    expect(reversal.reverses_inventory_txn_id).toBe(
+      MOCK_TRANSACTION_IDS.DOWNTOWN_ADJUSTMENT_IN
+    );
+    expect(reversal.lines.map((l) => l.quantity_delta_base)).toEqual([
+      -48, -70,
+    ]);
 
     await expect(
-      postInventoryAdjustment({
+      createInventoryAdjustment({
+        branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
         transaction_type: 'REVERSAL',
-        branch_id: CAIRO_BRANCH_ID,
         reason_code: 'DOUBLE_REVERSAL',
         note: null,
-        reverses_inventory_txn_id: POSTED_SURPLUS_TXN_ID,
-        lines: [
-          {
-            product_id: productFixture.product_id,
-            location_id: CAIRO_MAIN_SELL_ID,
-            batch_id: '4b53e1f6-9090-4c3f-9e5b-4d5e6f7a8b01',
-            product_uom_id: 'f1a2b3c4-0101-4fff-8a1b-56789012abcd',
-            entered_qty: '200.0000',
-          },
-        ],
+        reverses_inventory_txn_id: MOCK_TRANSACTION_IDS.DOWNTOWN_ADJUSTMENT_IN,
+        lines: null,
       })
-    ).rejects.toMatchObject({ status: 409, code: 'CONFLICT' });
-
-    const fetchedTxn = await getInventoryTransaction(reversal.inventory_txn_id);
-    expect(fetchedTxn.reverses_inventory_txn_id).toBe(POSTED_SURPLUS_TXN_ID);
-
-    const filteredTxns = await listInventoryTransactions({
-      branchId: CAIRO_BRANCH_ID,
-      transactionType: 'REVERSAL',
-      from: '2026-01-01T00:00:00Z',
+    ).rejects.toMatchObject({
+      status: 409,
+      code: 'INVALID_STATE_TRANSITION',
     });
-    expect(filteredTxns.items).toHaveLength(1);
-  });
 
-  it('cancels an unposted DRAFT via POST /inventory/adjustments/:txnId/cancel (204)', async () => {
-    await cancelInventoryAdjustment(DRAFT_TXN_ID);
-    const cancelled = await getInventoryTransaction(DRAFT_TXN_ID);
-    expect(cancelled.status).toBe('CANCELLED');
+    const reversalHistory = await listInventoryTransactions({
+      branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+      type: 'REVERSAL',
+      from_date: '2026-01-01',
+    });
+    expect(reversalHistory.items).toHaveLength(1);
+    expect(reversalHistory.items[0]?.inventory_txn_id).toBe(
+      reversal.inventory_txn_id
+    );
   });
 });
 
 describe('useInventoryQueries hooks', () => {
-  it('guards blank/null/undefined branchId and detail IDs via enabled and fetches when valid', async () => {
+  it('guards blank/null/undefined branch_id and product_id via enabled and fetches single-page and all-pages Stage 1 queries', async () => {
     const queryClient = createTestQueryClient();
     const wrapper = createQueryWrapper(queryClient);
 
     const { result: idleHooks } = renderHook(
       () => ({
-        locsBlank: useInventoryLocationsQuery({ branchId: '   ' }),
-        locsNull: useInventoryLocationsQuery({ branchId: null }),
-        locDetailUndef: useInventoryLocationQuery(undefined),
-        batchesUndef: useInventoryBatchesQuery({ branchId: undefined }),
-        balancesBlank: useInventoryBalancesQuery({ branchId: '' }),
-        txnsDisabled: useInventoryTransactionsQuery(
-          { branchId: CAIRO_BRANCH_ID },
-          { enabled: false }
-        ),
-        txnDetailBlank: useInventoryTransactionQuery('  '),
+        locsBlank: useInventoryLocationsQuery({ branch_id: '   ' }),
+        allLocsNull: useAllInventoryLocationsQuery({ branch_id: null }),
+        batchesDisabled: useInventoryBatchesQuery({}, { enabled: false }),
+        allBatchesDisabled: useAllInventoryBatchesQuery({}, { enabled: false }),
+        balancesBlank: useInventoryBalancesQuery({ branch_id: '' }),
+        allBalancesNull: useAllInventoryBalancesQuery({ branch_id: null }),
+        summaryNoBranch: useInventorySummaryQuery({
+          branch_id: null,
+          product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+        }),
+        summaryNoProduct: useInventorySummaryQuery({
+          branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+          product_id: '  ',
+        }),
+        txnsBlank: useInventoryTransactionsQuery({ branch_id: ' ' }),
+        allTxnsUndef: useAllInventoryTransactionsQuery({
+          branch_id: undefined,
+        }),
       }),
       { wrapper }
     );
 
     expect(idleHooks.current.locsBlank.fetchStatus).toBe('idle');
-    expect(idleHooks.current.locsNull.fetchStatus).toBe('idle');
-    expect(idleHooks.current.locDetailUndef.fetchStatus).toBe('idle');
-    expect(idleHooks.current.batchesUndef.fetchStatus).toBe('idle');
+    expect(idleHooks.current.allLocsNull.fetchStatus).toBe('idle');
+    expect(idleHooks.current.batchesDisabled.fetchStatus).toBe('idle');
+    expect(idleHooks.current.allBatchesDisabled.fetchStatus).toBe('idle');
     expect(idleHooks.current.balancesBlank.fetchStatus).toBe('idle');
-    expect(idleHooks.current.txnsDisabled.fetchStatus).toBe('idle');
-    expect(idleHooks.current.txnDetailBlank.fetchStatus).toBe('idle');
+    expect(idleHooks.current.allBalancesNull.fetchStatus).toBe('idle');
+    expect(idleHooks.current.summaryNoBranch.fetchStatus).toBe('idle');
+    expect(idleHooks.current.summaryNoProduct.fetchStatus).toBe('idle');
+    expect(idleHooks.current.txnsBlank.fetchStatus).toBe('idle');
+    expect(idleHooks.current.allTxnsUndef.fetchStatus).toBe('idle');
 
     const { result: liveHooks } = renderHook(
       () => ({
         locations: useInventoryLocationsQuery({
-          branchId: ` ${CAIRO_BRANCH_ID} `,
+          branch_id: ` ${MOCK_BRANCH_IDS.DOWNTOWN} `,
         }),
-        location: useInventoryLocationQuery(CAIRO_MAIN_SELL_ID),
-        batches: useInventoryBatchesQuery({ branchId: CAIRO_BRANCH_ID }),
-        balances: useInventoryBalancesQuery({ branchId: CAIRO_BRANCH_ID }),
+        allLocations: useAllInventoryLocationsQuery({
+          branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+          include_inactive: true,
+        }),
+        batches: useInventoryBatchesQuery({
+          product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+        }),
+        allBatches: useAllInventoryBatchesQuery(),
+        balances: useInventoryBalancesQuery({
+          branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+        }),
+        allBalances: useAllInventoryBalancesQuery({
+          branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+        }),
+        summary: useInventorySummaryQuery({
+          branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+          product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+        }),
         transactions: useInventoryTransactionsQuery({
-          branchId: CAIRO_BRANCH_ID,
+          branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
         }),
-        transaction: useInventoryTransactionQuery(POSTED_SURPLUS_TXN_ID),
+        allTransactions: useAllInventoryTransactionsQuery({
+          branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+        }),
       }),
       { wrapper }
     );
 
     await waitFor(() => {
       expect(liveHooks.current.locations.isSuccess).toBe(true);
-      expect(liveHooks.current.location.isSuccess).toBe(true);
+      expect(liveHooks.current.allLocations.isSuccess).toBe(true);
       expect(liveHooks.current.batches.isSuccess).toBe(true);
+      expect(liveHooks.current.allBatches.isSuccess).toBe(true);
       expect(liveHooks.current.balances.isSuccess).toBe(true);
+      expect(liveHooks.current.allBalances.isSuccess).toBe(true);
+      expect(liveHooks.current.summary.isSuccess).toBe(true);
       expect(liveHooks.current.transactions.isSuccess).toBe(true);
-      expect(liveHooks.current.transaction.isSuccess).toBe(true);
+      expect(liveHooks.current.allTransactions.isSuccess).toBe(true);
     });
 
-    expect(liveHooks.current.locations.data?.items).toHaveLength(3);
-    expect(liveHooks.current.location.data?.location_code).toBe('MAIN-SELL');
-    expect(liveHooks.current.batches.data?.items.length).toBeGreaterThanOrEqual(
-      5
-    );
+    expect(liveHooks.current.locations.data?.items).toHaveLength(4);
+    expect(liveHooks.current.allLocations.data).toHaveLength(5);
+    expect(liveHooks.current.batches.data?.items).toHaveLength(3);
+    expect(liveHooks.current.allBatches.data).toHaveLength(5);
     expect(liveHooks.current.balances.data?.items).toHaveLength(5);
-    expect(liveHooks.current.transactions.data?.items).toHaveLength(3);
-    expect(liveHooks.current.transaction.data?.transaction_no).toBe(
-      'TXN-2026-000002'
-    );
+    expect(liveHooks.current.allBalances.data).toHaveLength(5);
+    expect(liveHooks.current.summary.data?.total_on_hand_qty_base).toBe(400);
+    expect(liveHooks.current.summary.data?.total_available_qty_base).toBe(350);
+    expect(liveHooks.current.transactions.data?.items).toHaveLength(2);
+    expect(liveHooks.current.allTransactions.data).toHaveLength(2);
   });
 });
 
 describe('useInventoryMutations hooks', () => {
-  it('stabilizes Idempotency-Key across retries and re-renders, rotates on change, clears on success, and invalidates inventoryKeys', async () => {
+  it('stabilizes Idempotency-Key across retries and re-renders, rotates on payload change, clears on success, and invalidates Stage 1 inventoryKeys', async () => {
     const queryClient = createTestQueryClient();
     const wrapper = createQueryWrapper(queryClient);
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
@@ -568,31 +836,29 @@ describe('useInventoryMutations hooks', () => {
     const keysByOp: {
       createLoc: Array<string | null>;
       patchLoc: Array<string | null>;
-      postAdj: Array<string | null>;
-      patchAdj: Array<string | null>;
-      postAdjById: Array<string | null>;
-      cancelAdj: Array<string | null>;
+      createAdj: Array<string | null>;
     } = {
       createLoc: [],
       patchLoc: [],
-      postAdj: [],
-      patchAdj: [],
-      postAdjById: [],
-      cancelAdj: [],
+      createAdj: [],
     };
 
     const failOnce: Record<keyof typeof keysByOp, boolean> = {
       createLoc: true,
       patchLoc: true,
-      postAdj: true,
-      patchAdj: true,
-      postAdjById: true,
-      cancelAdj: true,
+      createAdj: true,
     };
 
     function serverFailure(message: string) {
       return HttpResponse.json(
-        { error: { code: 'INTERNAL_ERROR', message } },
+        {
+          error: {
+            code: 'INTERNAL_SERVER_ERROR',
+            message,
+            details: [],
+            trace_id: 'tr-500',
+          },
+        },
         { status: 500 }
       );
     }
@@ -602,61 +868,41 @@ describe('useInventoryMutations hooks', () => {
         keysByOp.createLoc.push(request.headers.get('Idempotency-Key'));
         if (failOnce.createLoc) {
           failOnce.createLoc = false;
-          return serverFailure('Temp create location failure');
+          return serverFailure('Temporary create location failure');
         }
-        return HttpResponse.json(INITIAL_INVENTORY_LOCATIONS[0], {
-          status: 201,
-        });
+        return HttpResponse.json(INITIAL_LOCATIONS[0], { status: 201 });
       }),
-      http.patch('*/api/v1/inventory/locations/:locationId', ({ request }) => {
+      http.patch('*/api/v1/inventory/locations/:id', ({ request }) => {
         keysByOp.patchLoc.push(request.headers.get('Idempotency-Key'));
         if (failOnce.patchLoc) {
           failOnce.patchLoc = false;
-          return serverFailure('Temp patch location failure');
+          return serverFailure('Temporary patch location failure');
         }
-        return HttpResponse.json(INITIAL_INVENTORY_LOCATIONS[0], {
-          status: 200,
-        });
+        return HttpResponse.json(INITIAL_LOCATIONS[0], { status: 200 });
       }),
       http.post('*/api/v1/inventory/adjustments', ({ request }) => {
-        keysByOp.postAdj.push(request.headers.get('Idempotency-Key'));
-        if (failOnce.postAdj) {
-          failOnce.postAdj = false;
-          return serverFailure('Temp post adjustment failure');
+        keysByOp.createAdj.push(request.headers.get('Idempotency-Key'));
+        if (failOnce.createAdj) {
+          failOnce.createAdj = false;
+          return serverFailure('Temporary post adjustment failure');
         }
-        return HttpResponse.json(INITIAL_INVENTORY_TXNS[1], { status: 201 });
-      }),
-      http.patch('*/api/v1/inventory/adjustments/:txnId', ({ request }) => {
-        keysByOp.patchAdj.push(request.headers.get('Idempotency-Key'));
-        if (failOnce.patchAdj) {
-          failOnce.patchAdj = false;
-          return serverFailure('Temp patch adjustment failure');
-        }
-        return HttpResponse.json(INITIAL_INVENTORY_TXNS[0], { status: 200 });
-      }),
-      http.post('*/api/v1/inventory/adjustments/:txnId', ({ request }) => {
-        keysByOp.postAdjById.push(request.headers.get('Idempotency-Key'));
-        if (failOnce.postAdjById) {
-          failOnce.postAdjById = false;
-          return serverFailure('Temp post draft failure');
-        }
-        const postedTxn: InventoryTxnDto = {
-          ...INITIAL_INVENTORY_TXNS[0],
+        const savedTxn: InventoryTxn = INITIAL_TRANSACTIONS[0] ?? {
+          inventory_txn_id: MOCK_TRANSACTION_IDS.DOWNTOWN_ADJUSTMENT_IN,
+          organization_id: ORGANIZATION_ID,
+          branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+          transaction_no: 'TXN-2026-000002',
+          transaction_type: 'ADJUSTMENT_IN',
           status: 'POSTED',
+          reason_code: 'CYCLE_COUNT_SURPLUS',
+          note: null,
+          idempotency_key: 'idemp-1',
+          created_by_employee_id: MOCK_EMPLOYEE_IDS.EMP_001,
+          reverses_inventory_txn_id: null,
+          posted_at: '2026-11-25T10:30:00+00:00',
+          lines: [],
         };
-        return HttpResponse.json(postedTxn, { status: 201 });
-      }),
-      http.post(
-        '*/api/v1/inventory/adjustments/:txnId/cancel',
-        ({ request }) => {
-          keysByOp.cancelAdj.push(request.headers.get('Idempotency-Key'));
-          if (failOnce.cancelAdj) {
-            failOnce.cancelAdj = false;
-            return serverFailure('Temp cancel draft failure');
-          }
-          return new HttpResponse(null, { status: 204 });
-        }
-      )
+        return HttpResponse.json(savedTxn, { status: 201 });
+      })
     );
 
     // 1. Create Location + verify key stability across rerender()
@@ -664,12 +910,12 @@ describe('useInventoryMutations hooks', () => {
       () => useCreateInventoryLocationMutation(),
       { wrapper }
     );
-    const locPayload = {
-      branch_id: CAIRO_BRANCH_ID,
-      location_code: 'CAI-NEW-1',
-      name: 'New Shelf',
-      location_type: 'SELLABLE' as const,
-      is_active: true,
+    const locPayload: CreateInventoryLocationRequest = {
+      branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+      location_code: 'DT-COLD-01',
+      name: 'Downtown Cold Chain Fridge',
+      location_type: 'SELLABLE',
+      is_sellable: true,
     };
 
     await act(async () => {
@@ -679,13 +925,12 @@ describe('useInventoryMutations hooks', () => {
     });
     rerenderCreateLoc();
     await act(async () => {
-      await createLocHook.current.mutateAsync({
-        payload: { ...locPayload },
-      });
+      await createLocHook.current.mutateAsync({ payload: { ...locPayload } });
     });
     await act(async () => {
       await createLocHook.current.mutateAsync({ payload: locPayload });
     });
+
     expect(keysByOp.createLoc).toHaveLength(3);
     expect(keysByOp.createLoc[0]).toBe(keysByOp.createLoc[1]);
     expect(keysByOp.createLoc[2]).not.toBe(keysByOp.createLoc[1]);
@@ -702,190 +947,196 @@ describe('useInventoryMutations hooks', () => {
     await act(async () => {
       await expect(
         patchLocHook.current.mutateAsync({
-          locationId: CAIRO_MAIN_SELL_ID,
-          payload: { name: 'Shelf A' },
+          locationId: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+          payload: { name: 'Main Shelf A' },
         })
       ).rejects.toBeInstanceOf(ApiClientError);
     });
     await act(async () => {
       await patchLocHook.current.mutateAsync({
-        locationId: CAIRO_MAIN_SELL_ID,
-        payload: { name: 'Shelf B' },
+        locationId: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+        payload: { name: 'Main Shelf B' },
       });
     });
+
     expect(keysByOp.patchLoc).toHaveLength(2);
     expect(keysByOp.patchLoc[1]).not.toBe(keysByOp.patchLoc[0]);
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: inventoryKeys.locationLists(),
     });
     expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: inventoryKeys.locationDetail(CAIRO_MAIN_SELL_ID),
-    });
-    expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: inventoryKeys.balanceLists(),
     });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: inventoryKeys.summaries(),
+    });
 
-    // 3. Post Adjustment
+    // 3. Create Adjustment + invalidates balanceLists, batchLists, summaries, transactionLists
     invalidateSpy.mockClear();
-    const { result: postAdjHook, rerender: rerenderPostAdj } = renderHook(
-      () => usePostInventoryAdjustmentMutation(),
+    const { result: createAdjHook, rerender: rerenderCreateAdj } = renderHook(
+      () => useCreateInventoryAdjustmentMutation(),
       { wrapper }
     );
-    const adjPayload = {
-      transaction_type: 'ADJUSTMENT_IN' as const,
-      branch_id: CAIRO_BRANCH_ID,
+    const adjPayload: CreateInventoryAdjustmentRequest = {
+      branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+      transaction_type: 'ADJUSTMENT_IN',
       reason_code: 'CYCLE_COUNT',
       note: null,
       reverses_inventory_txn_id: null,
       lines: [
         {
-          product_id: AUGMENTIN_ID,
-          location_id: CAIRO_MAIN_SELL_ID,
-          batch_id: AUGMENTIN_BATCH_A_ID,
-          product_uom_id: AUGMENTIN_BASE_UOM_ID,
-          entered_qty: '10.0000',
-          unit_cost_base: '1.2052',
+          product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+          product_uom_id: MOCK_PRODUCT_UOM_IDS.AUGMENTIN_TAB,
+          location_id: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+          batch_number: 'MEDCARE-LOT-2601',
+          manufactured_on: null,
+          expires_on: null,
+          entered_qty: 10,
+          unit_cost_entered: 7.2,
         },
       ],
     };
+
     await act(async () => {
       await expect(
-        postAdjHook.current.mutateAsync({ payload: adjPayload })
+        createAdjHook.current.mutateAsync({ payload: adjPayload })
       ).rejects.toBeInstanceOf(ApiClientError);
     });
-    rerenderPostAdj();
+    rerenderCreateAdj();
     await act(async () => {
-      await postAdjHook.current.mutateAsync({ payload: adjPayload });
+      await createAdjHook.current.mutateAsync({ payload: adjPayload });
     });
-    expect(keysByOp.postAdj).toHaveLength(2);
-    expect(keysByOp.postAdj[0]).toBe(keysByOp.postAdj[1]);
-    expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: inventoryKeys.transactionLists(),
-    });
+
+    expect(keysByOp.createAdj).toHaveLength(2);
+    expect(keysByOp.createAdj[0]).toBe(keysByOp.createAdj[1]);
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: inventoryKeys.balanceLists(),
     });
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: inventoryKeys.batchLists(),
     });
-
-    // 4. Patch Draft Adjustment
-    invalidateSpy.mockClear();
-    const { result: patchAdjHook } = renderHook(
-      () => usePatchInventoryAdjustmentMutation(),
-      { wrapper }
-    );
-    await act(async () => {
-      await expect(
-        patchAdjHook.current.mutateAsync({
-          txnId: DRAFT_TXN_ID,
-          payload: { reason_code: 'UPDATED' },
-        })
-      ).rejects.toBeInstanceOf(ApiClientError);
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: inventoryKeys.summaries(),
     });
-    await act(async () => {
-      await patchAdjHook.current.mutateAsync({
-        txnId: DRAFT_TXN_ID,
-        payload: { reason_code: 'UPDATED' },
-      });
-    });
-    expect(keysByOp.patchAdj[0]).toBe(keysByOp.patchAdj[1]);
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: inventoryKeys.transactionLists(),
-    });
-    expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: inventoryKeys.transactionDetail(DRAFT_TXN_ID),
-    });
-
-    // 5. Post Draft Adjustment By ID
-    invalidateSpy.mockClear();
-    const { result: postDraftHook } = renderHook(
-      () => usePostInventoryAdjustmentByIdMutation(),
-      { wrapper }
-    );
-    await act(async () => {
-      await expect(
-        postDraftHook.current.mutateAsync({ txnId: DRAFT_TXN_ID })
-      ).rejects.toBeInstanceOf(ApiClientError);
-    });
-    await act(async () => {
-      await postDraftHook.current.mutateAsync({ txnId: DRAFT_TXN_ID });
-    });
-    expect(keysByOp.postAdjById[0]).toBe(keysByOp.postAdjById[1]);
-    expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: inventoryKeys.balanceLists(),
-    });
-    expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: inventoryKeys.transactionDetail(DRAFT_TXN_ID),
-    });
-
-    // 6. Cancel Draft Adjustment
-    invalidateSpy.mockClear();
-    const { result: cancelDraftHook } = renderHook(
-      () => useCancelInventoryAdjustmentMutation(),
-      { wrapper }
-    );
-    await act(async () => {
-      await expect(
-        cancelDraftHook.current.mutateAsync({ txnId: DRAFT_TXN_ID })
-      ).rejects.toBeInstanceOf(ApiClientError);
-    });
-    await act(async () => {
-      await cancelDraftHook.current.mutateAsync({ txnId: DRAFT_TXN_ID });
-    });
-    expect(keysByOp.cancelAdj[0]).toBe(keysByOp.cancelAdj[1]);
-    expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: inventoryKeys.transactionLists(),
-    });
-    expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: inventoryKeys.transactionDetail(DRAFT_TXN_ID),
     });
   });
 
-  it('updates live balance projection queries after posting an adjustment and enforces MSW idempotency replay/mismatch', async () => {
+  it('executes OPENING_BALANCE, ADJUSTMENT_OUT 409 OUT_OF_STOCK, REVERSAL, live summary/balance invalidation, and idempotency replay/mismatch via useCreateInventoryAdjustmentMutation', async () => {
     const queryClient = createTestQueryClient();
     const wrapper = createQueryWrapper(queryClient);
 
     const { result } = renderHook(
       () => ({
         balances: useInventoryBalancesQuery({
-          branchId: CAIRO_BRANCH_ID,
-          locationId: CAIRO_MAIN_SELL_ID,
-          batchId: AUGMENTIN_BATCH_A_ID,
+          branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+          location_id: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+          batch_id: MOCK_BATCH_IDS.MEDCARE_LOT_2601,
         }),
-        postAdj: usePostInventoryAdjustmentMutation(),
+        summary: useInventorySummaryQuery({
+          branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+          product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+        }),
+        transactions: useInventoryTransactionsQuery({
+          branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+        }),
+        createAdj: useCreateInventoryAdjustmentMutation(),
       }),
       { wrapper }
     );
 
     await waitFor(() => {
       expect(result.current.balances.isSuccess).toBe(true);
+      expect(result.current.summary.isSuccess).toBe(true);
+      expect(result.current.transactions.isSuccess).toBe(true);
     });
-    expect(result.current.balances.data?.items[0]?.on_hand_qty_base).toBe(
-      '5000.0000'
-    );
+    expect(result.current.balances.data?.items[0]?.on_hand_qty_base).toBe(280);
+    expect(result.current.summary.data?.total_on_hand_qty_base).toBe(400);
 
-    const replayPayload = {
-      transaction_type: 'ADJUSTMENT_IN' as const,
-      branch_id: CAIRO_BRANCH_ID,
+    // 1. OPENING_BALANCE on new Augmentin batch via mutation hook
+    await act(async () => {
+      const openingRes = await result.current.createAdj.mutateAsync({
+        payload: {
+          branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+          transaction_type: 'OPENING_BALANCE',
+          reason_code: 'INITIAL_BACKROOM_LOT',
+          note: null,
+          reverses_inventory_txn_id: null,
+          lines: [
+            {
+              product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+              product_uom_id: MOCK_PRODUCT_UOM_IDS.AUGMENTIN_STRIP,
+              location_id: MOCK_LOCATION_IDS.QUAR_01,
+              batch_number: 'MEDCARE-LOT-2603',
+              manufactured_on: '2026-08-01',
+              expires_on: '2028-08-01',
+              entered_qty: 10,
+              unit_cost_entered: 49,
+            },
+          ],
+        },
+      });
+      expect(openingRes.transaction_type).toBe('OPENING_BALANCE');
+      expect(openingRes.lines[0]?.quantity_delta_base).toBe(70);
+      expect(openingRes.lines[0]?.unit_cost_base).toBe(7);
+    });
+
+    await waitFor(() => {
+      expect(result.current.summary.data?.total_on_hand_qty_base).toBe(470);
+    });
+
+    // 2. ADJUSTMENT_OUT 409 OUT_OF_STOCK via mutation hook
+    await act(async () => {
+      await expect(
+        result.current.createAdj.mutateAsync({
+          payload: {
+            branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+            transaction_type: 'ADJUSTMENT_OUT',
+            reason_code: 'EXCESS_SHRINK',
+            note: null,
+            reverses_inventory_txn_id: null,
+            lines: [
+              {
+                product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+                product_uom_id: MOCK_PRODUCT_UOM_IDS.AUGMENTIN_TAB,
+                location_id: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+                batch_number: 'MEDCARE-LOT-2601',
+                manufactured_on: null,
+                expires_on: null,
+                entered_qty: 500,
+                unit_cost_entered: null,
+              },
+            ],
+          },
+        })
+      ).rejects.toMatchObject({ status: 409, code: 'OUT_OF_STOCK' });
+    });
+
+    // 3. Idempotency replay & 409 IDEMPOTENCY_MISMATCH on ADJUSTMENT_IN
+    const replayPayload: CreateInventoryAdjustmentRequest = {
+      branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+      transaction_type: 'ADJUSTMENT_IN',
       reason_code: 'RECOUNT_PLUS',
       note: null,
       reverses_inventory_txn_id: null,
       lines: [
         {
-          product_id: AUGMENTIN_ID,
-          location_id: CAIRO_MAIN_SELL_ID,
-          batch_id: AUGMENTIN_BATCH_A_ID,
-          product_uom_id: AUGMENTIN_BASE_UOM_ID,
-          entered_qty: '100.0000',
-          unit_cost_base: '1.2052',
+          product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+          product_uom_id: MOCK_PRODUCT_UOM_IDS.AUGMENTIN_TAB,
+          location_id: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+          batch_number: 'MEDCARE-LOT-2601',
+          manufactured_on: null,
+          expires_on: null,
+          entered_qty: 20,
+          unit_cost_entered: 7.2,
         },
       ],
     };
 
-    const explicitKey = 'inventory-replay-key-1234567890';
+    const explicitKey = 'inventory-replay-key-stage1-001';
     await act(async () => {
-      await result.current.postAdj.mutateAsync({
+      await result.current.createAdj.mutateAsync({
         payload: replayPayload,
         idempotencyKey: explicitKey,
       });
@@ -893,7 +1144,7 @@ describe('useInventoryMutations hooks', () => {
 
     // Replaying exact same key + payload must NOT double-add stock
     await act(async () => {
-      await result.current.postAdj.mutateAsync({
+      await result.current.createAdj.mutateAsync({
         payload: replayPayload,
         idempotencyKey: explicitKey,
       });
@@ -901,24 +1152,43 @@ describe('useInventoryMutations hooks', () => {
 
     await waitFor(() => {
       expect(result.current.balances.data?.items[0]?.on_hand_qty_base).toBe(
-        '5100.0000'
+        300
       );
     });
 
-    // Reusing same key with a different payload returns 409 IDEMPOTENCY_MISMATCH
     await act(async () => {
       await expect(
-        result.current.postAdj.mutateAsync({
-          payload: {
-            ...replayPayload,
-            reason_code: 'DIFFERENT_REASON',
-          },
+        result.current.createAdj.mutateAsync({
+          payload: { ...replayPayload, reason_code: 'CHANGED_REASON' },
           idempotencyKey: explicitKey,
         })
       ).rejects.toMatchObject({
         status: 409,
         code: 'IDEMPOTENCY_MISMATCH',
       });
+    });
+
+    // 4. REVERSAL via mutation hook
+    await act(async () => {
+      const reversed = await result.current.createAdj.mutateAsync({
+        payload: {
+          branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+          transaction_type: 'REVERSAL',
+          reason_code: 'AUDIT_CORRECTION',
+          note: 'Reverse seeded surplus adjustment',
+          reverses_inventory_txn_id:
+            MOCK_TRANSACTION_IDS.DOWNTOWN_ADJUSTMENT_IN,
+          lines: null,
+        },
+      });
+      expect(reversed.transaction_type).toBe('REVERSAL');
+      expect(reversed.reverses_inventory_txn_id).toBe(
+        MOCK_TRANSACTION_IDS.DOWNTOWN_ADJUSTMENT_IN
+      );
+    });
+
+    await waitFor(() => {
+      expect(result.current.transactions.data?.total_count).toBe(5);
     });
   });
 });

@@ -2,7 +2,7 @@ import type { ListEmployeesParams } from '../api/employeesApi';
 
 export type AllEmployeesKeyParams = Omit<
   ListEmployeesParams,
-  'cursor' | 'limit'
+  'page' | 'page_size'
 >;
 
 export const employeesKeys = {

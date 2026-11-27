@@ -1,9 +1,9 @@
 import { useId } from 'react';
 import { Skeleton } from '../../../components/ui/Skeleton';
-import type { BranchDto } from '../../../types/api';
+import type { Branch } from '../../../features/branches';
 
 export interface BranchAccessSelectorProps {
-  branches: readonly BranchDto[];
+  branches: readonly Branch[];
   selectedBranchIds: readonly string[];
   isLoading: boolean;
   isError: boolean;
@@ -26,6 +26,9 @@ export function BranchAccessSelector({
   const errorId = `${generatedId}-error`;
   const hintId = `${generatedId}-hint`;
   const selectedSet = new Set(selectedBranchIds);
+  const selectableBranches = branches.filter(
+    (branch) => branch.is_active || selectedSet.has(branch.branch_id)
+  );
   const describedBy = error ? errorId : hintId;
 
   return (
@@ -36,11 +39,11 @@ export function BranchAccessSelector({
 
       {isLoading ? (
         <Skeleton className="h-9 w-full" />
-      ) : isError && branches.length === 0 ? (
+      ) : isError && selectableBranches.length === 0 ? (
         <p className="text-body-sm text-text-muted italic">
           Branch options are unavailable. Retry loading branches above.
         </p>
-      ) : branches.length === 0 ? (
+      ) : selectableBranches.length === 0 ? (
         <p className="text-body-sm text-text-muted">
           No active branches available.
         </p>
@@ -51,7 +54,7 @@ export function BranchAccessSelector({
           aria-describedby={describedBy}
           className="flex flex-wrap gap-2"
         >
-          {branches.map((branch) => {
+          {selectableBranches.map((branch) => {
             const isSelected = selectedSet.has(branch.branch_id);
             return (
               <button
@@ -66,8 +69,11 @@ export function BranchAccessSelector({
                     : 'border-border-strong bg-surface text-text hover:bg-background font-medium'
                 }`}
               >
-                <span className="font-mono">{branch.code}</span>
-                <span>{branch.name}</span>
+                <span className="font-mono">{branch.branch_code}</span>
+                <span>
+                  {branch.name}
+                  {!branch.is_active ? ' (Inactive)' : ''}
+                </span>
               </button>
             );
           })}

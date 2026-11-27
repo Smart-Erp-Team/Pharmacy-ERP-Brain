@@ -1,7 +1,7 @@
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { TableCell, TableRow } from '../../../components/ui/Table';
-import type { InventoryTxnDto } from '../../../types/api';
+import type { InventoryTxn } from '../../../types/api';
 import {
   formatUtcTimestamp,
   getTxnStatusBadgeVariant,
@@ -9,9 +9,9 @@ import {
 } from '../hooks/useLedgerHistoryState';
 
 export interface LedgerTxnTableRowProps {
-  txn: InventoryTxnDto;
+  txn: InventoryTxn;
   createdByLabel: string;
-  onViewDetails: (txnId: string) => void;
+  onViewDetails: (txn: InventoryTxn) => void;
 }
 
 export function LedgerTxnTableRow({
@@ -41,10 +41,7 @@ export function LedgerTxnTableRow({
       <TableCell>{createdByLabel}</TableCell>
       <TableCell numeric>{txn.lines.length}</TableCell>
       <TableCell>
-        <Button
-          variant="secondary"
-          onClick={() => onViewDetails(txn.inventory_txn_id)}
-        >
+        <Button variant="secondary" onClick={() => onViewDetails(txn)}>
           View details
         </Button>
       </TableCell>

@@ -13,30 +13,24 @@ import {
   TableHeader,
   TableRow,
 } from '../../../components/ui/Table';
-import type { InventoryTxnDto } from '../../../types/api';
-import { useLedgerHistoryState } from '../hooks/useLedgerHistoryState';
+import type { InventoryTxn } from '../../../types/api';
+import {
+  LEDGER_HEADERS,
+  useLedgerHistoryState,
+} from '../hooks/useLedgerHistoryState';
 import { LedgerTxnDetailModal } from './LedgerTxnDetailModal';
 import { LedgerTxnTableRow } from './LedgerTxnTableRow';
 
-const LEDGER_HEADERS = [
-  'Transaction No',
-  'Type',
-  'Status',
-  'Reason code',
-  'Posted at',
-  'Created by',
-] as const;
-
 export interface LedgerHistoryTabProps {
   branchId: string;
-  onRequestReversal?: (txn: InventoryTxnDto) => void;
+  onRequestReversal?: (txn: InventoryTxn) => void;
 }
 
 export function LedgerHistoryTab({
   branchId,
   onRequestReversal,
 }: LedgerHistoryTabProps) {
-  const ledger = useLedgerHistoryState({ branchId });
+  const ledger = useLedgerHistoryState({ branchId, onRequestReversal });
 
   if (!ledger.canReadLedger || !branchId.trim()) {
     return (
@@ -69,22 +63,10 @@ export function LedgerHistoryTab({
       />
       <div className="border-border grid grid-cols-1 gap-3 border-b p-4 md:grid-cols-2 lg:grid-cols-5">
         {ledger.filterSelects.map((f) => (
-          <Select
-            key={f.label}
-            label={f.label}
-            options={f.options}
-            value={f.value}
-            onChange={(e) => f.onChange(e.target.value)}
-          />
+          <Select key={f.label} {...f} />
         ))}
         {ledger.filterDates.map((f) => (
-          <Input
-            key={f.label}
-            label={f.label}
-            type="date"
-            value={f.value}
-            onChange={(e) => f.onChange(e.target.value)}
-          />
+          <Input key={f.label} type="date" {...f} />
         ))}
         <div className="flex items-end">
           <Button
@@ -106,7 +88,7 @@ export function LedgerHistoryTab({
               <Button
                 variant="secondary"
                 isLoading={txnsQuery.isFetching}
-                onClick={() => void txnsQuery.refetch()}
+                onClick={ledger.retryList}
               >
                 Retry
               </Button>
@@ -120,29 +102,13 @@ export function LedgerHistoryTab({
           aria-label="Loading ledger history"
           className="flex flex-col gap-2 p-4"
         >
-          {[0, 1, 2, 3, 4].map((row) => (
-            <Skeleton key={row} className="h-10 w-full" />
-          ))}
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
         </div>
-      ) : ledger.transactions.length === 0 ? (
+      ) : ledger.tableRows.length === 0 ? (
         <EmptyState
-          title={
-            ledger.hasActiveFilters
-              ? 'No matching ledger transactions'
-              : 'No ledger transactions'
-          }
-          description={
-            ledger.hasActiveFilters
-              ? 'Adjust or clear the ledger filters to see transactions.'
-              : 'No inventory ledger transactions have been recorded for this branch yet.'
-          }
-          action={
-            ledger.hasActiveFilters ? (
-              <Button variant="secondary" onClick={ledger.clearFilters}>
-                Clear filters
-              </Button>
-            ) : undefined
-          }
+          title={ledger.emptyTitle}
+          description={ledger.emptyDescription}
         />
       ) : (
         <>
@@ -157,41 +123,22 @@ export function LedgerHistoryTab({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {ledger.transactions.map((txn) => (
+              {ledger.tableRows.map(({ txn, createdByLabel }) => (
                 <LedgerTxnTableRow
                   key={txn.inventory_txn_id}
                   txn={txn}
-                  createdByLabel={ledger.getEmployeeLabel(
-                    txn.created_by_employee_id
-                  )}
+                  createdByLabel={createdByLabel}
                   onViewDetails={ledger.openDetailModal}
                 />
               ))}
             </TableBody>
           </Table>
           <div className="border-border border-t px-4 py-3">
-            <Pagination
-              page={ledger.pageIndex + 1}
-              pageSize={ledger.pageSize}
-              itemCount={
-                ledger.pageIndex === 0 && !ledger.hasNextPage
-                  ? ledger.transactions.length
-                  : undefined
-              }
-              hasNextPage={ledger.hasNextPage}
-              onPageChange={ledger.handlePageChange}
-            />
+            <Pagination {...ledger.paginationProps} />
           </div>
         </>
       )}
-
-      <LedgerTxnDetailModal
-        {...ledger.detailModalProps}
-        onReverseTransaction={(txn) => {
-          ledger.closeDetailModal();
-          onRequestReversal?.(txn);
-        }}
-      />
+      <LedgerTxnDetailModal {...ledger.detailModalProps} />
     </Card>
   );
 }

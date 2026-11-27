@@ -1,306 +1,263 @@
 import { http, HttpResponse } from 'msw';
 import inventoryBalanceFixture from '@contracts/fixtures/inventory-balance.json';
 import productFixture from '@contracts/fixtures/product.json';
+import { normalizeProduct } from '../lib/api/catalogInventoryNormalizers';
+import { IDEMPOTENCY_KEY_MAX_LENGTH } from '../lib/api/idempotency';
+import { isPlainRecord } from '../lib/api/normalizers';
 import type {
-  ProductCategoryDto,
-  ProductDto,
-  ProductUomDto,
-  ReorderRuleDto,
+  ErrorCode,
+  NormalizedApiErrorDetail,
+  NormalizedApiErrorEnvelope,
+  PagedResult,
+  Product,
+  ProductCategory,
+  ProductUom,
+  ReorderRule,
 } from '../types/api';
+import { MOCK_BRANCH_IDS } from './branchHandlers';
 
-interface ValidationDetail {
-  field: string;
-  issue: string;
-}
+export const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111101';
 
-const TAX_RATE_PATTERN = /^(0|0\.\d{1,4}|1(\.0{1,4})?)$/;
-const POSITIVE_NUMERIC_6_PATTERN = /^(?!0+(\.0{1,6})?$)\d{1,12}(\.\d{1,6})?$/;
-const NON_NEGATIVE_NUMERIC_4_PATTERN = /^\d{1,14}(\.\d{1,4})?$/;
-const POSITIVE_NUMERIC_4_PATTERN = /^(?!0+(\.0{1,4})?$)\d{1,14}(\.\d{1,4})?$/;
+export { MOCK_BRANCH_IDS };
+
+export const MOCK_CATEGORY_IDS = {
+  ANTIBIOTICS: '11111111-5555-4111-8111-000000000001',
+  PENICILLINS: '11111111-5555-4111-8111-000000000002',
+  ANALGESICS: '11111111-5555-4111-8111-000000000003',
+  VITAMINS: '11111111-5555-4111-8111-000000000004',
+  ARCHIVED: '11111111-5555-4111-8111-000000000005',
+} as const;
+
+export const MOCK_PRODUCT_IDS = {
+  AUGMENTIN_1G: '6dbdb1a7-c723-da4c-8e0e-b067c18bc710',
+  PANADOL_EXTRA: '11111111-6666-4111-8111-000000000002',
+  VITAMIN_D3: '11111111-6666-4111-8111-000000000003',
+  DISCONTINUED_SYRUP: '11111111-6666-4111-8111-000000000004',
+} as const;
+
+export const MOCK_PRODUCT_UOM_IDS = {
+  AUGMENTIN_TAB: '9d28eb00-b850-564b-a237-ea00d077d047',
+  AUGMENTIN_STRIP: 'b554caea-c8f3-f349-902e-8bc2049041bd',
+  AUGMENTIN_BOX: 'db06a376-50a7-224c-b9c5-4f342c45debb',
+  PANADOL_TAB: '11111111-7777-4111-8111-000000000001',
+  PANADOL_BOX: '11111111-7777-4111-8111-000000000002',
+  VITAMIN_D3_BOTTLE: '11111111-7777-4111-8111-000000000003',
+  DISCONTINUED_BOTTLE: '11111111-7777-4111-8111-000000000004',
+} as const;
 
 export const LOCKED_HISTORY_PRODUCT_IDS: ReadonlySet<string> = new Set([
   inventoryBalanceFixture.product_id,
 ]);
 
-export const INITIAL_CATEGORIES: readonly ProductCategoryDto[] = [
+export const INITIAL_CATEGORIES: readonly ProductCategory[] = [
   {
-    category_id: 'c9d8e7f6-4444-4d55-8e66-cbccddeeffbb',
+    category_id: MOCK_CATEGORY_IDS.ANTIBIOTICS,
+    organization_id: ORGANIZATION_ID,
+    parent_category_id: null,
+    code: 'CAT-ANT',
+    name: 'Antibiotics',
+    description: 'Systemic and topical antibacterial medications',
+    is_active: true,
+    created_at: '2026-01-15T08:00:00+00:00',
+    updated_at: '2026-11-25T10:00:00+00:00',
+  },
+  {
+    category_id: MOCK_CATEGORY_IDS.PENICILLINS,
+    organization_id: ORGANIZATION_ID,
+    parent_category_id: MOCK_CATEGORY_IDS.ANTIBIOTICS,
+    code: 'CAT-ANT-PEN',
+    name: 'Penicillins',
+    description: 'Beta-lactam penicillin combinations',
+    is_active: true,
+    created_at: '2026-01-15T08:02:00+00:00',
+    updated_at: '2026-11-25T10:00:00+00:00',
+  },
+  {
+    category_id: MOCK_CATEGORY_IDS.ANALGESICS,
+    organization_id: ORGANIZATION_ID,
     parent_category_id: null,
     code: 'CAT-ANA',
     name: 'Analgesics',
     description: 'Pain relief and antipyretic medications',
     is_active: true,
-    created_at: '2025-08-01T09:00:00Z',
-    updated_at: '2025-08-01T09:00:00Z',
+    created_at: '2026-01-15T08:03:00+00:00',
+    updated_at: '2026-11-25T10:00:00+00:00',
   },
   {
-    category_id: 'c9d8e7f6-4444-4d55-8e66-cbccddeeffbd',
-    parent_category_id: 'c9d8e7f6-4444-4d55-8e66-cbccddeeffbb',
-    code: 'CAT-ANA-PED',
-    name: 'Pediatric Analgesics',
-    description: 'Pediatric analgesic syrups and suspensions',
-    is_active: true,
-    created_at: '2025-08-02T09:00:00Z',
-    updated_at: '2025-08-02T09:00:00Z',
-  },
-  {
-    category_id: 'c9d8e7f6-4444-4d55-8e66-cbccddeeffbc',
-    parent_category_id: null,
-    code: 'CAT-ABX',
-    name: 'Antibiotics',
-    description: 'Prescription antibacterial therapies',
-    is_active: true,
-    created_at: '2025-08-01T09:05:00Z',
-    updated_at: '2025-08-01T09:05:00Z',
-  },
-  {
-    category_id: 'c9d8e7f6-4444-4d55-8e66-cbccddeeffbe',
+    category_id: MOCK_CATEGORY_IDS.VITAMINS,
+    organization_id: ORGANIZATION_ID,
     parent_category_id: null,
     code: 'CAT-VIT',
     name: 'Vitamins & Supplements',
-    description: 'Daily vitamins, minerals, and nutrition',
+    description: 'Daily vitamins, minerals, and nutritional support',
     is_active: true,
-    created_at: '2025-08-03T10:00:00Z',
-    updated_at: '2025-08-03T10:00:00Z',
+    created_at: '2026-01-15T08:04:00+00:00',
+    updated_at: '2026-11-25T10:00:00+00:00',
   },
   {
-    category_id: 'c9d8e7f6-4444-4d55-8e66-cbccddeeffbf',
+    category_id: MOCK_CATEGORY_IDS.ARCHIVED,
+    organization_id: ORGANIZATION_ID,
     parent_category_id: null,
-    code: 'CAT-DIS',
-    name: 'Discontinued Seasonal',
-    description: 'Archived seasonal OTC category',
+    code: 'CAT-ARCH',
+    name: 'Archived Catalog',
+    description: 'Discontinued and archived OTC items',
     is_active: false,
-    created_at: '2025-07-15T10:00:00Z',
-    updated_at: '2026-01-10T12:00:00Z',
+    created_at: '2026-01-10T08:00:00+00:00',
+    updated_at: '2026-11-25T10:00:00+00:00',
   },
 ];
 
-export const INITIAL_PRODUCTS: readonly ProductDto[] = [
+const VERBATIM_AUGMENTIN_PRODUCT: Product = normalizeProduct(
   productFixture,
+  '@contracts/fixtures/product.json'
+);
+
+export const INITIAL_PRODUCTS: readonly Product[] = [
+  VERBATIM_AUGMENTIN_PRODUCT,
   {
-    product_id: inventoryBalanceFixture.product_id,
-    category_id: 'c9d8e7f6-4444-4d55-8e66-cbccddeeffbc',
-    sku: 'ABX-AUG-1000-TAB',
-    barcode: '6221048002345',
-    name: 'Augmentin 1g Tablets',
-    generic_name: 'Amoxicillin 875mg / Clavulanic Acid 125mg',
-    brand_name: 'Augmentin',
-    base_uom_code: 'tablet',
-    tax_rate: '0.1400',
-    image_url: 'https://cdn.pharmaplus.eg/products/abx-aug-1000-tab.jpg',
-    lot_tracking_required: true,
-    expiry_alert_days: 90,
-    is_active: true,
-    uoms: [
-      {
-        product_uom_id: 'c1d2e3f4-1111-4aaa-8a1b-111111110001',
-        uom_code: 'tablet',
-        display_name: 'Tablet (base)',
-        conversion_to_base: '1.000000',
-        sale_unit_price: '12.5000',
-        is_base: true,
-        is_sellable: true,
-        is_purchasable: false,
-        is_active: true,
-      },
-      {
-        product_uom_id: 'c1d2e3f4-1111-4aaa-8a1b-111111110002',
-        uom_code: 'box',
-        display_name: 'Box of 14',
-        conversion_to_base: '14.000000',
-        sale_unit_price: '175.0000',
-        is_base: false,
-        is_sellable: true,
-        is_purchasable: true,
-        is_active: true,
-      },
-    ],
-    created_at: '2025-08-20T10:00:00Z',
-    updated_at: '2026-10-05T11:15:00Z',
-  },
-  {
-    product_id: 'd7e8f9a0-5555-4fff-9d4e-567890123bcd',
-    category_id: 'c9d8e7f6-4444-4d55-8e66-cbccddeeffbd',
-    sku: 'ANA-CET-PED-SYR',
-    barcode: '6221048003456',
-    name: 'Cetal Pediatric Suspension 120ml',
-    generic_name: 'Paracetamol 250mg/5ml',
-    brand_name: 'Cetal',
-    base_uom_code: 'bottle',
-    tax_rate: '0.1400',
+    product_id: MOCK_PRODUCT_IDS.PANADOL_EXTRA,
+    organization_id: ORGANIZATION_ID,
+    category_id: MOCK_CATEGORY_IDS.ANALGESICS,
+    sku: 'MED-PAN-500',
+    barcode: '6221001000026',
+    name: 'Panadol Extra 500mg',
+    generic_name: 'Paracetamol 500mg + Caffeine 65mg',
+    brand_name: 'Haleon',
+    base_uom_code: 'TAB',
+    tax_rate: 0.05,
     image_url: null,
     lot_tracking_required: true,
     expiry_alert_days: 60,
     is_active: true,
     uoms: [
       {
-        product_uom_id: 'c1d2e3f4-2222-4aaa-8a1b-111111110003',
-        uom_code: 'bottle',
-        display_name: 'Bottle 120ml',
-        conversion_to_base: '1.000000',
-        sale_unit_price: '38.0000',
-        is_base: true,
-        is_sellable: true,
-        is_purchasable: true,
-        is_active: true,
-      },
-    ],
-    created_at: '2025-09-01T08:00:00Z',
-    updated_at: '2026-09-12T10:00:00Z',
-  },
-  {
-    product_id: 'e8f9a0b1-6666-4aaa-8e5f-678901234cde',
-    category_id: 'c9d8e7f6-4444-4d55-8e66-cbccddeeffbc',
-    sku: 'ABX-ZTH-500-CAP',
-    barcode: '6221048004567',
-    name: 'Zithromax 500mg Capsules',
-    generic_name: 'Azithromycin 500mg',
-    brand_name: 'Zithromax',
-    base_uom_code: 'capsule',
-    tax_rate: '0.1400',
-    image_url: null,
-    lot_tracking_required: true,
-    expiry_alert_days: 90,
-    is_active: true,
-    uoms: [
-      {
-        product_uom_id: 'c1d2e3f4-3333-4aaa-8a1b-111111110004',
-        uom_code: 'capsule',
-        display_name: 'Capsule (base)',
-        conversion_to_base: '1.000000',
-        sale_unit_price: '28.0000',
+        product_uom_id: MOCK_PRODUCT_UOM_IDS.PANADOL_TAB,
+        product_id: MOCK_PRODUCT_IDS.PANADOL_EXTRA,
+        uom_code: 'TAB',
+        display_name: 'Tablet',
+        conversion_to_base: 1,
+        sale_unit_price: 2.5,
         is_base: true,
         is_sellable: true,
         is_purchasable: false,
         is_active: true,
+        updated_at: '2026-11-25T10:00:00+00:00',
       },
       {
-        product_uom_id: 'c1d2e3f4-3333-4aaa-8a1b-111111110005',
-        uom_code: 'pack',
-        display_name: 'Pack of 3',
-        conversion_to_base: '3.000000',
-        sale_unit_price: '84.0000',
+        product_uom_id: MOCK_PRODUCT_UOM_IDS.PANADOL_BOX,
+        product_id: MOCK_PRODUCT_IDS.PANADOL_EXTRA,
+        uom_code: 'BOX',
+        display_name: 'Box of 24',
+        conversion_to_base: 24,
+        sale_unit_price: 55.0,
         is_base: false,
         is_sellable: true,
         is_purchasable: true,
         is_active: true,
+        updated_at: '2026-11-25T10:00:00+00:00',
       },
     ],
-    created_at: '2025-09-10T11:00:00Z',
-    updated_at: '2026-09-15T14:20:00Z',
+    created_at: '2026-01-16T09:00:00+00:00',
+    updated_at: '2026-11-25T10:00:00+00:00',
   },
   {
-    product_id: 'f9a0b1c2-7777-4bbb-9f6a-789012345def',
-    category_id: 'c9d8e7f6-4444-4d55-8e66-cbccddeeffbe',
-    sku: 'VIT-CEN-ADU-TAB',
-    barcode: '6221048005678',
-    name: 'Centrum Adults Multivitamin',
-    generic_name: 'Multivitamin & Minerals',
-    brand_name: 'Centrum',
-    base_uom_code: 'tablet',
-    tax_rate: '0.1400',
+    product_id: MOCK_PRODUCT_IDS.VITAMIN_D3,
+    organization_id: ORGANIZATION_ID,
+    category_id: MOCK_CATEGORY_IDS.VITAMINS,
+    sku: 'MED-VIT-D3',
+    barcode: '6221001000033',
+    name: 'Vitamin D3 5000 IU',
+    generic_name: 'Cholecalciferol 5000 IU',
+    brand_name: 'Now Foods',
+    base_uom_code: 'BOTTLE',
+    tax_rate: 0.14,
     image_url: null,
     lot_tracking_required: false,
-    expiry_alert_days: 45,
+    expiry_alert_days: 30,
     is_active: true,
     uoms: [
       {
-        product_uom_id: 'c1d2e3f4-4444-4aaa-8a1b-111111110006',
-        uom_code: 'tablet',
-        display_name: 'Tablet (base)',
-        conversion_to_base: '1.000000',
-        sale_unit_price: null,
+        product_uom_id: MOCK_PRODUCT_UOM_IDS.VITAMIN_D3_BOTTLE,
+        product_id: MOCK_PRODUCT_IDS.VITAMIN_D3,
+        uom_code: 'BOTTLE',
+        display_name: 'Bottle of 60 Softgels',
+        conversion_to_base: 1,
+        sale_unit_price: 120.0,
         is_base: true,
-        is_sellable: false,
-        is_purchasable: false,
-        is_active: true,
-      },
-      {
-        product_uom_id: 'c1d2e3f4-4444-4aaa-8a1b-111111110007',
-        uom_code: 'bottle60',
-        display_name: 'Bottle of 60',
-        conversion_to_base: '60.000000',
-        sale_unit_price: '420.0000',
-        is_base: false,
         is_sellable: true,
         is_purchasable: true,
         is_active: true,
-      },
-      {
-        product_uom_id: 'c1d2e3f4-4444-4aaa-8a1b-111111110008',
-        uom_code: 'bottle30',
-        display_name: 'Legacy Bottle of 30',
-        conversion_to_base: '30.000000',
-        sale_unit_price: '220.0000',
-        is_base: false,
-        is_sellable: true,
-        is_purchasable: false,
-        is_active: false,
+        updated_at: '2026-11-25T10:00:00+00:00',
       },
     ],
-    created_at: '2025-10-01T09:00:00Z',
-    updated_at: '2026-08-22T16:10:00Z',
+    created_at: '2026-01-17T09:00:00+00:00',
+    updated_at: '2026-11-25T10:00:00+00:00',
   },
   {
-    product_id: 'a0b1c2d3-8888-4ccc-8a7b-890123456ef0',
-    category_id: 'c9d8e7f6-4444-4d55-8e66-cbccddeeffbf',
-    sku: 'DIS-ASP-075-TAB',
+    product_id: MOCK_PRODUCT_IDS.DISCONTINUED_SYRUP,
+    organization_id: ORGANIZATION_ID,
+    category_id: MOCK_CATEGORY_IDS.ARCHIVED,
+    sku: 'MED-OLD-01',
     barcode: null,
-    name: 'Legacy Aspirin 75mg Tablets',
-    generic_name: 'Acetylsalicylic Acid 75mg',
-    brand_name: 'PharmaLegacy',
-    base_uom_code: 'tablet',
-    tax_rate: '0.0000',
+    name: 'Discontinued Cough Syrup',
+    generic_name: 'Dextromethorphan HBr 15mg/5ml',
+    brand_name: 'MedCare Legacy',
+    base_uom_code: 'BOTTLE',
+    tax_rate: 0.0,
     image_url: null,
     lot_tracking_required: false,
     expiry_alert_days: 0,
     is_active: false,
     uoms: [
       {
-        product_uom_id: 'c1d2e3f4-5555-4aaa-8a1b-111111110009',
-        uom_code: 'tablet',
-        display_name: 'Tablet (base)',
-        conversion_to_base: '1.000000',
-        sale_unit_price: '0.7500',
+        product_uom_id: MOCK_PRODUCT_UOM_IDS.DISCONTINUED_BOTTLE,
+        product_id: MOCK_PRODUCT_IDS.DISCONTINUED_SYRUP,
+        uom_code: 'BOTTLE',
+        display_name: 'Bottle 120ml',
+        conversion_to_base: 1,
+        sale_unit_price: 45.0,
         is_base: true,
         is_sellable: true,
         is_purchasable: false,
         is_active: true,
+        updated_at: '2026-11-25T10:00:00+00:00',
       },
     ],
-    created_at: '2025-07-20T09:00:00Z',
-    updated_at: '2026-01-10T12:00:00Z',
+    created_at: '2026-01-10T09:00:00+00:00',
+    updated_at: '2026-11-25T10:00:00+00:00',
   },
 ];
 
-export const INITIAL_REORDER_RULES: readonly ReorderRuleDto[] = [
+export const INITIAL_REORDER_RULES: readonly ReorderRule[] = [
   {
-    reorder_rule_id: 'r1111111-1111-4111-8111-111111111101',
-    product_id: productFixture.product_id,
-    branch_id: inventoryBalanceFixture.branch_id,
-    reorder_point_base: '200.0000',
-    reorder_quantity_base: '500.0000',
-    max_quantity_base: '1200.0000',
+    reorder_rule_id: '11111111-8888-4111-8111-000000000001',
+    organization_id: ORGANIZATION_ID,
+    branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+    product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+    reorder_point_base: 50,
+    reorder_quantity_base: 200,
+    max_quantity_base: 500,
     is_active: true,
+    updated_at: '2026-11-25T10:00:00+00:00',
   },
 ];
 
-function cloneCategory(category: ProductCategoryDto): ProductCategoryDto {
+function cloneCategory(category: ProductCategory): ProductCategory {
   return { ...category };
 }
 
-function cloneUom(uom: ProductUomDto): ProductUomDto {
+function cloneUom(uom: ProductUom): ProductUom {
   return { ...uom };
 }
 
-function cloneProduct(product: ProductDto): ProductDto {
+function cloneProduct(product: Product): Product {
   return {
     ...product,
     uoms: product.uoms.map(cloneUom),
   };
 }
 
-function cloneReorderRule(rule: ReorderRuleDto): ReorderRuleDto {
+function cloneReorderRule(rule: ReorderRule): ReorderRule {
   return { ...rule };
 }
 
@@ -308,7 +265,7 @@ function reorderRuleKey(branchId: string, productId: string): string {
   return `${branchId}:${productId}`;
 }
 
-function createInitialReorderMap(): Map<string, ReorderRuleDto> {
+function createInitialReorderMap(): Map<string, ReorderRule> {
   return new Map(
     INITIAL_REORDER_RULES.map((rule) => [
       reorderRuleKey(rule.branch_id, rule.product_id),
@@ -317,64 +274,29 @@ function createInitialReorderMap(): Map<string, ReorderRuleDto> {
   );
 }
 
-let mockCategories: ProductCategoryDto[] =
-  INITIAL_CATEGORIES.map(cloneCategory);
-let mockProducts: ProductDto[] = INITIAL_PRODUCTS.map(cloneProduct);
+let mockCategories: ProductCategory[] = INITIAL_CATEGORIES.map(cloneCategory);
+let mockProducts: Product[] = INITIAL_PRODUCTS.map(cloneProduct);
 let mockReorderRules = createInitialReorderMap();
-let idCounter = 0;
+let idCounter = 100;
 
 export function resetMockCatalog(): void {
   mockCategories = INITIAL_CATEGORIES.map(cloneCategory);
   mockProducts = INITIAL_PRODUCTS.map(cloneProduct);
   mockReorderRules = createInitialReorderMap();
-  idCounter = 0;
+  idCounter = 100;
 }
 
-function createMockUuid(): string {
+function createMockUuid(segment: string): string {
   idCounter += 1;
-  if (
-    typeof globalThis.crypto !== 'undefined' &&
-    typeof globalThis.crypto.randomUUID === 'function'
-  ) {
-    return globalThis.crypto.randomUUID();
-  }
-  return `ca000000-0000-4000-8000-${String(idCounter).padStart(12, '0')}`;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  return `11111111-${segment}-4111-8111-${String(idCounter).padStart(12, '0')}`;
 }
 
 function readTrimmedString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function padValidatedDecimal(raw: string, decimals: number): string {
-  const [rawInt = '0', rawFrac = ''] = raw.trim().split('.');
-  const normInt = rawInt.replace(/^0+(?=\d)/, '') || '0';
-  return `${normInt}.${rawFrac.padEnd(decimals, '0')}`;
-}
-
-function compareDecimalStrings(a: string, b: string): number {
-  const [rawIntA = '0', rawFracA = ''] = a.trim().split('.');
-  const [rawIntB = '0', rawFracB = ''] = b.trim().split('.');
-  const intA = rawIntA.replace(/^0+(?=\d)/, '') || '0';
-  const intB = rawIntB.replace(/^0+(?=\d)/, '') || '0';
-  if (intA.length !== intB.length) {
-    return intA.length < intB.length ? -1 : 1;
-  }
-  if (intA !== intB) {
-    return intA < intB ? -1 : 1;
-  }
-  const fracA = rawFracA.replace(/0+$/, '');
-  const fracB = rawFracB.replace(/0+$/, '');
-  const maxLen = Math.max(fracA.length, fracB.length);
-  const paddedA = fracA.padEnd(maxLen, '0');
-  const paddedB = fracB.padEnd(maxLen, '0');
-  if (paddedA === paddedB) {
-    return 0;
-  }
-  return paddedA < paddedB ? -1 : 1;
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
 }
 
 function isValidHttpUrl(value: string): boolean {
@@ -386,73 +308,176 @@ function isValidHttpUrl(value: string): boolean {
   }
 }
 
-function malformedRequestResponse(message: string) {
-  return HttpResponse.json(
-    {
-      error: {
-        code: 'MALFORMED_REQUEST',
-        message,
-        trace_id: 'mock-trace-catalog-malformed',
-      },
+function createMockErrorEnvelope(
+  code: ErrorCode,
+  message: string,
+  traceId: string,
+  details: NormalizedApiErrorDetail[] = []
+): NormalizedApiErrorEnvelope {
+  return {
+    error: {
+      code,
+      message,
+      details,
+      trace_id: traceId,
     },
+  };
+}
+
+function malformedRequestResponse(
+  message: string,
+  details: NormalizedApiErrorDetail[] = []
+) {
+  return HttpResponse.json(
+    createMockErrorEnvelope(
+      'MALFORMED_REQUEST',
+      message,
+      'mock-trace-catalog-malformed',
+      details
+    ),
     { status: 400 }
   );
 }
 
 function notFoundResponse(message: string) {
   return HttpResponse.json(
-    {
-      error: {
-        code: 'NOT_FOUND',
-        message,
-        trace_id: 'mock-trace-catalog-not-found',
-      },
-    },
+    createMockErrorEnvelope(
+      'NOT_FOUND',
+      message,
+      'mock-trace-catalog-not-found'
+    ),
     { status: 404 }
   );
 }
 
-function validationErrorResponse(message: string, details: ValidationDetail[]) {
+function validationErrorResponse(
+  message: string,
+  details: NormalizedApiErrorDetail[]
+) {
   return HttpResponse.json(
-    {
-      error: {
-        code: 'VALIDATION_ERROR',
-        message,
-        trace_id: 'mock-trace-catalog-validation',
-        details,
-      },
-    },
+    createMockErrorEnvelope(
+      'VALIDATION_ERROR',
+      message,
+      'mock-trace-catalog-validation',
+      details
+    ),
     { status: 422 }
   );
 }
 
-function conflictResponse(message: string, details: ValidationDetail[] = []) {
+function conflictResponse(
+  message: string,
+  details: NormalizedApiErrorDetail[] = []
+) {
   return HttpResponse.json(
-    {
-      error: {
-        code: 'CONFLICT',
-        message,
-        trace_id: 'mock-trace-catalog-conflict',
-        ...(details.length > 0 ? { details } : {}),
-      },
-    },
+    createMockErrorEnvelope(
+      'CONFLICT',
+      message,
+      'mock-trace-catalog-conflict',
+      details
+    ),
     { status: 409 }
   );
 }
 
-function parsePaginationParams(url: URL): { start: number; limit: number } {
-  const rawLimit = Number(url.searchParams.get('limit') ?? '50');
-  const parsedLimit = Math.floor(rawLimit);
-  const limit =
-    Number.isFinite(rawLimit) && parsedLimit > 0
-      ? Math.min(parsedLimit, 200)
-      : 50;
-  const rawCursor = Number(url.searchParams.get('cursor') ?? '0');
-  const parsedCursor = Math.floor(rawCursor);
-  const start =
-    Number.isFinite(rawCursor) && parsedCursor >= 0 ? parsedCursor : 0;
+function validateIdempotencyKeyHeader(
+  request: Request,
+  body: Record<string, unknown>
+): Response | null {
+  const headerKey = request.headers.get('Idempotency-Key')?.trim() ?? '';
+  const bodyKey =
+    typeof body.idempotency_key === 'string' ? body.idempotency_key.trim() : '';
+  const effectiveKey = headerKey || bodyKey;
 
-  return { start, limit };
+  if (!effectiveKey) {
+    return malformedRequestResponse('The idempotency key is required.', [
+      { field: 'Idempotency-Key', issue: 'The idempotency key is required.' },
+    ]);
+  }
+  if (effectiveKey.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
+    return validationErrorResponse('Invalid idempotency key.', [
+      {
+        field: 'idempotency_key',
+        issue: `Idempotency key must be at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`,
+      },
+    ]);
+  }
+  return null;
+}
+
+function parsePositiveIntegerParam(raw: string | null, fallback: number) {
+  if (raw === null) {
+    return { valid: true as const, value: fallback };
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return { valid: false as const, value: fallback };
+  }
+  const parsed = Number(trimmed);
+  if (!Number.isInteger(parsed)) {
+    return { valid: false as const, value: fallback };
+  }
+  return { valid: true as const, value: parsed };
+}
+
+function paginateItems<TItem>(
+  url: URL,
+  filtered: readonly TItem[],
+  cloneItem: (item: TItem) => TItem
+):
+  | { ok: true; payload: PagedResult<TItem> }
+  | { ok: false; response: Response } {
+  const pageResult = parsePositiveIntegerParam(url.searchParams.get('page'), 1);
+  const pageSizeResult = parsePositiveIntegerParam(
+    url.searchParams.get('page_size'),
+    25
+  );
+
+  const details: NormalizedApiErrorDetail[] = [];
+  if (!pageResult.valid || pageResult.value < 1) {
+    details.push({
+      field: 'page',
+      issue: 'Page must be an integer greater than or equal to 1.',
+    });
+  }
+  if (
+    !pageSizeResult.valid ||
+    pageSizeResult.value < 1 ||
+    pageSizeResult.value > 200
+  ) {
+    details.push({
+      field: 'page_size',
+      issue: 'Page size must be an integer between 1 and 200.',
+    });
+  }
+
+  if (details.length > 0) {
+    return {
+      ok: false,
+      response: validationErrorResponse(
+        'Invalid pagination parameters.',
+        details
+      ),
+    };
+  }
+
+  const page = pageResult.value;
+  const pageSize = pageSizeResult.value;
+  const totalCount = filtered.length;
+  const start = (page - 1) * pageSize;
+  const items = filtered.slice(start, start + pageSize).map(cloneItem);
+  const nextCursor = page * pageSize < totalCount ? String(page + 1) : null;
+
+  return {
+    ok: true,
+    payload: {
+      items,
+      page,
+      page_size: pageSize,
+      total_count: totalCount,
+      next_cursor: nextCursor,
+    },
+  };
 }
 
 function validateNullableOptionalString(
@@ -460,7 +485,7 @@ function validateNullableOptionalString(
   field: string,
   maxLength: number,
   label: string,
-  details: ValidationDetail[]
+  details: NormalizedApiErrorDetail[]
 ): string | null {
   if (rawValue === null || rawValue === undefined) {
     return null;
@@ -485,7 +510,7 @@ function validateNullableOptionalString(
 
 function getCategoryDescendants(
   rootId: string,
-  categories: readonly ProductCategoryDto[]
+  categories: readonly ProductCategory[]
 ): Set<string> {
   const descendants = new Set<string>();
   const visited = new Set<string>([rootId]);
@@ -514,8 +539,8 @@ function getCategoryDescendants(
 interface ParsedUomInput {
   uom_code: string;
   display_name: string;
-  conversion_to_base: string;
-  sale_unit_price: string | null;
+  conversion_to_base: number;
+  sale_unit_price: number | null;
   is_base: boolean;
   is_sellable: boolean;
   is_purchasable: boolean;
@@ -524,9 +549,9 @@ interface ParsedUomInput {
 function parseUomInput(
   raw: unknown,
   prefix: string,
-  details: ValidationDetail[]
+  details: NormalizedApiErrorDetail[]
 ): ParsedUomInput | null {
-  if (!isRecord(raw)) {
+  if (!isPlainRecord(raw)) {
     details.push({
       field: prefix || 'uom_code',
       issue: 'UOM entry must be a JSON object.',
@@ -548,7 +573,6 @@ function parseUomInput(
 
   const uomCode = readTrimmedString(raw.uom_code);
   const displayName = readTrimmedString(raw.display_name);
-  const conversionRaw = readTrimmedString(raw.conversion_to_base);
 
   if (!uomCode) {
     details.push({ field: uomCodeField, issue: 'UOM code is required.' });
@@ -571,11 +595,14 @@ function parseUomInput(
     });
   }
 
-  if (!conversionRaw || !POSITIVE_NUMERIC_6_PATTERN.test(conversionRaw)) {
+  let conversionToBase = 0;
+  if (!isFiniteNumber(raw.conversion_to_base) || raw.conversion_to_base <= 0) {
     details.push({
       field: conversionField,
-      issue: 'Conversion factor must be a positive 6-decimal number.',
+      issue: 'Conversion factor must be a finite number greater than 0.',
     });
+  } else {
+    conversionToBase = raw.conversion_to_base;
   }
 
   let isBase = false;
@@ -613,8 +640,9 @@ function parseUomInput(
 
   if (
     isBase &&
-    POSITIVE_NUMERIC_6_PATTERN.test(conversionRaw) &&
-    padValidatedDecimal(conversionRaw, 6) !== '1.000000'
+    isFiniteNumber(raw.conversion_to_base) &&
+    raw.conversion_to_base > 0 &&
+    raw.conversion_to_base !== 1
   ) {
     details.push({
       field: conversionField,
@@ -622,54 +650,35 @@ function parseUomInput(
     });
   }
 
-  let saleUnitPrice: string | null = null;
+  let saleUnitPrice: number | null = null;
   if (isSellable) {
-    if (
-      raw.sale_unit_price !== undefined &&
-      raw.sale_unit_price !== null &&
-      typeof raw.sale_unit_price !== 'string'
+    if (raw.sale_unit_price === undefined || raw.sale_unit_price === null) {
+      details.push({
+        field: priceField,
+        issue: 'Sale unit price is required when UOM is sellable.',
+      });
+    } else if (
+      !isFiniteNumber(raw.sale_unit_price) ||
+      raw.sale_unit_price < 0
     ) {
       details.push({
         field: priceField,
-        issue: 'Sale unit price must be a non-negative 4-decimal number.',
+        issue: 'Sale unit price must be a finite non-negative number.',
       });
     } else {
-      const rawPrice =
-        typeof raw.sale_unit_price === 'string'
-          ? raw.sale_unit_price.trim()
-          : '';
-      if (!rawPrice) {
-        details.push({
-          field: priceField,
-          issue: 'Sale unit price is required when UOM is sellable.',
-        });
-      } else if (!NON_NEGATIVE_NUMERIC_4_PATTERN.test(rawPrice)) {
-        details.push({
-          field: priceField,
-          issue: 'Sale unit price must be a non-negative 4-decimal number.',
-        });
-      } else {
-        saleUnitPrice = padValidatedDecimal(rawPrice, 4);
-      }
+      saleUnitPrice = raw.sale_unit_price;
     }
   } else if (
     raw.sale_unit_price !== undefined &&
     raw.sale_unit_price !== null
   ) {
-    if (typeof raw.sale_unit_price !== 'string') {
+    if (!isFiniteNumber(raw.sale_unit_price) || raw.sale_unit_price < 0) {
       details.push({
         field: priceField,
-        issue:
-          'Sale unit price must be a non-negative 4-decimal string or null.',
+        issue: 'Sale unit price must be a finite non-negative number or null.',
       });
     } else {
-      const rawPrice = raw.sale_unit_price.trim();
-      if (rawPrice && !NON_NEGATIVE_NUMERIC_4_PATTERN.test(rawPrice)) {
-        details.push({
-          field: priceField,
-          issue: 'Sale unit price must be a non-negative 4-decimal number.',
-        });
-      }
+      saleUnitPrice = raw.sale_unit_price;
     }
   }
 
@@ -680,7 +689,7 @@ function parseUomInput(
   return {
     uom_code: uomCode,
     display_name: displayName,
-    conversion_to_base: padValidatedDecimal(conversionRaw, 6),
+    conversion_to_base: conversionToBase,
     sale_unit_price: saleUnitPrice,
     is_base: isBase,
     is_sellable: isSellable,
@@ -694,22 +703,46 @@ export const productHandlers = [
   // =========================================================================
   http.get('*/api/v1/product-categories', ({ request }) => {
     const url = new URL(request.url);
-    const includeInactive = url.searchParams.get('includeInactive') === 'true';
-    const { start, limit } = parsePaginationParams(url);
+    const includeInactive = url.searchParams.get('include_inactive') === 'true';
+    const parentCategoryId =
+      url.searchParams.get('parent_category_id')?.trim() ?? '';
+    const search = url.searchParams.get('search')?.trim().toLowerCase() ?? '';
 
-    const filtered = includeInactive
-      ? mockCategories
-      : mockCategories.filter((category) => category.is_active);
-    const items = filtered.slice(start, start + limit).map(cloneCategory);
-    const nextOffset = start + limit;
-    const nextCursor = nextOffset < filtered.length ? String(nextOffset) : null;
+    const filtered = mockCategories.filter((category) => {
+      if (!includeInactive && !category.is_active) {
+        return false;
+      }
+      if (
+        parentCategoryId &&
+        category.parent_category_id !== parentCategoryId
+      ) {
+        return false;
+      }
+      if (search) {
+        const matchesCode = category.code.toLowerCase().includes(search);
+        const matchesName = category.name.toLowerCase().includes(search);
+        const matchesDescription = (category.description ?? '')
+          .toLowerCase()
+          .includes(search);
+        if (!matchesCode && !matchesName && !matchesDescription) {
+          return false;
+        }
+      }
+      return true;
+    });
 
-    return HttpResponse.json({ items, nextCursor }, { status: 200 });
+    const pageResult = paginateItems(url, filtered, cloneCategory);
+    if (!pageResult.ok) {
+      return pageResult.response;
+    }
+    return HttpResponse.json(pageResult.payload, { status: 200 });
   }),
 
   http.get('*/api/v1/product-categories/:categoryId', ({ params }) => {
+    const categoryId =
+      typeof params.categoryId === 'string' ? params.categoryId : '';
     const category = mockCategories.find(
-      (item) => item.category_id === params.categoryId
+      (item) => item.category_id === categoryId
     );
     if (!category) {
       return notFoundResponse('Product category was not found.');
@@ -719,13 +752,18 @@ export const productHandlers = [
 
   http.post('*/api/v1/product-categories', async ({ request }) => {
     const body: unknown = await request.json().catch(() => null);
-    if (!isRecord(body)) {
+    if (!isPlainRecord(body)) {
       return malformedRequestResponse(
         'Request body must be a valid JSON object.'
       );
     }
 
-    const details: ValidationDetail[] = [];
+    const idempotencyError = validateIdempotencyKeyHeader(request, body);
+    if (idempotencyError) {
+      return idempotencyError;
+    }
+
+    const details: NormalizedApiErrorDetail[] = [];
     const code = readTrimmedString(body.code);
     const name = readTrimmedString(body.name);
     const description = validateNullableOptionalString(
@@ -748,7 +786,19 @@ export const productHandlers = [
         });
       } else {
         const trimmedParent = body.parent_category_id.trim();
-        parentCategoryId = trimmedParent.length > 0 ? trimmedParent : null;
+        if (trimmedParent.length > 0) {
+          const parentExists = mockCategories.some(
+            (item) => item.category_id === trimmedParent
+          );
+          if (!parentExists) {
+            details.push({
+              field: 'parent_category_id',
+              issue: 'Parent category was not found.',
+            });
+          } else {
+            parentCategoryId = trimmedParent;
+          }
+        }
       }
     }
 
@@ -770,13 +820,6 @@ export const productHandlers = [
       });
     }
 
-    if (body.is_active !== undefined && typeof body.is_active !== 'boolean') {
-      details.push({
-        field: 'is_active',
-        issue: 'Active status must be a boolean.',
-      });
-    }
-
     if (details.length > 0) {
       return validationErrorResponse('Invalid category details.', details);
     }
@@ -793,13 +836,14 @@ export const productHandlers = [
     }
 
     const now = new Date().toISOString();
-    const created: ProductCategoryDto = {
-      category_id: createMockUuid(),
+    const created: ProductCategory = {
+      category_id: createMockUuid('5555'),
+      organization_id: ORGANIZATION_ID,
       parent_category_id: parentCategoryId,
       code,
       name,
       description,
-      is_active: typeof body.is_active === 'boolean' ? body.is_active : true,
+      is_active: true,
       created_at: now,
       updated_at: now,
     };
@@ -811,42 +855,30 @@ export const productHandlers = [
   http.patch(
     '*/api/v1/product-categories/:categoryId',
     async ({ params, request }) => {
+      const categoryId =
+        typeof params.categoryId === 'string' ? params.categoryId : '';
       const index = mockCategories.findIndex(
-        (item) => item.category_id === params.categoryId
+        (item) => item.category_id === categoryId
       );
-      if (index === -1) {
-        return notFoundResponse('Product category was not found.');
-      }
-
-      const current = mockCategories[index];
+      const current = index >= 0 ? mockCategories[index] : undefined;
       if (!current) {
         return notFoundResponse('Product category was not found.');
       }
 
       const body: unknown = await request.json().catch(() => null);
-      if (!isRecord(body)) {
+      if (!isPlainRecord(body)) {
         return malformedRequestResponse('Malformed category patch payload.');
       }
 
-      const details: ValidationDetail[] = [];
-
-      let nextCode = current.code;
-      if ('code' in body) {
-        const candidate = readTrimmedString(body.code);
-        if (!candidate) {
-          details.push({ field: 'code', issue: 'Category code is required.' });
-        } else if (candidate.length > 30) {
-          details.push({
-            field: 'code',
-            issue: 'Category code must be at most 30 characters.',
-          });
-        } else {
-          nextCode = candidate;
-        }
+      const idempotencyError = validateIdempotencyKeyHeader(request, body);
+      if (idempotencyError) {
+        return idempotencyError;
       }
 
+      const details: NormalizedApiErrorDetail[] = [];
+
       let nextName = current.name;
-      if ('name' in body) {
+      if (body.name !== undefined && body.name !== null) {
         const candidate = readTrimmedString(body.name);
         if (!candidate) {
           details.push({ field: 'name', issue: 'Category name is required.' });
@@ -869,11 +901,14 @@ export const productHandlers = [
               'Description',
               details
             )
-          : (current.description ?? null);
+          : current.description;
 
-      let nextParentId = current.parent_category_id ?? null;
+      let nextParentId = current.parent_category_id;
       if ('parent_category_id' in body) {
-        if (body.parent_category_id === null) {
+        if (
+          body.parent_category_id === null ||
+          body.parent_category_id === undefined
+        ) {
           nextParentId = null;
         } else if (typeof body.parent_category_id !== 'string') {
           details.push({
@@ -900,6 +935,13 @@ export const productHandlers = [
                 issue:
                   'Parent category cannot be a descendant of this category.',
               });
+            } else if (
+              !mockCategories.some((item) => item.category_id === candidate)
+            ) {
+              details.push({
+                field: 'parent_category_id',
+                issue: 'Parent category was not found.',
+              });
             } else {
               nextParentId = candidate;
             }
@@ -908,7 +950,7 @@ export const productHandlers = [
       }
 
       let nextIsActive = current.is_active;
-      if ('is_active' in body) {
+      if (body.is_active !== undefined && body.is_active !== null) {
         if (typeof body.is_active !== 'boolean') {
           details.push({
             field: 'is_active',
@@ -926,22 +968,9 @@ export const productHandlers = [
         );
       }
 
-      const duplicate = mockCategories.some(
-        (item) =>
-          item.category_id !== current.category_id &&
-          item.code.trim().toUpperCase() === nextCode.toUpperCase()
-      );
-      if (duplicate) {
-        return conflictResponse(
-          `Category code "${nextCode}" already exists in this organization.`,
-          [{ field: 'code', issue: 'Category code must be unique.' }]
-        );
-      }
-
-      const updated: ProductCategoryDto = {
+      const updated: ProductCategory = {
         ...current,
         parent_category_id: nextParentId,
-        code: nextCode,
         name: nextName,
         description: nextDescription,
         is_active: nextIsActive,
@@ -961,9 +990,8 @@ export const productHandlers = [
   http.get('*/api/v1/products', ({ request }) => {
     const url = new URL(request.url);
     const search = url.searchParams.get('search')?.trim().toLowerCase() ?? '';
-    const categoryId = url.searchParams.get('categoryId')?.trim() ?? '';
-    const includeInactive = url.searchParams.get('includeInactive') === 'true';
-    const { start, limit } = parsePaginationParams(url);
+    const categoryId = url.searchParams.get('category_id')?.trim() ?? '';
+    const includeInactive = url.searchParams.get('include_inactive') === 'true';
 
     const filtered = mockProducts.filter((product) => {
       if (!includeInactive && !product.is_active) {
@@ -978,24 +1006,36 @@ export const productHandlers = [
         const matchesBarcode = (product.barcode ?? '')
           .toLowerCase()
           .includes(search);
-        if (!matchesName && !matchesSku && !matchesBarcode) {
+        const matchesGeneric = (product.generic_name ?? '')
+          .toLowerCase()
+          .includes(search);
+        const matchesBrand = (product.brand_name ?? '')
+          .toLowerCase()
+          .includes(search);
+        if (
+          !matchesName &&
+          !matchesSku &&
+          !matchesBarcode &&
+          !matchesGeneric &&
+          !matchesBrand
+        ) {
           return false;
         }
       }
       return true;
     });
 
-    const items = filtered.slice(start, start + limit).map(cloneProduct);
-    const nextOffset = start + limit;
-    const nextCursor = nextOffset < filtered.length ? String(nextOffset) : null;
-
-    return HttpResponse.json({ items, nextCursor }, { status: 200 });
+    const pageResult = paginateItems(url, filtered, cloneProduct);
+    if (!pageResult.ok) {
+      return pageResult.response;
+    }
+    return HttpResponse.json(pageResult.payload, { status: 200 });
   }),
 
   http.get('*/api/v1/products/:productId', ({ params }) => {
-    const product = mockProducts.find(
-      (item) => item.product_id === params.productId
-    );
+    const productId =
+      typeof params.productId === 'string' ? params.productId : '';
+    const product = mockProducts.find((item) => item.product_id === productId);
     if (!product) {
       return notFoundResponse('Product was not found.');
     }
@@ -1004,13 +1044,18 @@ export const productHandlers = [
 
   http.post('*/api/v1/products', async ({ request }) => {
     const body: unknown = await request.json().catch(() => null);
-    if (!isRecord(body)) {
+    if (!isPlainRecord(body)) {
       return malformedRequestResponse(
         'Request body must be a valid JSON object.'
       );
     }
 
-    const details: ValidationDetail[] = [];
+    const idempotencyError = validateIdempotencyKeyHeader(request, body);
+    if (idempotencyError) {
+      return idempotencyError;
+    }
+
+    const details: NormalizedApiErrorDetail[] = [];
 
     const categoryId = readTrimmedString(body.category_id);
     const sku = readTrimmedString(body.sku);
@@ -1083,16 +1128,19 @@ export const productHandlers = [
       });
     }
 
-    let taxRate = '0.0000';
+    let taxRate = 0;
     if (body.tax_rate !== undefined) {
-      const candidate = readTrimmedString(body.tax_rate);
-      if (!candidate || !TAX_RATE_PATTERN.test(candidate)) {
+      if (
+        !isFiniteNumber(body.tax_rate) ||
+        body.tax_rate < 0 ||
+        body.tax_rate > 1
+      ) {
         details.push({
           field: 'tax_rate',
-          issue: 'Tax rate must be a fractional value between 0 and 1.',
+          issue: 'Tax rate must be a finite number between 0 and 1.',
         });
       } else {
-        taxRate = padValidatedDecimal(candidate, 4);
+        taxRate = body.tax_rate;
       }
     }
 
@@ -1111,7 +1159,7 @@ export const productHandlers = [
     let expiryAlertDays = 0;
     if (body.expiry_alert_days !== undefined) {
       if (
-        typeof body.expiry_alert_days !== 'number' ||
+        !isFiniteNumber(body.expiry_alert_days) ||
         !Number.isInteger(body.expiry_alert_days) ||
         body.expiry_alert_days < 0 ||
         body.expiry_alert_days > 3650
@@ -1125,7 +1173,10 @@ export const productHandlers = [
       }
     }
 
-    const parsedUoms: ProductUomDto[] = [];
+    const now = new Date().toISOString();
+    const newProductId = createMockUuid('6666');
+    const parsedUoms: ProductUom[] = [];
+
     if (!Array.isArray(body.uoms) || body.uoms.length === 0) {
       details.push({
         field: 'uoms[0].uom_code',
@@ -1137,7 +1188,7 @@ export const productHandlers = [
       let baseCount = 0;
 
       for (let i = 0; i < rawUoms.length; i += 1) {
-        const uomDetails: ValidationDetail[] = [];
+        const uomDetails: NormalizedApiErrorDetail[] = [];
         const parsed = parseUomInput(rawUoms[i], `uoms[${i}]`, uomDetails);
         if (uomDetails.length > 0 || !parsed) {
           details.push(...uomDetails);
@@ -1165,7 +1216,8 @@ export const productHandlers = [
         }
 
         parsedUoms.push({
-          product_uom_id: createMockUuid(),
+          product_uom_id: createMockUuid('7777'),
+          product_id: newProductId,
           uom_code: parsed.uom_code,
           display_name: parsed.display_name,
           conversion_to_base: parsed.conversion_to_base,
@@ -1174,6 +1226,7 @@ export const productHandlers = [
           is_sellable: parsed.is_sellable,
           is_purchasable: parsed.is_purchasable,
           is_active: true,
+          updated_at: now,
         });
       }
 
@@ -1206,7 +1259,6 @@ export const productHandlers = [
         mockProducts.some(
           (item) =>
             item.barcode !== null &&
-            item.barcode !== undefined &&
             item.barcode.trim().toUpperCase() === normalizedBarcode
         )
       ) {
@@ -1216,9 +1268,9 @@ export const productHandlers = [
       }
     }
 
-    const now = new Date().toISOString();
-    const created: ProductDto = {
-      product_id: createMockUuid(),
+    const created: Product = {
+      product_id: newProductId,
+      organization_id: ORGANIZATION_ID,
       category_id: categoryId,
       sku,
       barcode,
@@ -1241,27 +1293,30 @@ export const productHandlers = [
   }),
 
   http.patch('*/api/v1/products/:productId', async ({ params, request }) => {
+    const productId =
+      typeof params.productId === 'string' ? params.productId : '';
     const index = mockProducts.findIndex(
-      (item) => item.product_id === params.productId
+      (item) => item.product_id === productId
     );
-    if (index === -1) {
-      return notFoundResponse('Product was not found.');
-    }
-
-    const current = mockProducts[index];
+    const current = index >= 0 ? mockProducts[index] : undefined;
     if (!current) {
       return notFoundResponse('Product was not found.');
     }
 
     const body: unknown = await request.json().catch(() => null);
-    if (!isRecord(body)) {
+    if (!isPlainRecord(body)) {
       return malformedRequestResponse('Malformed product patch payload.');
     }
 
-    const details: ValidationDetail[] = [];
+    const idempotencyError = validateIdempotencyKeyHeader(request, body);
+    if (idempotencyError) {
+      return idempotencyError;
+    }
+
+    const details: NormalizedApiErrorDetail[] = [];
 
     let nextCategoryId = current.category_id;
-    if ('category_id' in body) {
+    if (body.category_id !== undefined && body.category_id !== null) {
       const candidate = readTrimmedString(body.category_id);
       if (!candidate) {
         details.push({ field: 'category_id', issue: 'Category is required.' });
@@ -1270,8 +1325,23 @@ export const productHandlers = [
       }
     }
 
+    let nextSku = current.sku;
+    if (body.sku !== undefined && body.sku !== null) {
+      const candidate = readTrimmedString(body.sku);
+      if (!candidate) {
+        details.push({ field: 'sku', issue: 'SKU is required.' });
+      } else if (candidate.length > 40) {
+        details.push({
+          field: 'sku',
+          issue: 'SKU must be at most 40 characters.',
+        });
+      } else {
+        nextSku = candidate;
+      }
+    }
+
     let nextName = current.name;
-    if ('name' in body) {
+    if (body.name !== undefined && body.name !== null) {
       const candidate = readTrimmedString(body.name);
       if (!candidate) {
         details.push({ field: 'name', issue: 'Product name is required.' });
@@ -1285,6 +1355,24 @@ export const productHandlers = [
       }
     }
 
+    let nextBaseUomCode = current.base_uom_code;
+    if (body.base_uom_code !== undefined && body.base_uom_code !== null) {
+      const candidate = readTrimmedString(body.base_uom_code);
+      if (!candidate) {
+        details.push({
+          field: 'base_uom_code',
+          issue: 'Base UOM code is required.',
+        });
+      } else if (candidate.length > 20) {
+        details.push({
+          field: 'base_uom_code',
+          issue: 'Base UOM code must be at most 20 characters.',
+        });
+      } else {
+        nextBaseUomCode = candidate;
+      }
+    }
+
     const nextBarcode =
       'barcode' in body
         ? validateNullableOptionalString(
@@ -1294,7 +1382,7 @@ export const productHandlers = [
             'Barcode',
             details
           )
-        : (current.barcode ?? null);
+        : current.barcode;
     const nextGenericName =
       'generic_name' in body
         ? validateNullableOptionalString(
@@ -1304,7 +1392,7 @@ export const productHandlers = [
             'Generic name',
             details
           )
-        : (current.generic_name ?? null);
+        : current.generic_name;
     const nextBrandName =
       'brand_name' in body
         ? validateNullableOptionalString(
@@ -1314,7 +1402,7 @@ export const productHandlers = [
             'Brand name',
             details
           )
-        : (current.brand_name ?? null);
+        : current.brand_name;
     const nextImageUrl =
       'image_url' in body
         ? validateNullableOptionalString(
@@ -1324,7 +1412,7 @@ export const productHandlers = [
             'Image URL',
             details
           )
-        : (current.image_url ?? null);
+        : current.image_url;
 
     if ('image_url' in body && nextImageUrl && !isValidHttpUrl(nextImageUrl)) {
       details.push({
@@ -1334,20 +1422,26 @@ export const productHandlers = [
     }
 
     let nextTaxRate = current.tax_rate;
-    if ('tax_rate' in body) {
-      const candidate = readTrimmedString(body.tax_rate);
-      if (!candidate || !TAX_RATE_PATTERN.test(candidate)) {
+    if (body.tax_rate !== undefined && body.tax_rate !== null) {
+      if (
+        !isFiniteNumber(body.tax_rate) ||
+        body.tax_rate < 0 ||
+        body.tax_rate > 1
+      ) {
         details.push({
           field: 'tax_rate',
-          issue: 'Tax rate must be a fractional value between 0 and 1.',
+          issue: 'Tax rate must be a finite number between 0 and 1.',
         });
       } else {
-        nextTaxRate = padValidatedDecimal(candidate, 4);
+        nextTaxRate = body.tax_rate;
       }
     }
 
     let nextLotTracking = current.lot_tracking_required;
-    if ('lot_tracking_required' in body) {
+    if (
+      body.lot_tracking_required !== undefined &&
+      body.lot_tracking_required !== null
+    ) {
       if (typeof body.lot_tracking_required !== 'boolean') {
         details.push({
           field: 'lot_tracking_required',
@@ -1359,9 +1453,12 @@ export const productHandlers = [
     }
 
     let nextExpiryAlertDays = current.expiry_alert_days;
-    if ('expiry_alert_days' in body) {
+    if (
+      body.expiry_alert_days !== undefined &&
+      body.expiry_alert_days !== null
+    ) {
       if (
-        typeof body.expiry_alert_days !== 'number' ||
+        !isFiniteNumber(body.expiry_alert_days) ||
         !Number.isInteger(body.expiry_alert_days) ||
         body.expiry_alert_days < 0 ||
         body.expiry_alert_days > 3650
@@ -1376,7 +1473,7 @@ export const productHandlers = [
     }
 
     let nextIsActive = current.is_active;
-    if ('is_active' in body) {
+    if (body.is_active !== undefined && body.is_active !== null) {
       if (typeof body.is_active !== 'boolean') {
         details.push({
           field: 'is_active',
@@ -1394,20 +1491,43 @@ export const productHandlers = [
       );
     }
 
-    if (
-      LOCKED_HISTORY_PRODUCT_IDS.has(current.product_id) &&
-      nextLotTracking !== current.lot_tracking_required
-    ) {
-      return conflictResponse(
-        'Lot tracking setting cannot be changed while stock or posted ledger history exists.',
-        [
-          {
-            field: 'lot_tracking_required',
-            issue:
-              'Cannot change lot tracking while stock or posted ledger history exists.',
-          },
-        ]
-      );
+    if (LOCKED_HISTORY_PRODUCT_IDS.has(current.product_id)) {
+      if (nextLotTracking !== current.lot_tracking_required) {
+        return conflictResponse(
+          'Lot tracking setting cannot be changed while stock or posted ledger history exists.',
+          [
+            {
+              field: 'lot_tracking_required',
+              issue:
+                'Cannot change lot tracking while stock or posted ledger history exists.',
+            },
+          ]
+        );
+      }
+      if (nextBaseUomCode !== current.base_uom_code) {
+        return conflictResponse(
+          'Base UOM code cannot be changed while stock or posted ledger history exists.',
+          [
+            {
+              field: 'base_uom_code',
+              issue:
+                'Cannot change base UOM code while stock or posted ledger history exists.',
+            },
+          ]
+        );
+      }
+    }
+
+    const normalizedNextSku = nextSku.toUpperCase();
+    const duplicateSku = mockProducts.some(
+      (item) =>
+        item.product_id !== current.product_id &&
+        item.sku.trim().toUpperCase() === normalizedNextSku
+    );
+    if (duplicateSku) {
+      return conflictResponse(`SKU "${nextSku}" already exists.`, [
+        { field: 'sku', issue: 'SKU must be unique.' },
+      ]);
     }
 
     if (nextBarcode) {
@@ -1416,7 +1536,6 @@ export const productHandlers = [
         (item) =>
           item.product_id !== current.product_id &&
           item.barcode !== null &&
-          item.barcode !== undefined &&
           item.barcode.trim().toUpperCase() === normalizedBarcode
       );
       if (duplicateBarcode) {
@@ -1426,13 +1545,15 @@ export const productHandlers = [
       }
     }
 
-    const updated: ProductDto = {
+    const updated: Product = {
       ...current,
       category_id: nextCategoryId,
+      sku: nextSku,
       barcode: nextBarcode,
       name: nextName,
       generic_name: nextGenericName,
       brand_name: nextBrandName,
+      base_uom_code: nextBaseUomCode,
       tax_rate: nextTaxRate,
       image_url: nextImageUrl,
       lot_tracking_required: nextLotTracking,
@@ -1450,39 +1571,50 @@ export const productHandlers = [
   // =========================================================================
   // PRODUCT UOMS
   // =========================================================================
-  http.get('*/api/v1/products/:productId/uoms', ({ params }) => {
-    const product = mockProducts.find(
-      (item) => item.product_id === params.productId
-    );
+  http.get('*/api/v1/products/:productId/uoms', ({ params, request }) => {
+    const productId =
+      typeof params.productId === 'string' ? params.productId : '';
+    const product = mockProducts.find((item) => item.product_id === productId);
     if (!product) {
       return notFoundResponse('Product was not found.');
     }
-    return HttpResponse.json(product.uoms.map(cloneUom), { status: 200 });
+
+    const url = new URL(request.url);
+    const includeInactive = url.searchParams.get('include_inactive') === 'true';
+    const visibleUoms = includeInactive
+      ? product.uoms
+      : product.uoms.filter((uom) => uom.is_active);
+
+    return HttpResponse.json(visibleUoms.map(cloneUom), { status: 200 });
   }),
 
   http.post(
     '*/api/v1/products/:productId/uoms',
     async ({ params, request }) => {
+      const productId =
+        typeof params.productId === 'string' ? params.productId : '';
       const productIndex = mockProducts.findIndex(
-        (item) => item.product_id === params.productId
+        (item) => item.product_id === productId
       );
-      if (productIndex === -1) {
-        return notFoundResponse('Product was not found.');
-      }
-
-      const product = mockProducts[productIndex];
+      const product =
+        productIndex >= 0 ? mockProducts[productIndex] : undefined;
       if (!product) {
         return notFoundResponse('Product was not found.');
       }
 
       const body: unknown = await request.json().catch(() => null);
-      if (!isRecord(body)) {
+      if (!isPlainRecord(body)) {
         return malformedRequestResponse(
           'Request body must be a valid JSON object.'
         );
       }
 
-      const details: ValidationDetail[] = [];
+      const idempotencyError = validateIdempotencyKeyHeader(request, body);
+      if (idempotencyError) {
+        return idempotencyError;
+      }
+
+      const details: NormalizedApiErrorDetail[] = [];
       const parsed = parseUomInput(body, '', details);
       if (details.length > 0 || !parsed) {
         return validationErrorResponse('Invalid UOM details.', details);
@@ -1505,8 +1637,10 @@ export const productHandlers = [
         ]);
       }
 
-      const created: ProductUomDto = {
-        product_uom_id: createMockUuid(),
+      const now = new Date().toISOString();
+      const created: ProductUom = {
+        product_uom_id: createMockUuid('7777'),
+        product_id: product.product_id,
         uom_code: parsed.uom_code,
         display_name: parsed.display_name,
         conversion_to_base: parsed.conversion_to_base,
@@ -1515,12 +1649,13 @@ export const productHandlers = [
         is_sellable: parsed.is_sellable,
         is_purchasable: parsed.is_purchasable,
         is_active: true,
+        updated_at: now,
       };
 
-      const updatedProduct: ProductDto = {
+      const updatedProduct: Product = {
         ...product,
         uoms: [...product.uoms, created],
-        updated_at: new Date().toISOString(),
+        updated_at: now,
       };
 
       mockProducts = mockProducts.map((item, idx) =>
@@ -1533,44 +1668,34 @@ export const productHandlers = [
   http.patch(
     '*/api/v1/products/:productId/uoms/:uomId',
     async ({ params, request }) => {
+      const productId =
+        typeof params.productId === 'string' ? params.productId : '';
+      const uomId = typeof params.uomId === 'string' ? params.uomId : '';
       const productIndex = mockProducts.findIndex(
-        (item) => item.product_id === params.productId
+        (item) => item.product_id === productId
       );
-      if (productIndex === -1) {
-        return notFoundResponse('Product was not found.');
-      }
-
-      const product = mockProducts[productIndex];
+      const product =
+        productIndex >= 0 ? mockProducts[productIndex] : undefined;
       if (!product) {
         return notFoundResponse('Product was not found.');
       }
 
       const uomIndex = product.uoms.findIndex(
-        (item) => item.product_uom_id === params.uomId
+        (item) => item.product_uom_id === uomId
       );
-      if (uomIndex === -1) {
-        return notFoundResponse('Product UOM was not found.');
-      }
-
-      const currentUom = product.uoms[uomIndex];
+      const currentUom = uomIndex >= 0 ? product.uoms[uomIndex] : undefined;
       if (!currentUom) {
         return notFoundResponse('Product UOM was not found.');
       }
 
       const body: unknown = await request.json().catch(() => null);
-      if (!isRecord(body)) {
+      if (!isPlainRecord(body)) {
         return malformedRequestResponse('Malformed UOM patch payload.');
       }
 
-      if (
-        LOCKED_HISTORY_PRODUCT_IDS.has(product.product_id) &&
-        (('conversion_to_base' in body &&
-          body.conversion_to_base !== currentUom.conversion_to_base) ||
-          ('is_base' in body && body.is_base !== currentUom.is_base))
-      ) {
-        return conflictResponse(
-          'Conversion factor and base UOM status are immutable once stock or posted document history exists.'
-        );
+      const idempotencyError = validateIdempotencyKeyHeader(request, body);
+      if (idempotencyError) {
+        return idempotencyError;
       }
 
       if (body.is_active === false && currentUom.is_base) {
@@ -1582,10 +1707,10 @@ export const productHandlers = [
         ]);
       }
 
-      const details: ValidationDetail[] = [];
+      const details: NormalizedApiErrorDetail[] = [];
 
       let nextDisplayName = currentUom.display_name;
-      if ('display_name' in body) {
+      if (body.display_name !== undefined && body.display_name !== null) {
         const candidate = readTrimmedString(body.display_name);
         if (!candidate) {
           details.push({
@@ -1602,8 +1727,31 @@ export const productHandlers = [
         }
       }
 
+      let nextConversion = currentUom.conversion_to_base;
+      if (
+        body.conversion_to_base !== undefined &&
+        body.conversion_to_base !== null
+      ) {
+        if (
+          !isFiniteNumber(body.conversion_to_base) ||
+          body.conversion_to_base <= 0
+        ) {
+          details.push({
+            field: 'conversion_to_base',
+            issue: 'Conversion factor must be a finite number greater than 0.',
+          });
+        } else if (currentUom.is_base && body.conversion_to_base !== 1) {
+          details.push({
+            field: 'conversion_to_base',
+            issue: 'Base UOM conversion factor must equal 1.',
+          });
+        } else {
+          nextConversion = body.conversion_to_base;
+        }
+      }
+
       let nextIsSellable = currentUom.is_sellable;
-      if ('is_sellable' in body) {
+      if (body.is_sellable !== undefined && body.is_sellable !== null) {
         if (typeof body.is_sellable !== 'boolean') {
           details.push({
             field: 'is_sellable',
@@ -1615,7 +1763,7 @@ export const productHandlers = [
       }
 
       let nextIsPurchasable = currentUom.is_purchasable;
-      if ('is_purchasable' in body) {
+      if (body.is_purchasable !== undefined && body.is_purchasable !== null) {
         if (typeof body.is_purchasable !== 'boolean') {
           details.push({
             field: 'is_purchasable',
@@ -1627,7 +1775,7 @@ export const productHandlers = [
       }
 
       let nextIsActive = currentUom.is_active;
-      if ('is_active' in body) {
+      if (body.is_active !== undefined && body.is_active !== null) {
         if (typeof body.is_active !== 'boolean') {
           details.push({
             field: 'is_active',
@@ -1638,7 +1786,7 @@ export const productHandlers = [
         }
       }
 
-      let nextSaleUnitPrice = currentUom.sale_unit_price ?? null;
+      let nextSaleUnitPrice = currentUom.sale_unit_price;
       if ('sale_unit_price' in body) {
         if (
           body.sale_unit_price === null ||
@@ -1652,35 +1800,19 @@ export const productHandlers = [
           } else {
             nextSaleUnitPrice = null;
           }
-        } else if (typeof body.sale_unit_price !== 'string') {
+        } else if (
+          !isFiniteNumber(body.sale_unit_price) ||
+          body.sale_unit_price < 0
+        ) {
           details.push({
             field: 'sale_unit_price',
             issue:
-              'Sale unit price must be a non-negative 4-decimal string or null.',
+              'Sale unit price must be a finite non-negative number or null.',
           });
         } else {
-          const rawPrice = body.sale_unit_price.trim();
-          if (!rawPrice) {
-            if (nextIsSellable) {
-              details.push({
-                field: 'sale_unit_price',
-                issue: 'Sale unit price is required when UOM is sellable.',
-              });
-            } else {
-              nextSaleUnitPrice = null;
-            }
-          } else if (!NON_NEGATIVE_NUMERIC_4_PATTERN.test(rawPrice)) {
-            details.push({
-              field: 'sale_unit_price',
-              issue: 'Sale unit price must be a non-negative 4-decimal number.',
-            });
-          } else {
-            nextSaleUnitPrice = nextIsSellable
-              ? padValidatedDecimal(rawPrice, 4)
-              : null;
-          }
+          nextSaleUnitPrice = nextIsSellable ? body.sale_unit_price : null;
         }
-      } else if (nextIsSellable && !nextSaleUnitPrice) {
+      } else if (nextIsSellable && nextSaleUnitPrice === null) {
         details.push({
           field: 'sale_unit_price',
           issue: 'Sale unit price is required when UOM is sellable.',
@@ -1693,21 +1825,40 @@ export const productHandlers = [
         return validationErrorResponse('Invalid UOM update details.', details);
       }
 
-      const updatedUom: ProductUomDto = {
+      if (
+        LOCKED_HISTORY_PRODUCT_IDS.has(product.product_id) &&
+        nextConversion !== currentUom.conversion_to_base
+      ) {
+        return conflictResponse(
+          'Conversion factor is immutable once stock or posted document history exists.',
+          [
+            {
+              field: 'conversion_to_base',
+              issue:
+                'Cannot change conversion factor while stock or posted ledger history exists.',
+            },
+          ]
+        );
+      }
+
+      const now = new Date().toISOString();
+      const updatedUom: ProductUom = {
         ...currentUom,
         display_name: nextDisplayName,
+        conversion_to_base: nextConversion,
         sale_unit_price: nextSaleUnitPrice,
         is_sellable: nextIsSellable,
         is_purchasable: nextIsPurchasable,
         is_active: nextIsActive,
+        updated_at: now,
       };
 
-      const updatedProduct: ProductDto = {
+      const updatedProduct: Product = {
         ...product,
         uoms: product.uoms.map((item, idx) =>
           idx === uomIndex ? updatedUom : item
         ),
-        updated_at: new Date().toISOString(),
+        updated_at: now,
       };
 
       mockProducts = mockProducts.map((item, idx) =>
@@ -1723,8 +1874,10 @@ export const productHandlers = [
   http.get(
     '*/api/v1/branches/:branchId/products/:productId/reorder-rule',
     ({ params }) => {
-      const branchId = String(params.branchId ?? '').trim();
-      const productId = String(params.productId ?? '').trim();
+      const branchId =
+        typeof params.branchId === 'string' ? params.branchId.trim() : '';
+      const productId =
+        typeof params.productId === 'string' ? params.productId.trim() : '';
 
       const product = mockProducts.find(
         (item) => item.product_id === productId
@@ -1734,18 +1887,23 @@ export const productHandlers = [
       }
 
       const rule = mockReorderRules.get(reorderRuleKey(branchId, productId));
-      return HttpResponse.json(
-        { rule: rule ? cloneReorderRule(rule) : null },
-        { status: 200 }
-      );
+      if (!rule) {
+        return notFoundResponse(
+          'Reorder rule was not found for this branch and product.'
+        );
+      }
+
+      return HttpResponse.json(cloneReorderRule(rule), { status: 200 });
     }
   ),
 
   http.put(
     '*/api/v1/branches/:branchId/products/:productId/reorder-rule',
     async ({ params, request }) => {
-      const branchId = String(params.branchId ?? '').trim();
-      const productId = String(params.productId ?? '').trim();
+      const branchId =
+        typeof params.branchId === 'string' ? params.branchId.trim() : '';
+      const productId =
+        typeof params.productId === 'string' ? params.productId.trim() : '';
 
       const product = mockProducts.find(
         (item) => item.product_id === productId
@@ -1755,66 +1913,70 @@ export const productHandlers = [
       }
 
       const body: unknown = await request.json().catch(() => null);
-      if (!isRecord(body)) {
+      if (!isPlainRecord(body)) {
         return malformedRequestResponse(
           'Request body must be a valid JSON object.'
         );
       }
 
-      const details: ValidationDetail[] = [];
+      const idempotencyError = validateIdempotencyKeyHeader(request, body);
+      if (idempotencyError) {
+        return idempotencyError;
+      }
 
-      const rawPoint = readTrimmedString(body.reorder_point_base);
-      const rawQty = readTrimmedString(body.reorder_quantity_base);
+      const details: NormalizedApiErrorDetail[] = [];
 
+      let reorderPointBase = 0;
       let validPoint = false;
-      if (!rawPoint || !NON_NEGATIVE_NUMERIC_4_PATTERN.test(rawPoint)) {
+      if (
+        !isFiniteNumber(body.reorder_point_base) ||
+        body.reorder_point_base < 0
+      ) {
         details.push({
           field: 'reorder_point_base',
-          issue: 'Reorder point must be a non-negative 4-decimal number.',
+          issue:
+            'Reorder point must be a finite number greater than or equal to 0.',
         });
       } else {
+        reorderPointBase = body.reorder_point_base;
         validPoint = true;
       }
 
-      if (!rawQty || !POSITIVE_NUMERIC_4_PATTERN.test(rawQty)) {
+      let reorderQuantityBase = 0;
+      if (
+        !isFiniteNumber(body.reorder_quantity_base) ||
+        body.reorder_quantity_base <= 0
+      ) {
         details.push({
           field: 'reorder_quantity_base',
-          issue: 'Reorder quantity must be a positive 4-decimal number.',
+          issue: 'Reorder quantity must be a finite number greater than 0.',
         });
+      } else {
+        reorderQuantityBase = body.reorder_quantity_base;
       }
 
-      let maxQuantityBase: string | null = null;
+      let maxQuantityBase: number | null = null;
       if (
         body.max_quantity_base !== undefined &&
         body.max_quantity_base !== null
       ) {
-        if (typeof body.max_quantity_base !== 'string') {
+        if (
+          !isFiniteNumber(body.max_quantity_base) ||
+          body.max_quantity_base < 0
+        ) {
           details.push({
             field: 'max_quantity_base',
-            issue: 'Maximum quantity must be a decimal string or null.',
+            issue:
+              'Maximum stock quantity must be a finite non-negative number or null.',
+          });
+        } else if (validPoint && body.max_quantity_base < reorderPointBase) {
+          details.push({
+            field: 'max_quantity_base',
+            issue:
+              'Maximum stock quantity must be greater than or equal to reorder point.',
           });
         } else {
-          const rawMax = body.max_quantity_base.trim();
-          if (rawMax.length > 0) {
-            if (!NON_NEGATIVE_NUMERIC_4_PATTERN.test(rawMax)) {
-              details.push({
-                field: 'max_quantity_base',
-                issue:
-                  'Maximum stock quantity must be a non-negative 4-decimal number.',
-              });
-            } else if (
-              validPoint &&
-              compareDecimalStrings(rawMax, rawPoint) < 0
-            ) {
-              details.push({
-                field: 'max_quantity_base',
-                issue:
-                  'Maximum stock quantity must be greater than or equal to reorder point.',
-              });
-            } else {
-              maxQuantityBase = padValidatedDecimal(rawMax, 4);
-            }
-          }
+          maxQuantityBase = body.max_quantity_base;
         }
       }
 
@@ -1839,14 +2001,16 @@ export const productHandlers = [
 
       const key = reorderRuleKey(branchId, productId);
       const existing = mockReorderRules.get(key);
-      const saved: ReorderRuleDto = {
-        reorder_rule_id: existing?.reorder_rule_id ?? createMockUuid(),
-        product_id: productId,
+      const saved: ReorderRule = {
+        reorder_rule_id: existing?.reorder_rule_id ?? createMockUuid('8888'),
+        organization_id: ORGANIZATION_ID,
         branch_id: branchId,
-        reorder_point_base: padValidatedDecimal(rawPoint, 4),
-        reorder_quantity_base: padValidatedDecimal(rawQty, 4),
+        product_id: productId,
+        reorder_point_base: reorderPointBase,
+        reorder_quantity_base: reorderQuantityBase,
         max_quantity_base: maxQuantityBase,
         is_active: isActive,
+        updated_at: new Date().toISOString(),
       };
 
       mockReorderRules.set(key, saved);

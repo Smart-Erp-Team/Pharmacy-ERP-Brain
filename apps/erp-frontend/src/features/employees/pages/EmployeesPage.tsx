@@ -7,27 +7,26 @@ import { ApiClientError } from '../../../lib/api/client';
 import { EmployeeFormModal } from '../components/EmployeeFormModal';
 import { EmployeesFilterBar } from '../components/EmployeesFilterBar';
 import { EmployeesTable } from '../components/EmployeesTable';
-import {
-  EMPLOYEES_PAGE_SIZE,
-  useEmployeesPageState,
-} from '../hooks/useEmployeesPageState';
+import { useEmployeesPageState } from '../hooks/useEmployeesPageState';
 
 export function EmployeesPage() {
   const {
     searchTerm,
-    setSearchTerm,
     branchFilter,
     statusFilter,
-    pageIndex,
+    page,
+    pageSize,
+    totalCount,
+    hasNextPage,
     branches,
     getBranchLabel,
     branchesQuery,
-    filteredEmployees,
-    hasHiddenInactive,
+    employees,
     employeesQuery,
     formModalState,
     setFormModalState,
     togglingEmployeeId,
+    handleSearchChange,
     handleBranchChange,
     handleStatusChange,
     resetFilters,
@@ -70,24 +69,22 @@ export function EmployeesPage() {
           statusFilter={statusFilter}
           branches={branches}
           isBranchesError={branchesQuery.isError}
-          onSearchChange={setSearchTerm}
+          onSearchChange={handleSearchChange}
           onBranchChange={handleBranchChange}
           onStatusChange={handleStatusChange}
         />
 
         <EmployeesTable
-          employees={filteredEmployees}
+          employees={employees}
           getBranchLabel={getBranchLabel}
           isLoading={employeesQuery.isPending}
           errorMessage={queryErrorMessage}
           togglingEmployeeId={togglingEmployeeId}
           hasActiveFilters={hasActiveFilters}
-          hasHiddenInactive={hasHiddenInactive}
           onRetry={() => {
             void employeesQuery.refetch();
           }}
           onResetFilters={resetFilters}
-          onShowAllEmployees={() => handleStatusChange('all')}
           onAddEmployee={() =>
             setFormModalState({ open: true, employee: null })
           }
@@ -99,19 +96,13 @@ export function EmployeesPage() {
 
         {!employeesQuery.isPending &&
         !employeesQuery.isError &&
-        (filteredEmployees.length > 0 ||
-          pageIndex > 0 ||
-          Boolean(employeesQuery.data?.nextCursor)) ? (
+        (employees.length > 0 || page > 1 || hasNextPage) ? (
           <Pagination
             className="border-border border-t px-4 py-3"
-            page={pageIndex + 1}
-            pageSize={EMPLOYEES_PAGE_SIZE}
-            itemCount={
-              pageIndex === 0 && !employeesQuery.data?.nextCursor
-                ? filteredEmployees.length
-                : null
-            }
-            hasNextPage={Boolean(employeesQuery.data?.nextCursor)}
+            page={page}
+            pageSize={pageSize}
+            itemCount={totalCount}
+            hasNextPage={hasNextPage}
             onPageChange={handlePageChange}
           />
         ) : null}

@@ -6,13 +6,14 @@ import {
   toAddressDto,
 } from '../../../lib/schemas/addressSchema';
 import type {
-  BranchDto,
-  BranchPatchRequest,
-  BranchRequest,
+  Branch,
+  CreateBranchRequest,
+  RedeemBranchEnrollmentRequest,
+  UpdateBranchRequest,
 } from '../../../types/api';
 
 export const branchFormSchema = z.object({
-  code: z
+  branch_code: z
     .string()
     .trim()
     .min(1, 'Branch code is required')
@@ -29,33 +30,34 @@ export const branchFormSchema = z.object({
 export type BranchFormValues = z.infer<typeof branchFormSchema>;
 
 export const DEFAULT_BRANCH_FORM_VALUES: BranchFormValues = {
-  code: '',
+  branch_code: '',
   name: '',
   is_active: true,
   address: { ...DEFAULT_ADDRESS_VALUES },
 };
 
-export function branchDtoToFormValues(branch: BranchDto): BranchFormValues {
+export function branchDtoToFormValues(branch: Branch): BranchFormValues {
   return {
-    code: branch.code,
+    branch_code: branch.branch_code,
     name: branch.name,
     is_active: branch.is_active,
     address: addressDtoToFormValues(branch.address),
   };
 }
 
-export function toBranchCreatePayload(values: BranchFormValues): BranchRequest {
+export function toBranchCreatePayload(
+  values: BranchFormValues
+): CreateBranchRequest {
   return {
-    code: values.code.trim(),
+    branch_code: values.branch_code.trim(),
     name: values.name.trim(),
-    is_active: values.is_active,
     address: toAddressDto(values.address),
   };
 }
 
 export function toBranchPatchPayload(
   values: BranchFormValues
-): BranchPatchRequest {
+): UpdateBranchRequest {
   return {
     name: values.name.trim(),
     is_active: values.is_active,
@@ -68,3 +70,11 @@ export const branchEnrollmentSchema = z.object({
 });
 
 export type BranchEnrollmentFormValues = z.infer<typeof branchEnrollmentSchema>;
+
+export function toRedeemBranchEnrollmentPayload(
+  values: BranchEnrollmentFormValues
+): RedeemBranchEnrollmentRequest {
+  return {
+    token: values.token.trim(),
+  };
+}

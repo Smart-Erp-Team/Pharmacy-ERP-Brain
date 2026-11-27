@@ -1,4 +1,5 @@
 import type {
+  GetInventorySummaryParams,
   ListInventoryBalancesParams,
   ListInventoryBatchesParams,
   ListInventoryLocationsParams,
@@ -7,19 +8,19 @@ import type {
 
 export type AllInventoryLocationsKeyParams = Omit<
   ListInventoryLocationsParams,
-  'cursor' | 'limit'
+  'page' | 'page_size'
 >;
 export type AllInventoryBatchesKeyParams = Omit<
   ListInventoryBatchesParams,
-  'cursor' | 'limit'
+  'page' | 'page_size'
 >;
 export type AllInventoryBalancesKeyParams = Omit<
   ListInventoryBalancesParams,
-  'cursor' | 'limit'
+  'page' | 'page_size'
 >;
 export type AllInventoryTransactionsKeyParams = Omit<
   ListInventoryTransactionsParams,
-  'cursor' | 'limit'
+  'page' | 'page_size'
 >;
 
 export const inventoryKeys = {
@@ -30,13 +31,11 @@ export const inventoryKeys = {
     [...inventoryKeys.locationLists(), params] as const,
   allLocationList: (params: AllInventoryLocationsKeyParams) =>
     [...inventoryKeys.locationLists(), 'all', params] as const,
-  locationDetail: (locationId: string) =>
-    [...inventoryKeys.locations(), 'detail', locationId] as const,
   batches: () => [...inventoryKeys.all, 'batches'] as const,
   batchLists: () => [...inventoryKeys.batches(), 'list'] as const,
-  batchList: (params: ListInventoryBatchesParams) =>
+  batchList: (params: ListInventoryBatchesParams = {}) =>
     [...inventoryKeys.batchLists(), params] as const,
-  allBatchList: (params: AllInventoryBatchesKeyParams) =>
+  allBatchList: (params: AllInventoryBatchesKeyParams = {}) =>
     [...inventoryKeys.batchLists(), 'all', params] as const,
   balances: () => [...inventoryKeys.all, 'balances'] as const,
   balanceLists: () => [...inventoryKeys.balances(), 'list'] as const,
@@ -44,12 +43,13 @@ export const inventoryKeys = {
     [...inventoryKeys.balanceLists(), params] as const,
   allBalanceList: (params: AllInventoryBalancesKeyParams) =>
     [...inventoryKeys.balanceLists(), 'all', params] as const,
+  summaries: () => [...inventoryKeys.all, 'summary'] as const,
+  summary: (params: GetInventorySummaryParams) =>
+    [...inventoryKeys.summaries(), params] as const,
   transactions: () => [...inventoryKeys.all, 'transactions'] as const,
   transactionLists: () => [...inventoryKeys.transactions(), 'list'] as const,
   transactionList: (params: ListInventoryTransactionsParams) =>
     [...inventoryKeys.transactionLists(), params] as const,
   allTransactionList: (params: AllInventoryTransactionsKeyParams) =>
     [...inventoryKeys.transactionLists(), 'all', params] as const,
-  transactionDetail: (txnId: string) =>
-    [...inventoryKeys.transactions(), 'detail', txnId] as const,
 };

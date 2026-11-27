@@ -2,10 +2,10 @@ import { Sparkles } from 'lucide-react';
 import { Alert } from '../../../components/ui/Alert';
 import { Badge } from '../../../components/ui/Badge';
 import { Card, CardHeader } from '../../../components/ui/Card';
-import type { ProductDto } from '../../../types/api';
+import type { Product } from '../../../types/api';
 
 export interface ProductForecastTabProps {
-  product: ProductDto;
+  product: Product;
 }
 
 export function ProductForecastTab({ product }: ProductForecastTabProps) {

@@ -6,17 +6,16 @@ import type {
   PasswordResetFormValues,
 } from './userSchema';
 
-function isBranchAccessField(field: string): boolean {
+function isBranchIdsField(field: string): boolean {
   return (
-    field === 'branch_access' ||
     field === 'branch_ids' ||
-    field.startsWith('branch_access[') ||
-    field.startsWith('branch_access.')
+    field.startsWith('branch_ids[') ||
+    field.startsWith('branch_ids.')
   );
 }
 
 function mapCreateUserField(field: string): Path<CreateUserFormValues> | null {
-  if (isBranchAccessField(field)) {
+  if (isBranchIdsField(field)) {
     return 'branch_ids';
   }
   switch (field) {
@@ -32,7 +31,7 @@ function mapCreateUserField(field: string): Path<CreateUserFormValues> | null {
 }
 
 function mapEditUserField(field: string): Path<EditUserFormValues> | null {
-  if (isBranchAccessField(field)) {
+  if (isBranchIdsField(field)) {
     return 'branch_ids';
   }
   switch (field) {
@@ -56,6 +55,19 @@ function mapPasswordResetField(
   }
 }
 
+function isBannerRequiredError(error: ApiClientError): boolean {
+  return (
+    error.code === 'CONFLICT' ||
+    error.code === 'IDEMPOTENCY_MISMATCH' ||
+    error.status === 409 ||
+    error.code === 'FORBIDDEN' ||
+    error.code === 'FORBIDDEN_BRANCH' ||
+    error.status === 403 ||
+    error.code === 'MALFORMED_REQUEST' ||
+    error.status === 400
+  );
+}
+
 function applyMappedApiError<TFieldValues extends FieldValues>(
   error: unknown,
   fallbackMessage: string,
@@ -67,7 +79,7 @@ function applyMappedApiError<TFieldValues extends FieldValues>(
   }
 
   let mappedFieldError = false;
-  for (const detail of error.details ?? []) {
+  for (const detail of error.details) {
     if (!detail.field) {
       continue;
     }
@@ -78,7 +90,7 @@ function applyMappedApiError<TFieldValues extends FieldValues>(
     }
   }
 
-  if (!mappedFieldError || error.status === 409) {
+  if (!mappedFieldError || isBannerRequiredError(error)) {
     const traceSuffix = error.trace_id ? ` (Trace: ${error.trace_id})` : '';
     return `${error.message}${traceSuffix}`;
   }

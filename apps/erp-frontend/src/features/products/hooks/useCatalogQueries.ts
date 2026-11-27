@@ -8,6 +8,7 @@ import {
   listProductUoms,
   type ListProductCategoriesParams,
   type ListProductsParams,
+  type ListProductUomsParams,
 } from '../api/catalogApi';
 import {
   productsKeys,
@@ -37,8 +38,8 @@ export function useAllProductCategoriesQuery(
   return useQuery({
     queryKey: productsKeys.allCategoryList(params),
     queryFn: () =>
-      fetchAllPages((cursor, limit) =>
-        listProductCategories({ ...params, cursor, limit })
+      fetchAllPages((page, pageSize) =>
+        listProductCategories({ ...params, page, page_size: pageSize })
       ),
     enabled: options.enabled ?? true,
   });
@@ -62,8 +63,8 @@ export function useAllProductsQuery(
   return useQuery({
     queryKey: productsKeys.allList(params),
     queryFn: () =>
-      fetchAllPages((cursor, limit) =>
-        listProducts({ ...params, cursor, limit })
+      fetchAllPages((page, pageSize) =>
+        listProducts({ ...params, page, page_size: pageSize })
       ),
     enabled: options.enabled ?? true,
   });
@@ -89,19 +90,25 @@ export function useProductQuery(
 
 export function useProductUomsQuery(
   productId: string | undefined,
-  options: UseCatalogQueryOptions = {}
+  paramsOrOptions: ListProductUomsParams & UseCatalogQueryOptions = {},
+  options?: UseCatalogQueryOptions
 ) {
   const normalizedProductId = productId?.trim() ?? '';
+  const uomParams: ListProductUomsParams | undefined =
+    paramsOrOptions.include_inactive !== undefined
+      ? { include_inactive: paramsOrOptions.include_inactive }
+      : undefined;
+  const enabled = options?.enabled ?? paramsOrOptions.enabled ?? true;
 
   return useQuery({
-    queryKey: productsKeys.uoms(normalizedProductId),
+    queryKey: productsKeys.uoms(normalizedProductId, uomParams),
     queryFn: () => {
       if (!normalizedProductId) {
         return Promise.reject(new Error('Product ID is required.'));
       }
-      return listProductUoms(normalizedProductId);
+      return listProductUoms(normalizedProductId, uomParams);
     },
-    enabled: normalizedProductId.length > 0 && (options.enabled ?? true),
+    enabled: normalizedProductId.length > 0 && enabled,
   });
 }
 

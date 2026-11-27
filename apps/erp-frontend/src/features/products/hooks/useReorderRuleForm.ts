@@ -3,16 +3,16 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'react-toastify';
 import type { SelectOption } from '../../../components/ui/Select';
-import { useAllBranchesQuery } from '../../../features/branches';
+import { useAllBranchesQuery, type Branch } from '../../../features/branches';
 import { useAuth } from '../../../hooks/useAuth';
-import type { BranchDto, ProductDto, ReorderRuleDto } from '../../../types/api';
-import { usePutReorderRuleMutation } from './useCatalogMutations';
+import type { Product, ReorderRule } from '../../../types/api';
+import { useUpsertReorderRuleMutation } from './useCatalogMutations';
 import { useReorderRuleQuery } from './useCatalogQueries';
 import { applyReorderRuleFormApiError } from '../schemas/catalogErrorMapper';
 import {
   reorderRuleDtoToFormValues,
   reorderRuleFormSchema,
-  toReorderRulePayload,
+  toUpsertReorderRulePayload,
   type ReorderRuleFormValues,
 } from '../schemas/uomReorderSchema';
 
@@ -20,33 +20,26 @@ const optVal = (o: SelectOption | undefined) =>
   typeof o === 'string' ? o : (o?.value ?? '');
 
 export function useBranchReorderTab(productId: string) {
-  const {
-    hasRole,
-    hasAnyRole,
-    can,
-    runtime,
-    activeBranchId,
-    branchIds,
-    canAccessBranch,
-  } = useAuth();
-  const isAdmin = hasRole('Admin');
-  const canRead = hasAnyRole(['Admin', 'Pharmacist']) && can('inventory:read');
-  const canWrite = canRead && can('inventory:write') && runtime === 'Cloud';
+  const { hasAnyRole, can, runtime, activeBranchId, canAccessBranch } =
+    useAuth();
+  const canRead =
+    hasAnyRole(['Admin', 'Pharmacist', 'Cashier']) && can('inventory:read');
+  const canWrite =
+    hasAnyRole(['Admin', 'Pharmacist']) &&
+    can('inventory:read') &&
+    can('inventory:write') &&
+    runtime === 'Cloud';
   const branchesQ = useAllBranchesQuery(
-    { includeInactive: false },
-    { enabled: canRead && isAdmin }
+    { include_inactive: false },
+    { enabled: canRead }
   );
-  const loaded: readonly BranchDto[] = branchesQ.data ?? [];
-  const assignedIds =
-    branchIds.length > 0 ? branchIds : activeBranchId ? [activeBranchId] : [];
-  const options: readonly SelectOption[] = isAdmin
-    ? loaded
-        .filter((b) => canAccessBranch(b.branch_id))
-        .map((b) => ({ value: b.branch_id, label: `${b.code} — ${b.name}` }))
-    : assignedIds.map((id) => ({
-        value: id,
-        label: `Branch ${id.slice(0, 8)}`,
-      }));
+  const loaded: readonly Branch[] = branchesQ.data ?? [];
+  const options: readonly SelectOption[] = loaded
+    .filter((b) => canAccessBranch(b.branch_id))
+    .map((b) => ({
+      value: b.branch_id,
+      label: `${b.branch_code} — ${b.name}`,
+    }));
   const [selectedId, setSelectedId] = useState('');
   const branchId = options.some((o) => optVal(o) === selectedId)
     ? selectedId
@@ -56,7 +49,6 @@ export function useBranchReorderTab(productId: string) {
   const ruleQ = useReorderRuleQuery(branchId, productId, { enabled: canRead });
 
   return {
-    isAdmin,
     canRead,
     canWrite,
     runtime,
@@ -70,11 +62,11 @@ export function useBranchReorderTab(productId: string) {
 
 export function useReorderRuleForm(
   branchId: string,
-  product: ProductDto,
-  rule: ReorderRuleDto | null,
+  product: Product,
+  rule: ReorderRule | null,
   canWrite: boolean
 ) {
-  const putMut = usePutReorderRuleMutation();
+  const upsertMut = useUpsertReorderRuleMutation();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const {
     register,
@@ -101,13 +93,13 @@ export function useReorderRuleForm(
   };
 
   const onSubmit = handleSubmit(async (values) => {
-    if (!canWrite || putMut.isPending || !isDirty) return;
+    if (!canWrite || upsertMut.isPending || !isDirty) return;
     setSubmitError(null);
     try {
-      const saved = await putMut.mutateAsync({
+      const saved = await upsertMut.mutateAsync({
         branchId,
         productId: product.product_id,
-        payload: toReorderRulePayload(values),
+        payload: toUpsertReorderRulePayload(values),
       });
       reset(reorderRuleDtoToFormValues(saved));
       toast.success(`Reorder rule saved for ${product.name}`);
@@ -121,7 +113,7 @@ export function useReorderRuleForm(
   });
 
   return {
-    isPending: putMut.isPending,
+    isPending: upsertMut.isPending,
     isDirty,
     submitError,
     errors,

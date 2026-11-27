@@ -35,8 +35,8 @@ export function InventoryBranchBar({
               Active inventory branch
             </p>
             <p className="text-body-sm text-text-secondary">
-              Inventory balances, batches, locations, and ledger records are
-              scoped to a single branch.
+              Inventory balances, storage locations, adjustments, and ledger
+              records are scoped to a single branch.
             </p>
           </div>
         </div>

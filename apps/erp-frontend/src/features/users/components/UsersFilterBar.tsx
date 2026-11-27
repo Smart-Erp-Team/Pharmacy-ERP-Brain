@@ -1,6 +1,7 @@
 import { Search } from 'lucide-react';
 import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
+import type { Branch } from '../../../features/branches';
 import type {
   UserRoleFilter,
   UserStatusFilter,
@@ -15,28 +16,43 @@ const ROLE_OPTIONS = [
 const STATUS_OPTIONS = [
   { value: 'active', label: 'Active accounts' },
   { value: 'all', label: 'All accounts (include inactive)' },
-  { value: 'inactive', label: 'Inactive only' },
 ] as const;
 
 export interface UsersFilterBarProps {
   searchTerm: string;
+  branchFilter: string;
   roleFilter: UserRoleFilter;
   statusFilter: UserStatusFilter;
+  branches: readonly Branch[];
+  isBranchesError: boolean;
   onSearchChange: (value: string) => void;
+  onBranchChange: (value: string) => void;
   onRoleChange: (value: string) => void;
   onStatusChange: (value: string) => void;
 }
 
 export function UsersFilterBar({
   searchTerm,
+  branchFilter,
   roleFilter,
   statusFilter,
+  branches,
+  isBranchesError,
   onSearchChange,
+  onBranchChange,
   onRoleChange,
   onStatusChange,
 }: UsersFilterBarProps) {
+  const branchOptions = [
+    { value: '', label: 'All branches' },
+    ...branches.map((branch) => ({
+      value: branch.branch_id,
+      label: `${branch.branch_code} — ${branch.name}`,
+    })),
+  ];
+
   return (
-    <div className="border-border flex flex-col gap-4 border-b p-4 sm:flex-row sm:items-end">
+    <div className="border-border flex flex-col gap-4 border-b p-4 lg:flex-row lg:items-end">
       <div className="flex-1">
         <Input
           label="Search users"
@@ -46,7 +62,16 @@ export function UsersFilterBar({
           onChange={(event) => onSearchChange(event.target.value)}
         />
       </div>
-      <div className="sm:w-52">
+      <div className="lg:w-60">
+        <Select
+          label="Branch filter"
+          options={branchOptions}
+          value={branchFilter}
+          hint={isBranchesError ? 'Branch list unavailable' : undefined}
+          onChange={(event) => onBranchChange(event.target.value)}
+        />
+      </div>
+      <div className="lg:w-44">
         <Select
           label="Role filter"
           options={ROLE_OPTIONS}
@@ -54,7 +79,7 @@ export function UsersFilterBar({
           onChange={(event) => onRoleChange(event.target.value)}
         />
       </div>
-      <div className="sm:w-64">
+      <div className="lg:w-60">
         <Select
           label="Status filter"
           options={STATUS_OPTIONS}

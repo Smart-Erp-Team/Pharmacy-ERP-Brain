@@ -1,19 +1,20 @@
 import { expect, test } from '@playwright/test';
-import { BRANCH_CAI_ID } from './helpers/authContext';
-import { loginWithUserContext } from './helpers/session';
+import { BRANCH_DT_ID } from './helpers/authContext.ts';
+import { loginWithUserContext } from './helpers/session.ts';
 
-const PANADOL_PRODUCT_ID = 'e5f6a7b8-3333-4ddd-8b2c-34567890abc1';
-const CAIRO_SELL_LOCATION_ID = '2f31c9d4-7070-4a10-8b2d-ce0f1a2b3c14';
+const AUGMENTIN_PRODUCT_ID = '6dbdb1a7-c723-da4c-8e0e-b067c18bc710';
+const VITAMIN_D3_PRODUCT_ID = '11111111-6666-4111-8111-000000000003';
+const MAIN_SELLABLE_LOCATION_ID = '694cb9a9-c19d-3c46-be41-a7fc76fcdc9f';
+const DOWNTOWN_OPENING_TXN_ID = '11111111-bbbb-4111-8111-000000000001';
 
-test('Pharmacist on BranchLocal posts Panadol adjustment, handles draft lifecycle, and reverses posted transaction', async ({
+test('Pharmacist on BranchLocal posts atomic immediate adjustment and reverses TXN-2026-000001 via inline modal', async ({
   page,
 }) => {
   const errors = await loginWithUserContext(page, {
     role: 'Pharmacist',
-    runtime: 'BranchLocal',
+    runtime_mode: 'BranchLocal',
     branch_scope: 'ASSIGNED',
-    branch_ids: [BRANCH_CAI_ID],
-    scopes: ['inventory:read', 'inventory:write', 'sales:read'],
+    branch_ids: [BRANCH_DT_ID],
   });
 
   await page.getByRole('link', { name: 'Inventory' }).click();
@@ -21,57 +22,86 @@ test('Pharmacist on BranchLocal posts Panadol adjustment, handles draft lifecycl
     page.getByRole('heading', { name: 'Inventory', level: 1 })
   ).toBeVisible();
 
-  // 1. Post ADJUSTMENT_IN for Panadol (auto-locks batch to NON-LOT)
   await page
     .getByRole('tab', { name: 'Stock Adjustments & Opening Balance' })
     .click();
-  await page.getByLabel('Transaction type').selectOption('ADJUSTMENT_IN');
-  await page.getByLabel('Reason code').fill('E2E_PANADOL_IN');
 
+  // Verify ADJUSTMENT_OUT hides Unit cost input, then switch back to ADJUSTMENT_IN
+  await page.getByLabel('Transaction type').selectOption('ADJUSTMENT_OUT');
   const line1 = page.getByRole('group', { name: 'Adjustment line 1' });
-  await line1.getByLabel('Product').selectOption(PANADOL_PRODUCT_ID);
-  await expect(line1.getByLabel('Batch')).toBeDisabled();
+  await expect(line1.getByLabel('Unit cost')).toBeHidden();
+  await page.getByLabel('Transaction type').selectOption('ADJUSTMENT_IN');
+  await expect(line1.getByLabel('Unit cost')).toBeVisible();
+  await page.getByLabel('Reason code').fill('E2E_ATOMIC_IN');
+
+  // Line 1: lot-tracked Augmentin (MED-AUG-1000 / MEDCARE-LOT-2601)
+  await line1.getByLabel('Product').selectOption(AUGMENTIN_PRODUCT_ID);
+  await line1.getByLabel('Location').selectOption(MAIN_SELLABLE_LOCATION_ID);
+  await line1.getByLabel('Batch number').fill('MEDCARE-LOT-2601');
+  await line1.getByLabel('Quantity').fill('20');
+  await line1.getByLabel('Unit cost').fill('7.2');
+
+  // Line 2: non-lot Vitamin D3 (auto-locks batch/expiry fields)
+  await page.getByRole('button', { name: 'Add line' }).click();
+  const line2 = page.getByRole('group', { name: 'Adjustment line 2' });
+  await line2.getByLabel('Product').selectOption(VITAMIN_D3_PRODUCT_ID);
+  await expect(line2.getByLabel('Batch number')).toBeDisabled();
   await expect(
-    line1.getByText('Locked to NON-LOT (lot tracking not required).')
+    line2.getByText('Non-lot product (automatic NON-LOT batch)')
+  ).toBeVisible();
+  await line2.getByLabel('Location').selectOption(MAIN_SELLABLE_LOCATION_ID);
+  await line2.getByLabel('Quantity').fill('15');
+  await line2.getByLabel('Unit cost').fill('65');
+
+  await page.getByRole('button', { name: 'Submit adjustment' }).click();
+  await expect(
+    page.getByText('Adjustment TXN-2026-000004 posted (ADJUSTMENT_IN)')
   ).toBeVisible();
 
-  await line1.getByLabel('Location').selectOption(CAIRO_SELL_LOCATION_ID);
-  await line1.getByLabel('Quantity').fill('15');
-  await line1.getByLabel('Unit cost (base)').fill('0.85');
-  await page.getByRole('button', { name: 'Submit adjustment' }).click();
-
-  // 2. Draft adjustments lifecycle: post or cancel existing draft TXN-2026-000003
-  const draftRow = page.getByRole('row', { name: /TXN-2026-000003/ });
-  await draftRow.getByRole('button', { name: 'Post adjustment' }).click();
-  await expect(page.getByText('No draft adjustments')).toBeVisible();
-
-  // 3. Reverse posted transaction TXN-2026-000002
+  // Inspect posted ledger history & open inline LedgerTxnDetailModal for TXN-2026-000001
   await page.getByRole('tab', { name: 'Inventory Ledger History' }).click();
-  const postedRow = page.getByRole('row', { name: /TXN-2026-000002/ });
-  await postedRow.getByRole('button', { name: 'View details' }).click();
+  await expect(
+    page.getByRole('row', { name: /TXN-2026-000004/ })
+  ).toBeVisible();
 
-  const detailModal = page.getByRole('dialog');
+  const openingRow = page.getByRole('row', { name: /TXN-2026-000001/ });
+  await openingRow.getByRole('button', { name: 'View details' }).click();
+  const detailModal = page.getByRole('dialog', { name: 'TXN-2026-000001' });
   await expect(detailModal.getByText('Immutable posted record')).toBeVisible();
+  await expect(detailModal.getByText('MEDCARE-LOT-2601')).toBeVisible();
   await detailModal
     .getByRole('button', { name: 'Reverse transaction' })
     .click();
 
-  // Transitions cleanly to Stock Adjustments tab prefilled with REVERSAL
+  // Transitions to Stock Adjustments tab prefilled with REVERSAL & hidden lines
   await expect(
     page.getByRole('tab', { name: 'Stock Adjustments & Opening Balance' })
   ).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByLabel('Transaction type')).toHaveValue('REVERSAL');
-  await page.getByLabel('Reason code').fill('E2E_REVERSAL_CONFIRM');
+  await expect(page.getByLabel('Original transaction to reverse')).toHaveValue(
+    DOWNTOWN_OPENING_TXN_ID
+  );
+  await expect(
+    page.getByRole('group', { name: 'Adjustment line 1' })
+  ).toBeHidden();
+
+  await page.getByLabel('Reason code').fill('E2E_REVERSE_OPENING');
   await page.getByRole('button', { name: 'Submit adjustment' }).click();
+  await expect(
+    page.getByText('Adjustment TXN-2026-000005 posted (REVERSAL)')
+  ).toBeVisible();
 
-  // Confirm reversal appears in ledger history
+  // Confirm REVERSAL row in ledger history and updated balances (400+20-280=140, 60+15-60=15)
   await page.getByRole('tab', { name: 'Inventory Ledger History' }).click();
-  await expect(page.getByRole('row', { name: /REVERSAL/ })).toBeVisible();
+  await expect(
+    page.getByRole('row', { name: /TXN-2026-000005.*REVERSAL/ })
+  ).toBeVisible();
 
-  // Confirm balance updated cleanly in Stock Balances & Batches
   await page.getByRole('tab', { name: 'Stock Balances & Batches' }).click();
-  await expect(page.getByRole('cell', { name: '5,490' })).toBeVisible();
-  await expect(page.getByRole('cell', { name: '1,015' }).first()).toBeVisible();
+  const augRow = page.getByRole('row', { name: /MED-AUG-1000/ });
+  await expect(augRow.getByRole('cell', { name: '140' })).toBeVisible();
+  const vitRow = page.getByRole('row', { name: /MED-VIT-D3/ });
+  await expect(vitRow.getByRole('cell', { name: '15' }).first()).toBeVisible();
 
   expect(errors).toEqual([]);
 });

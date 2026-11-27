@@ -74,7 +74,7 @@ src/
 │   │   ├── api/inventoryApi.ts
 │   │   ├── hooks/                 `inventoryKeys.ts`, `useInventoryQueries.ts`, `useInventoryMutations.ts`, `useInventoryBranchState.ts`, `useAdjustmentForm.ts`, `useLedgerHistoryState.ts`
 │   │   ├── schemas/               `inventoryLocationSchema.ts`, `inventoryAdjustmentSchema.ts`, `inventoryErrorMapper.ts`
-│   │   ├── components/            `InventoryBranchBar`, `StockOverviewTab`, `StockOverviewKpiCards`, `StockBalancesTab`, `StockBalanceProductRow`, `StockBalanceBatchTable`, `StorageLocationsTab`, `LocationTableRow`, `LocationFormFields`, `LocationFormModal`, `StockAdjustmentsTab`, `AdjustmentFormHeader`, `AdjustmentLineRow`, `DraftAdjustmentsList`, `LedgerHistoryTab`, `LedgerTxnTableRow`, `LedgerTxnDetailModal`
+│   │   ├── components/            `InventoryBranchBar`, `StockOverviewTab`, `StockOverviewKpiCards`, `StockBalancesTab`, `StockBalanceProductRow`, `StockBalanceBatchTable`, `StorageLocationsTab`, `LocationTableRow`, `LocationFormFields`, `LocationFormModal`, `StockAdjustmentsTab`, `AdjustmentFormHeader`, `AdjustmentLineRow`, `LedgerHistoryTab`, `LedgerTxnTableRow`, `LedgerTxnDetailModal`
 │   │   └── pages/InventoryPage.tsx
 │   └── ai/                        (planned) pages: insights, assistant, approvals (Brain service)
 │       └── <each feature contains only the subfolders it requires>
@@ -92,9 +92,12 @@ src/
 │
 ├── lib/
 │   ├── api/
-│   │   ├── client.ts              the single Axios instance and interceptors
-│   │   ├── idempotency.ts         the Idempotency-Key generator, attempt-key tracking, and mutation rules
-│   │   └── pagination.ts          PagedResult envelope validator and cursor-draining helper
+│   │   ├── client.ts                        the single Axios instance and interceptors
+│   │   ├── idempotency.ts                   the Idempotency-Key generator, attempt-key tracking, and mutation rules
+│   │   ├── normalizers.ts                   runtime contract normalizers (auth, common, errors) and enum predicates
+│   │   ├── identityNormalizers.ts           Stage 1 identity & branch enrollment runtime contract normalizers
+│   │   ├── catalogInventoryNormalizers.ts   Stage 1 catalog & inventory runtime contract normalizers
+│   │   └── pagination.ts                    PagedResult<T> page/page_size validator and page-draining helper
 │   ├── queryClient.ts             the single QueryClient and its defaults
 │   ├── schemas/
 │   │   └── addressSchema.ts       shared 6-field AddressDto Zod schema and DTO normalizers
@@ -130,8 +133,9 @@ src/
 ├── types/
 │   ├── generated/                 mirrors the repo-root contracts (read-only)
 │   │   ├── api-paths.ts           openapi-typescript output (`npm run codegen:paths`)
-│   │   ├── auth.ts, catalog.ts, common.ts, identity.ts
-│   │   ├── inventory.ts, purchasing.ts, sales.ts, index.ts
+│   │   ├── auth.ts, canonical.ts, catalog.ts, common.ts, identity.ts
+│   │   ├── inventory.ts, index.ts
+│   │   ├── sales.ts, purchasing.ts   deferred empty placeholders for Stage 2 / Stage 3
 │   │   └── tsconfig.json
 │   ├── api.ts                     short aliases of generated contract types
 │   └── ui.ts                      frontend-only types
@@ -149,37 +153,38 @@ Playwright E2E lives outside `src/`: `tests/e2e/` at the app root (`apps/erp-fro
 
 ## 2. Where each kind of file goes
 
-| What                                                             | Where                                                                                                         |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| A screen                                                         | `features/<feature>/pages/<Name>Page.tsx`                                                                     |
-| A component used by one feature                                  | `features/<feature>/components/`                                                                              |
-| A component used by several features                             | A generic building block → `components/ui/` (follow `DESIGN.md`); otherwise ask the developer (see section 5) |
-| A generic building block                                         | `components/ui/` (design system — follow `DESIGN.md`, skill `design-system`)                                  |
-| An AI surface component                                          | `components/ai/` (follow `DESIGN.md`, skill `design-system`)                                                  |
-| A query or mutation hook and its query keys                      | `features/<feature>/hooks/`                                                                                   |
-| A hook used by one feature only                                  | `features/<feature>/hooks/`                                                                                   |
-| An API function                                                  | `features/<feature>/api/<feature>Api.ts`                                                                      |
-| A Zod validation schema                                          | `features/<feature>/schemas/<name>Schema.ts`                                                                  |
-| The Axios instance                                               | `lib/api/client.ts`                                                                                           |
-| The `Idempotency-Key` helper                                     | `lib/api/idempotency.ts`                                                                                      |
-| The QueryClient                                                  | `lib/queryClient.ts`                                                                                          |
-| Token storage and permissions                                    | `lib/auth/`                                                                                                   |
-| The session-end registry (transport → app shell)                 | `lib/auth/sessionEvents.ts`                                                                                   |
-| `useAuth`                                                        | `hooks/useAuth.ts`                                                                                            |
-| A generic custom hook (shared by several features, no API calls) | `hooks/use<Name>.ts`                                                                                          |
-| A Zustand store                                                  | `stores/<name>Store.ts`                                                                                       |
-| A route, a protected route, a path constant                      | `routes/`                                                                                                     |
-| A route guard (role, runtime, or scope)                          | `routes/RoleGate.tsx`, `routes/RuntimeGate.tsx`, `routes/ScopeGate.tsx`                                       |
-| The 403 and 404 screens                                          | `features/errors/pages/ForbiddenPage.tsx`, `NotFoundPage.tsx`                                                 |
-| A layout                                                         | `layouts/`                                                                                                    |
-| A frontend-only type                                             | `types/ui.ts`, or next to the component that uses it                                                          |
-| Contracts & OpenAPI spec (read-only; frontend slice = ask first) | `../../contracts/` at repo root (accessed in app via `@contracts/*` alias)                                    |
-| Generated API domain types (read-only)                           | `types/generated/` (mirroring repo-root contracts/schemas)                                                    |
-| Generated path/operation types (read-only)                       | `types/generated/api-paths.ts` — regenerate with `npm run codegen:paths`, then `npm run format`               |
-| A component or hook unit test                                    | Next to the file it tests: `Name.test.tsx`                                                                    |
-| Shared test harness (custom render helper)                       | `src/test/renderWithProviders.tsx` (exists — wraps QueryClientProvider + Router)                              |
-| Shared mock handlers (MSW)                                       | `src/mocks/handlers.ts`, `src/mocks/browser.ts`                                                               |
-| A Playwright E2E test                                            | `tests/e2e/` inside the frontend app: `apps/erp-frontend/tests/e2e/`                                          |
+| What                                                             | Where                                                                                                                         |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| A screen                                                         | `features/<feature>/pages/<Name>Page.tsx`                                                                                     |
+| A component used by one feature                                  | `features/<feature>/components/`                                                                                              |
+| A component used by several features                             | A generic building block → `components/ui/` (follow `DESIGN.md`); otherwise ask the developer (see section 5)                 |
+| A generic building block                                         | `components/ui/` (design system — follow `DESIGN.md`, skill `design-system`)                                                  |
+| An AI surface component                                          | `components/ai/` (follow `DESIGN.md`, skill `design-system`)                                                                  |
+| A query or mutation hook and its query keys                      | `features/<feature>/hooks/`                                                                                                   |
+| A hook used by one feature only                                  | `features/<feature>/hooks/`                                                                                                   |
+| An API function                                                  | `features/<feature>/api/<feature>Api.ts`                                                                                      |
+| A Zod validation schema                                          | `features/<feature>/schemas/<name>Schema.ts`                                                                                  |
+| The Axios instance                                               | `lib/api/client.ts`                                                                                                           |
+| The `Idempotency-Key` helper                                     | `lib/api/idempotency.ts`                                                                                                      |
+| Runtime contract normalizers & pagination helpers                | `lib/api/normalizers.ts`, `lib/api/identityNormalizers.ts`, `lib/api/catalogInventoryNormalizers.ts`, `lib/api/pagination.ts` |
+| The QueryClient                                                  | `lib/queryClient.ts`                                                                                                          |
+| Token storage and permissions                                    | `lib/auth/`                                                                                                                   |
+| The session-end registry (transport → app shell)                 | `lib/auth/sessionEvents.ts`                                                                                                   |
+| `useAuth`                                                        | `hooks/useAuth.ts`                                                                                                            |
+| A generic custom hook (shared by several features, no API calls) | `hooks/use<Name>.ts`                                                                                                          |
+| A Zustand store                                                  | `stores/<name>Store.ts`                                                                                                       |
+| A route, a protected route, a path constant                      | `routes/`                                                                                                                     |
+| A route guard (role, runtime, or scope)                          | `routes/RoleGate.tsx`, `routes/RuntimeGate.tsx`, `routes/ScopeGate.tsx`                                                       |
+| The 403 and 404 screens                                          | `features/errors/pages/ForbiddenPage.tsx`, `NotFoundPage.tsx`                                                                 |
+| A layout                                                         | `layouts/`                                                                                                                    |
+| A frontend-only type                                             | `types/ui.ts`, or next to the component that uses it                                                                          |
+| Contracts & OpenAPI spec (read-only; frontend slice = ask first) | `../../contracts/` at repo root (accessed in app via `@contracts/*` alias)                                                    |
+| Generated API domain types (read-only)                           | `types/generated/` (mirroring repo-root contracts/schemas)                                                                    |
+| Generated path/operation types (read-only)                       | `types/generated/api-paths.ts` — regenerate with `npm run codegen:paths`, then `npm run format`                               |
+| A component or hook unit test                                    | Next to the file it tests: `Name.test.tsx`                                                                                    |
+| Shared test harness (custom render helper)                       | `src/test/renderWithProviders.tsx` (exists — wraps QueryClientProvider + Router)                                              |
+| Shared mock handlers (MSW)                                       | `src/mocks/handlers.ts`, `src/mocks/browser.ts`                                                                               |
+| A Playwright E2E test                                            | `tests/e2e/` inside the frontend app: `apps/erp-frontend/tests/e2e/`                                                          |
 
 **Hooks:** a hook used by one feature stays inside that feature's `hooks/` folder. `hooks/` at the top level is only for generic hooks shared by several features (`useAuth`, `useDebounce`, `useMediaQuery`...). Hooks in `hooks/` never call the API and never hold server data.
 

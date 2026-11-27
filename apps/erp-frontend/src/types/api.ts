@@ -26,6 +26,8 @@ import type {
   // Identity
   OrganizationDto,
   BranchDto,
+  EnrollmentTokenResponse,
+  RedeemBranchEnrollmentResponse,
   EmployeeDto,
   UserDto,
   // Catalog & Inventory
@@ -78,6 +80,53 @@ export type NormalizedLoginResponse = Required<Omit<LoginResponse, 'user'>> & {
 
 export type NormalizedAddress = AddressDto;
 
+export type NormalizedOrganization = Required<OrganizationDto>;
+
+export type NormalizedBranch = Required<Omit<BranchDto, 'address'>> & {
+  address: NormalizedAddress;
+};
+
+export type NormalizedEnrollmentToken = Required<EnrollmentTokenResponse>;
+
+export type NormalizedRedeemEnrollment =
+  Required<RedeemBranchEnrollmentResponse>;
+
+export type NormalizedEmployee = Required<Omit<EmployeeDto, 'address'>> & {
+  address: NormalizedAddress;
+};
+
+export type NormalizedUser = Required<UserDto>;
+
+export type NormalizedProductCategory = Required<ProductCategoryDto>;
+
+export type NormalizedProductUom = Required<ProductUomDto>;
+
+export type NormalizedProduct = Required<Omit<ProductDto, 'uoms'>> & {
+  uoms: NormalizedProductUom[];
+};
+
+export type NormalizedReorderRule = Required<ReorderRuleDto>;
+
+export type NormalizedInventoryLocation = Required<InventoryLocationDto>;
+
+export type NormalizedInventoryBatch = Required<InventoryBatchDto>;
+
+export type NormalizedStockBalance = Required<StockBalanceDto>;
+
+export type NormalizedInventorySummary = Required<
+  Omit<InventorySummaryDto, 'locations_and_lots'>
+> & {
+  locations_and_lots: NormalizedStockBalance[];
+};
+
+export type NormalizedInventoryTxnLine = Required<InventoryTxnLineDto>;
+
+export type NormalizedInventoryTxn = Required<
+  Omit<InventoryTxnDto, 'lines'>
+> & {
+  lines: NormalizedInventoryTxnLine[];
+};
+
 // 4. Clean Stage 1 ergonomic aliases for UI, stores, and feature modules
 export type Role = UserRole;
 export type RuntimeMode = ErpRuntimeMode;
@@ -87,19 +136,21 @@ export type TokenPair = NormalizedLoginResponse;
 export type AuthCredentials = LoginRequest;
 export type ApiError = NormalizedApiErrorEnvelope;
 
-export type Organization = OrganizationDto;
-export type Branch = BranchDto;
-export type Employee = EmployeeDto;
-export type User = UserDto;
+export type Organization = NormalizedOrganization;
+export type Branch = NormalizedBranch;
+export type EnrollmentToken = NormalizedEnrollmentToken;
+export type RedeemEnrollment = NormalizedRedeemEnrollment;
+export type Employee = NormalizedEmployee;
+export type User = NormalizedUser;
 
-export type Product = ProductDto;
-export type ProductUom = ProductUomDto;
-export type ProductCategory = ProductCategoryDto;
-export type ReorderRule = ReorderRuleDto;
+export type ProductCategory = NormalizedProductCategory;
+export type ProductUom = NormalizedProductUom;
+export type Product = NormalizedProduct;
+export type ReorderRule = NormalizedReorderRule;
 
-export type InventoryLocation = InventoryLocationDto;
-export type InventoryBatch = InventoryBatchDto;
-export type StockBalance = StockBalanceDto;
-export type InventorySummary = InventorySummaryDto;
-export type InventoryTxn = InventoryTxnDto;
-export type InventoryTxnLine = InventoryTxnLineDto;
+export type InventoryLocation = NormalizedInventoryLocation;
+export type InventoryBatch = NormalizedInventoryBatch;
+export type StockBalance = NormalizedStockBalance;
+export type InventorySummary = NormalizedInventorySummary;
+export type InventoryTxnLine = NormalizedInventoryTxnLine;
+export type InventoryTxn = NormalizedInventoryTxn;

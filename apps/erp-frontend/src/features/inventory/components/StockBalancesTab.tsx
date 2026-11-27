@@ -14,29 +14,17 @@ import {
   TableRow,
 } from '../../../components/ui/Table';
 import {
+  BALANCE_EXPIRY_OPTIONS,
+  BALANCE_LOCATION_OPTIONS,
+  parseExpiryFilter,
+  parseLocationFilter,
   useStockBalancesState,
-  type ExpiryFilter,
-  type LocationFilter,
 } from '../hooks/useInventoryBranchState';
 import { StockBalanceProductRow } from './StockBalanceProductRow';
 
 export interface StockBalancesTabProps {
   branchId: string;
 }
-
-const LOCATION_OPTIONS = [
-  { value: 'ALL', label: 'All location types' },
-  { value: 'SELLABLE', label: 'SELLABLE' },
-  { value: 'QUARANTINE', label: 'QUARANTINE' },
-  { value: 'SCRAP', label: 'SCRAP' },
-] as const;
-
-const EXPIRY_OPTIONS = [
-  { value: 'ALL', label: 'All expiry statuses' },
-  { value: 'NEARING_EXPIRY', label: 'Nearing expiry' },
-  { value: 'EXPIRED', label: 'Expired' },
-  { value: 'NON_LOT', label: 'NON-LOT' },
-] as const;
 
 export function StockBalancesTab({ branchId }: StockBalancesTabProps) {
   const state = useStockBalancesState(branchId);
@@ -51,25 +39,25 @@ export function StockBalancesTab({ branchId }: StockBalancesTabProps) {
         <div className="grid grid-cols-1 gap-3 md:grid-cols-4 md:items-end">
           <Input
             label="Search products"
-            placeholder="Name, SKU, or barcode"
+            placeholder="Name, SKU, barcode, or batch"
             leadingIcon={<Search className="h-4 w-4" aria-hidden="true" />}
             value={state.search}
             onChange={(e) => state.setSearch(e.target.value)}
           />
           <Select
             label="Location type"
-            options={LOCATION_OPTIONS}
+            options={BALANCE_LOCATION_OPTIONS}
             value={state.locationType}
             onChange={(e) =>
-              state.setLocationType(e.target.value as LocationFilter)
+              state.setLocationType(parseLocationFilter(e.target.value))
             }
           />
           <Select
             label="Expiry status"
-            options={EXPIRY_OPTIONS}
+            options={BALANCE_EXPIRY_OPTIONS}
             value={state.expiryFilter}
             onChange={(e) =>
-              state.setExpiryFilter(e.target.value as ExpiryFilter)
+              state.setExpiryFilter(parseExpiryFilter(e.target.value))
             }
           />
           <div>

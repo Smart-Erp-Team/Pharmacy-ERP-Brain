@@ -2,13 +2,13 @@ import { Pencil } from 'lucide-react';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { PageHeading } from '../../../components/ui/PageHeading';
-import type { ProductCategoryDto, ProductDto } from '../../../types/api';
+import type { Product, ProductCategory } from '../../../types/api';
 
 export interface ProductDetailsHeaderProps {
-  product: ProductDto;
-  category: ProductCategoryDto | undefined;
+  product: Product;
+  category: ProductCategory | undefined;
   canWrite: boolean;
-  onEditProduct?: (product: ProductDto) => void;
+  onEditProduct?: (product: Product) => void;
 }
 
 export function ProductDetailsHeader({

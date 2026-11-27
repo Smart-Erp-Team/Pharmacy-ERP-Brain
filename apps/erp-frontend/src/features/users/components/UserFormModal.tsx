@@ -1,5 +1,6 @@
-import type { EmployeeDto } from '../../../features/employees';
-import type { BranchDto, UserDto } from '../../../types/api';
+import type { Branch } from '../../../features/branches';
+import type { Employee } from '../../../features/employees';
+import type { User } from '../../../types/api';
 import type {
   DirectoryQueryStatus,
   EmployeeDisplay,
@@ -9,11 +10,11 @@ import { EditUserFormModal } from './EditUserFormModal';
 
 export interface UserFormModalProps {
   open: boolean;
-  user: UserDto | null;
-  eligibleEmployees: readonly EmployeeDto[];
+  user: User | null;
+  eligibleEmployees: readonly Employee[];
   getEmployeeDisplay: (employeeId: string) => EmployeeDisplay;
   employeesDirectory: DirectoryQueryStatus;
-  branches: readonly BranchDto[];
+  branches: readonly Branch[];
   branchesDirectory: DirectoryQueryStatus;
   onClose: () => void;
 }

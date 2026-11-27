@@ -16,10 +16,9 @@ import {
 export function BranchesPage() {
   const {
     searchTerm,
-    setSearchTerm,
     statusFilter,
-    pageIndex,
-    filteredBranches,
+    page,
+    branches,
     branchesQuery,
     formModalState,
     setFormModalState,
@@ -27,7 +26,9 @@ export function BranchesPage() {
     setTokenModalState,
     togglingBranchId,
     isGeneratingToken,
+    handleSearchChange,
     handleStatusChange,
+    resetFilters,
     handlePageChange,
     handleToggleActive,
     requestEnrollmentToken,
@@ -38,6 +39,14 @@ export function BranchesPage() {
       ? branchesQuery.error.message
       : 'Unable to load branches.'
     : null;
+
+  const pageData = branchesQuery.data;
+  const hasNextPage = (pageData?.next_cursor ?? null) !== null;
+  const showPagination =
+    !branchesQuery.isLoading &&
+    !branchesQuery.isError &&
+    pageData !== undefined &&
+    (branches.length > 0 || page > 1 || hasNextPage);
 
   return (
     <div className="flex flex-col gap-6">
@@ -60,12 +69,12 @@ export function BranchesPage() {
         <BranchesFilterBar
           searchTerm={searchTerm}
           statusFilter={statusFilter}
-          onSearchChange={setSearchTerm}
+          onSearchChange={handleSearchChange}
           onStatusChange={handleStatusChange}
         />
 
         <BranchesTable
-          branches={filteredBranches}
+          branches={branches}
           isLoading={branchesQuery.isLoading}
           errorMessage={queryErrorMessage}
           togglingBranchId={togglingBranchId}
@@ -75,10 +84,7 @@ export function BranchesPage() {
           onRetry={() => {
             void branchesQuery.refetch();
           }}
-          onResetFilters={() => {
-            setSearchTerm('');
-            handleStatusChange('active');
-          }}
+          onResetFilters={resetFilters}
           onAddBranch={() => setFormModalState({ open: true, branch: null })}
           onEdit={(branch) => setFormModalState({ open: true, branch })}
           onToggleActive={(branch, nextActive) => {
@@ -89,21 +95,13 @@ export function BranchesPage() {
           }}
         />
 
-        {!branchesQuery.isLoading &&
-        !branchesQuery.isError &&
-        (filteredBranches.length > 0 ||
-          pageIndex > 0 ||
-          Boolean(branchesQuery.data?.nextCursor)) ? (
+        {showPagination ? (
           <Pagination
             className="border-border border-t px-4 py-3"
-            page={pageIndex + 1}
-            pageSize={BRANCHES_PAGE_SIZE}
-            itemCount={
-              pageIndex === 0 && !branchesQuery.data?.nextCursor
-                ? filteredBranches.length
-                : null
-            }
-            hasNextPage={Boolean(branchesQuery.data?.nextCursor)}
+            page={page}
+            pageSize={pageData.page_size || BRANCHES_PAGE_SIZE}
+            itemCount={pageData.total_count}
+            hasNextPage={hasNextPage}
             onPageChange={handlePageChange}
           />
         ) : null}

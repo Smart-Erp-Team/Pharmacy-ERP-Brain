@@ -9,24 +9,22 @@ import {
   TableHeader,
   TableRow,
 } from '../../../components/ui/Table';
-import type { EmployeeDto } from '../../../types/api';
+import type { Employee } from '../../../types/api';
 import { EmployeeTableRow } from './EmployeeTableRow';
 import { EmployeesTableEmptyState } from './EmployeesTableEmptyState';
 
 export interface EmployeesTableProps {
-  employees: readonly EmployeeDto[];
+  employees: readonly Employee[];
   getBranchLabel: (branchId: string) => string;
   isLoading: boolean;
   errorMessage: string | null;
   togglingEmployeeId: string | null;
   hasActiveFilters: boolean;
-  hasHiddenInactive?: boolean;
   onRetry: () => void;
   onResetFilters: () => void;
-  onShowAllEmployees?: () => void;
   onAddEmployee: () => void;
-  onEdit: (employee: EmployeeDto) => void;
-  onToggleActive: (employee: EmployeeDto, nextActive: boolean) => void;
+  onEdit: (employee: Employee) => void;
+  onToggleActive: (employee: Employee, nextActive: boolean) => void;
 }
 
 const COLUMNS = [
@@ -57,10 +55,8 @@ export function EmployeesTable({
   errorMessage,
   togglingEmployeeId,
   hasActiveFilters,
-  hasHiddenInactive = false,
   onRetry,
   onResetFilters,
-  onShowAllEmployees,
   onAddEmployee,
   onEdit,
   onToggleActive,
@@ -105,9 +101,7 @@ export function EmployeesTable({
     return (
       <EmployeesTableEmptyState
         hasActiveFilters={hasActiveFilters}
-        hasHiddenInactive={hasHiddenInactive}
         onResetFilters={onResetFilters}
-        onShowAllEmployees={onShowAllEmployees}
         onAddEmployee={onAddEmployee}
       />
     );

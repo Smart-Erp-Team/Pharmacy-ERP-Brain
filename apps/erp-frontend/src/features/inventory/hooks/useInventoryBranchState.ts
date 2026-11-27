@@ -1,18 +1,38 @@
 import { useMemo, useRef, useState } from 'react';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'react-toastify';
+import type { BadgeVariant } from '../../../components/ui/Badge';
 import { useAuth } from '../../../hooks/useAuth';
 import { ApiClientError } from '../../../lib/api/client';
 import type {
-  BranchDto,
-  InventoryBalanceDto,
-  InventoryBatchDto,
-  InventoryLocationDto,
+  BatchQualityStatus,
+  InventoryBatch,
+  InventoryLocation,
   LocationType,
   RuntimeMode,
+  StockBalance,
 } from '../../../types/api';
-import { useAllBranchesQuery } from '../../branches';
-import { useAllProductsQuery, type ProductDto } from '../../products';
-import { usePatchInventoryLocationMutation } from './useInventoryMutations';
+import { useAllBranchesQuery, type Branch } from '../../branches';
+import { useAllProductsQuery, type Product } from '../../products';
+import {
+  applyCreateLocationFormApiError,
+  applyEditLocationFormApiError,
+} from '../schemas/inventoryErrorMapper';
+import {
+  createEditLocationFormSchema,
+  createLocationFormSchema,
+  DEFAULT_LOCATION_FORM_VALUES,
+  locationDtoToFormValues,
+  toCreateLocationPayload,
+  toLocationPatchPayload,
+  type CreateLocationFormValues,
+  type EditLocationFormValues,
+} from '../schemas/inventoryLocationSchema';
+import {
+  useCreateInventoryLocationMutation,
+  usePatchInventoryLocationMutation,
+} from './useInventoryMutations';
 import {
   useAllInventoryBalancesQuery,
   useAllInventoryBatchesQuery,
@@ -26,7 +46,7 @@ export interface InventoryBranchOption {
 }
 
 export interface UseInventoryBranchStateResult {
-  branches: readonly BranchDto[];
+  branches: readonly Branch[];
   branchOptions: readonly InventoryBranchOption[];
   branchId: string;
   branchName: string;
@@ -43,23 +63,113 @@ export interface UseInventoryBranchStateResult {
 }
 
 export type LocationFilter = 'ALL' | LocationType;
+export type SellableFilter = 'ALL' | 'SELLABLE' | 'NON_SELLABLE';
 export type ExpiryFilter = 'ALL' | 'NEARING_EXPIRY' | 'EXPIRED' | 'NON_LOT';
 
 export interface GroupedBalanceItem {
-  balance: InventoryBalanceDto;
-  batch: InventoryBatchDto | undefined;
-  location: InventoryLocationDto | undefined;
+  balance: StockBalance;
+  batch: InventoryBatch | undefined;
+  location: InventoryLocation | undefined;
 }
 
 export const STORAGE_LOCATIONS_PAGE_SIZE = 20;
 
-function utcDateOffset(days = 0): string {
+export const BALANCE_LOCATION_OPTIONS = [
+  { value: 'ALL', label: 'All location types' },
+  { value: 'SELLABLE', label: 'SELLABLE' },
+  { value: 'QUARANTINE', label: 'QUARANTINE' },
+  { value: 'DAMAGED', label: 'DAMAGED' },
+  { value: 'SCRAP', label: 'SCRAP' },
+] as const;
+
+export const BALANCE_EXPIRY_OPTIONS = [
+  { value: 'ALL', label: 'All expiry statuses' },
+  { value: 'NEARING_EXPIRY', label: 'Nearing expiry' },
+  { value: 'EXPIRED', label: 'Expired' },
+  { value: 'NON_LOT', label: 'NON-LOT' },
+] as const;
+
+export const LOCATION_SELLABLE_OPTIONS = [
+  { value: 'ALL', label: 'All' },
+  { value: 'SELLABLE', label: 'Sellable only' },
+  { value: 'NON_SELLABLE', label: 'Non-sellable only' },
+] as const;
+
+export const LOCATION_TYPE_BADGE_VARIANT: Record<LocationType, BadgeVariant> = {
+  SELLABLE: 'success',
+  QUARANTINE: 'warning',
+  DAMAGED: 'danger',
+  SCRAP: 'danger',
+};
+
+export const BATCH_QUALITY_BADGE_VARIANT: Record<
+  BatchQualityStatus,
+  BadgeVariant
+> = {
+  AVAILABLE: 'success',
+  QUARANTINED: 'warning',
+  EXPIRED: 'danger',
+  RECALLED: 'danger',
+};
+
+export function parseLocationFilter(value: string): LocationFilter {
+  if (
+    value === 'SELLABLE' ||
+    value === 'QUARANTINE' ||
+    value === 'DAMAGED' ||
+    value === 'SCRAP'
+  ) {
+    return value;
+  }
+  return 'ALL';
+}
+
+export function parseExpiryFilter(value: string): ExpiryFilter {
+  if (value === 'NEARING_EXPIRY' || value === 'EXPIRED' || value === 'NON_LOT')
+    return value;
+  return 'ALL';
+}
+
+export function parseSellableFilter(value: string): SellableFilter {
+  if (value === 'SELLABLE' || value === 'NON_SELLABLE') return value;
+  return 'ALL';
+}
+
+export function isNonLotBatchNumber(
+  batchNumber: string | null | undefined
+): boolean {
+  return (batchNumber ?? '').trim().toUpperCase() === 'NON-LOT';
+}
+
+export function utcDateOffset(days = 0): string {
   const now = new Date();
   return new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + days)
   )
     .toISOString()
     .slice(0, 10);
+}
+
+export function sortBalancesFefo(
+  items: readonly GroupedBalanceItem[]
+): GroupedBalanceItem[] {
+  return items.slice().sort((a, b) => {
+    const expA = isNonLotBatchNumber(a.balance.batch_number)
+      ? null
+      : (a.balance.expires_on ?? a.batch?.expires_on ?? null);
+    const expB = isNonLotBatchNumber(b.balance.batch_number)
+      ? null
+      : (b.balance.expires_on ?? b.batch?.expires_on ?? null);
+    if (expA && expB) {
+      const cmp = expA.localeCompare(expB);
+      if (cmp !== 0) return cmp;
+    } else if (expA) {
+      return -1;
+    } else if (expB) {
+      return 1;
+    }
+    return a.balance.batch_id.localeCompare(b.balance.batch_id);
+  });
 }
 
 export function useInventoryBranchState(): UseInventoryBranchStateResult {
@@ -78,23 +188,19 @@ export function useInventoryBranchState(): UseInventoryBranchStateResult {
   const isAdmin = hasRole('Admin');
   const [selectedBranchId, setSelectedBranchId] = useState<string>('');
 
-  const branchesQuery = useAllBranchesQuery(
-    { includeInactive: false },
-    { enabled: isAdmin }
-  );
+  const branchesQuery = useAllBranchesQuery({ include_inactive: false });
 
-  const branches = useMemo<readonly BranchDto[]>(() => {
-    if (!isAdmin) return [];
+  const branches = useMemo<readonly Branch[]>(() => {
     return (branchesQuery.data ?? []).filter(
       (branch) => branch.is_active && canAccessBranch(branch.branch_id)
     );
-  }, [isAdmin, branchesQuery.data, canAccessBranch]);
+  }, [branchesQuery.data, canAccessBranch]);
 
   const branchOptions = useMemo<readonly InventoryBranchOption[]>(() => {
-    if (isAdmin && branches.length > 0) {
+    if (branches.length > 0) {
       return branches.map((branch) => ({
         value: branch.branch_id,
-        label: `${branch.name} (${branch.code})`,
+        label: `${branch.name} (${branch.branch_code})`,
       }));
     }
 
@@ -125,9 +231,9 @@ export function useInventoryBranchState(): UseInventoryBranchStateResult {
       label: `Branch ${id.slice(0, 8)}`,
     }));
   }, [
-    isAdmin,
     branches,
     branchScope,
+    isAdmin,
     branchIds,
     activeBranchId,
     canAccessBranch,
@@ -147,7 +253,9 @@ export function useInventoryBranchState(): UseInventoryBranchStateResult {
   const branchName = useMemo(() => {
     if (!branchId) return 'Unavailable';
     const matchedBranch = branches.find((item) => item.branch_id === branchId);
-    if (matchedBranch) return `${matchedBranch.name} (${matchedBranch.code})`;
+    if (matchedBranch) {
+      return `${matchedBranch.name} (${matchedBranch.branch_code})`;
+    }
     const matchedOption = branchOptions.find((item) => item.value === branchId);
     return matchedOption?.label ?? `Branch ${branchId.slice(0, 8)}`;
   }, [branchId, branches, branchOptions]);
@@ -160,22 +268,21 @@ export function useInventoryBranchState(): UseInventoryBranchStateResult {
   };
 
   const onRetryBranches = () => {
-    if (isAdmin) void branchesQuery.refetch();
+    void branchesQuery.refetch();
   };
 
-  const branchesError =
-    isAdmin && branchesQuery.isError
-      ? branchesQuery.error instanceof Error
-        ? branchesQuery.error.message
-        : 'Unable to load branches.'
-      : null;
+  const branchesError = branchesQuery.isError
+    ? branchesQuery.error instanceof Error
+      ? branchesQuery.error.message
+      : 'Unable to load branches.'
+    : null;
 
   return {
     branches,
     branchOptions,
     branchId,
     branchName,
-    isBranchesLoading: isAdmin && branchesQuery.isLoading,
+    isBranchesLoading: branchesQuery.isLoading,
     branchesError,
     onSelectBranch,
     onRetryBranches,
@@ -193,13 +300,13 @@ export function useInventoryBranchState(): UseInventoryBranchStateResult {
 }
 
 export function useStockOverviewData(branchId: string) {
-  const balancesQuery = useAllInventoryBalancesQuery({ branchId });
-  const batchesQuery = useAllInventoryBatchesQuery({ branchId });
+  const balancesQuery = useAllInventoryBalancesQuery({ branch_id: branchId });
+  const batchesQuery = useAllInventoryBatchesQuery();
   const locationsQuery = useAllInventoryLocationsQuery({
-    branchId,
-    includeInactive: false,
+    branch_id: branchId,
+    include_inactive: false,
   });
-  const productsQuery = useAllProductsQuery({ includeInactive: true });
+  const productsQuery = useAllProductsQuery({ include_inactive: true });
 
   const balances = useMemo(
     () => balancesQuery.data ?? [],
@@ -214,7 +321,7 @@ export function useStockOverviewData(branchId: string) {
   const flaggedRows = useMemo(() => {
     const today = utcDateOffset(0);
     const batchMap = new Map(batches.map((b) => [b.batch_id, b]));
-    const productMap = new Map<string, ProductDto>(
+    const productMap = new Map<string, Product>(
       (productsQuery.data ?? []).map((p) => [p.product_id, p])
     );
 
@@ -223,20 +330,23 @@ export function useStockOverviewData(branchId: string) {
         const batch = batchMap.get(balance.batch_id);
         const product = productMap.get(balance.product_id);
         const alertDays = product?.expiry_alert_days ?? 0;
-        const exp = batch?.is_non_lot ? null : (batch?.expires_on ?? null);
+        const isNonLot = isNonLotBatchNumber(balance.batch_number);
+        const exp = isNonLot
+          ? null
+          : (balance.expires_on ?? batch?.expires_on ?? null);
         const expired = Boolean(
-          batch?.quality_status === 'EXPIRED' || (exp && exp < today)
+          balance.quality_status === 'EXPIRED' || (exp && exp < today)
         );
         const held =
-          batch?.quality_status === 'QUARANTINED' ||
-          batch?.quality_status === 'RECALLED';
+          balance.quality_status === 'QUARANTINED' ||
+          balance.quality_status === 'RECALLED';
         const nearing = Boolean(
           !expired && exp && alertDays > 0 && exp <= utcDateOffset(alertDays)
         );
         const reason = expired
           ? 'Expired'
-          : held && batch
-            ? batch.quality_status
+          : held
+            ? balance.quality_status
             : nearing
               ? 'Expiring soon'
               : null;
@@ -266,9 +376,13 @@ export function useStockOverviewData(branchId: string) {
     isPreviewLoading:
       balancesQuery.isLoading ||
       batchesQuery.isLoading ||
+      locationsQuery.isLoading ||
       productsQuery.isLoading,
     hasPreviewError:
-      balancesQuery.isError || batchesQuery.isError || productsQuery.isError,
+      balancesQuery.isError ||
+      batchesQuery.isError ||
+      locationsQuery.isError ||
+      productsQuery.isError,
     retry,
   };
 }
@@ -279,13 +393,13 @@ export function useStockBalancesState(branchId: string) {
   const [expiryFilter, setExpiryFilter] = useState<ExpiryFilter>('ALL');
   const [expandedIds, setExpandedIds] = useState<string[]>([]);
 
-  const balancesQ = useAllInventoryBalancesQuery({ branchId });
-  const batchesQ = useAllInventoryBatchesQuery({ branchId });
+  const balancesQ = useAllInventoryBalancesQuery({ branch_id: branchId });
+  const batchesQ = useAllInventoryBatchesQuery();
   const locationsQ = useAllInventoryLocationsQuery({
-    branchId,
-    includeInactive: true,
+    branch_id: branchId,
+    include_inactive: true,
   });
-  const productsQ = useAllProductsQuery({ includeInactive: true });
+  const productsQ = useAllProductsQuery({ include_inactive: true });
 
   const groupedProducts = useMemo(() => {
     const today = utcDateOffset(0);
@@ -294,26 +408,28 @@ export function useStockBalancesState(branchId: string) {
     const locMap = new Map(
       (locationsQ.data ?? []).map((l) => [l.location_id, l])
     );
-    const prodMap = new Map<string, ProductDto>(
+    const prodMap = new Map<string, Product>(
       (productsQ.data ?? []).map((p) => [p.product_id, p])
     );
     const groups = new Map<
       string,
-      { product: ProductDto | undefined; items: GroupedBalanceItem[] }
+      { product: Product | undefined; items: GroupedBalanceItem[] }
     >();
 
     for (const balance of balancesQ.data ?? []) {
       const batch = batchMap.get(balance.batch_id);
       const location = locMap.get(balance.location_id);
       const product = prodMap.get(balance.product_id);
-      if (locationType !== 'ALL' && location?.location_type !== locationType) {
+      if (locationType !== 'ALL' && balance.location_type !== locationType) {
         continue;
       }
 
-      const isNonLot = Boolean(batch?.is_non_lot);
-      const exp = isNonLot ? null : (batch?.expires_on ?? null);
+      const isNonLot = isNonLotBatchNumber(balance.batch_number);
+      const exp = isNonLot
+        ? null
+        : (balance.expires_on ?? batch?.expires_on ?? null);
       const expired = Boolean(
-        batch?.quality_status === 'EXPIRED' || (exp && exp < today)
+        balance.quality_status === 'EXPIRED' || (exp && exp < today)
       );
       const alertDays = product?.expiry_alert_days ?? 0;
       const nearing = Boolean(
@@ -325,7 +441,15 @@ export function useStockBalancesState(branchId: string) {
       if (expiryFilter === 'NEARING_EXPIRY' && !nearing) continue;
       if (
         q &&
-        ![product?.name, product?.sku, product?.barcode]
+        ![
+          balance.product_name,
+          balance.product_sku,
+          product?.name,
+          product?.sku,
+          product?.barcode,
+          balance.batch_number,
+          balance.location_code,
+        ]
           .filter(Boolean)
           .join(' ')
           .toLowerCase()
@@ -339,9 +463,11 @@ export function useStockBalancesState(branchId: string) {
       groups.set(balance.product_id, entry);
     }
 
-    return Array.from(groups.entries()).sort(([, a], [, b]) =>
-      (a.product?.name ?? '').localeCompare(b.product?.name ?? '')
-    );
+    return Array.from(groups.entries()).sort(([, a], [, b]) => {
+      const nameA = a.product?.name ?? a.items[0]?.balance.product_name ?? '';
+      const nameB = b.product?.name ?? b.items[0]?.balance.product_name ?? '';
+      return nameA.localeCompare(nameB);
+    });
   }, [
     balancesQ.data,
     batchesQ.data,
@@ -407,52 +533,46 @@ export function useStorageLocationsState(branchId: string) {
   const canWrite =
     hasAnyRole(['Admin', 'Pharmacist']) && can('inventory:write');
 
-  const [locationType, setLocationType] = useState<LocationFilter>('ALL');
+  const [sellableFilter, setSellableFilter] = useState<SellableFilter>('ALL');
   const [includeInactive, setIncludeInactive] = useState(false);
-  const [paging, setPaging] = useState<{
-    scope: string;
-    stack: (string | undefined)[];
-    index: number;
-  }>({ scope: '', stack: [undefined], index: 0 });
+  const [paging, setPaging] = useState<{ scope: string; page: number }>({
+    scope: '',
+    page: 1,
+  });
   const [modal, setModal] = useState<{
     open: boolean;
-    location: InventoryLocationDto | null;
+    location: InventoryLocation | null;
   }>({ open: false, location: null });
   const [togglingIds, setTogglingIds] = useState<string[]>([]);
   const togglingRef = useRef<Set<string>>(new Set());
 
-  const scopeKey = `${branchId}|${locationType}|${String(includeInactive)}`;
-  const pageIndex = paging.scope === scopeKey ? paging.index : 0;
-  const stack = paging.scope === scopeKey ? paging.stack : [undefined];
+  const scopeKey = `${branchId}|${sellableFilter}|${String(includeInactive)}`;
+  const page = paging.scope === scopeKey ? paging.page : 1;
 
   const locationsQ = useInventoryLocationsQuery({
-    branchId,
-    cursor: stack[pageIndex],
-    limit: STORAGE_LOCATIONS_PAGE_SIZE,
-    locationType: locationType === 'ALL' ? undefined : locationType,
-    includeInactive,
+    branch_id: branchId,
+    is_sellable:
+      sellableFilter === 'ALL' ? undefined : sellableFilter === 'SELLABLE',
+    include_inactive: includeInactive,
+    page,
+    page_size: STORAGE_LOCATIONS_PAGE_SIZE,
   });
   const patchMutation = usePatchInventoryLocationMutation();
 
+  const totalCount = locationsQ.data?.total_count ?? null;
+  const hasNextPage = locationsQ.data
+    ? locationsQ.data.page * locationsQ.data.page_size <
+      locationsQ.data.total_count
+    : false;
+
   const handlePageChange = (nextPage: number) => {
-    const nextIndex = nextPage - 1;
-    if (nextIndex < 0) return;
-    if (nextIndex < pageIndex && nextIndex < stack.length) {
-      setPaging({ scope: scopeKey, stack, index: nextIndex });
-      return;
-    }
-    const nextCursor = locationsQ.data?.nextCursor;
-    if (nextIndex === pageIndex + 1 && nextCursor) {
-      setPaging({
-        scope: scopeKey,
-        stack: [...stack.slice(0, nextIndex), nextCursor],
-        index: nextIndex,
-      });
-    }
+    if (nextPage < 1) return;
+    if (nextPage > page && !hasNextPage) return;
+    setPaging({ scope: scopeKey, page: nextPage });
   };
 
   const handleToggleActive = async (
-    location: InventoryLocationDto,
+    location: InventoryLocation,
     nextActive: boolean
   ) => {
     if (!canWrite || togglingRef.current.has(location.location_id)) return;
@@ -470,7 +590,7 @@ export function useStorageLocationsState(branchId: string) {
       toast.success(
         `${location.name} marked ${nextActive ? 'active' : 'inactive'}`
       );
-    } catch (error) {
+    } catch (error: unknown) {
       const msg =
         error instanceof ApiClientError
           ? error.trace_id
@@ -488,23 +608,180 @@ export function useStorageLocationsState(branchId: string) {
 
   return {
     canWrite,
-    locationType,
-    setLocationType,
+    sellableFilter,
+    setSellableFilter,
     includeInactive,
     setIncludeInactive,
-    page: pageIndex + 1,
-    hasNextPage: Boolean(locationsQ.data?.nextCursor),
+    page,
+    totalCount,
+    hasNextPage,
     locations: locationsQ.data?.items ?? [],
     isLoading: locationsQ.isLoading,
     isError: locationsQ.isError,
     retry: () => void locationsQ.refetch(),
     modal,
     openCreateModal: () => setModal({ open: true, location: null }),
-    openEditModal: (location: InventoryLocationDto) =>
+    openEditModal: (location: InventoryLocation) =>
       setModal({ open: true, location }),
     closeModal: () => setModal({ open: false, location: null }),
     togglingIds,
     handlePageChange,
     handleToggleActive,
+  };
+}
+
+export interface UseLocationModalFormOptions {
+  branchId: string;
+  location: InventoryLocation | null;
+  onClose: () => void;
+}
+
+const DEFAULT_EDIT_LOCATION_VALUES: EditLocationFormValues = {
+  name: '',
+  is_sellable: true,
+  is_active: true,
+};
+
+export function useLocationModalForm({
+  branchId,
+  location,
+  onClose,
+}: UseLocationModalFormOptions) {
+  const isEdit = location !== null;
+  const createMutation = useCreateInventoryLocationMutation();
+  const patchMutation = usePatchInventoryLocationMutation();
+  const isPending = createMutation.isPending || patchMutation.isPending;
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const editSchema = useMemo(
+    () => createEditLocationFormSchema(location?.location_type ?? 'SELLABLE'),
+    [location?.location_type]
+  );
+
+  const createForm = useForm<CreateLocationFormValues>({
+    resolver: zodResolver(createLocationFormSchema),
+    mode: 'onTouched',
+    defaultValues: DEFAULT_LOCATION_FORM_VALUES,
+  });
+
+  const editForm = useForm<EditLocationFormValues>({
+    resolver: zodResolver(editSchema),
+    mode: 'onTouched',
+    defaultValues: location
+      ? locationDtoToFormValues(location)
+      : DEFAULT_EDIT_LOCATION_VALUES,
+  });
+
+  const watchedCreateType = useWatch({
+    control: createForm.control,
+    name: 'location_type',
+  });
+  const watchedCreateSellable = useWatch({
+    control: createForm.control,
+    name: 'is_sellable',
+  });
+  const watchedEditSellable = useWatch({
+    control: editForm.control,
+    name: 'is_sellable',
+  });
+  const watchedEditActive = useWatch({
+    control: editForm.control,
+    name: 'is_active',
+  });
+
+  const handleClose = () => {
+    if (!isPending) onClose();
+  };
+
+  const handleCreateSubmit = createForm.handleSubmit(async (values) => {
+    if (isPending) return;
+    setSubmitError(null);
+    try {
+      await createMutation.mutateAsync({
+        payload: toCreateLocationPayload(values, branchId),
+      });
+      toast.success(`Location "${values.name.trim()}" created`);
+      createForm.reset(DEFAULT_LOCATION_FORM_VALUES);
+      onClose();
+    } catch (error: unknown) {
+      const formError = applyCreateLocationFormApiError(
+        error,
+        createForm.setError
+      );
+      if (formError) {
+        setSubmitError(formError);
+        toast.error(formError);
+      }
+    }
+  });
+
+  const handleEditSubmit = editForm.handleSubmit(async (values) => {
+    if (!location || isPending || !editForm.formState.isDirty) return;
+    setSubmitError(null);
+    try {
+      await patchMutation.mutateAsync({
+        locationId: location.location_id,
+        payload: toLocationPatchPayload(values),
+      });
+      toast.success(`Location "${values.name.trim()}" updated`);
+      onClose();
+    } catch (error: unknown) {
+      const formError = applyEditLocationFormApiError(error, editForm.setError);
+      if (formError) {
+        setSubmitError(formError);
+        toast.error(formError);
+      }
+    }
+  });
+
+  return {
+    isEdit,
+    isPending,
+    isDirty: isEdit ? editForm.formState.isDirty : createForm.formState.isDirty,
+    submitError,
+    locationType: isEdit ? location.location_type : watchedCreateType,
+    isSellable: isEdit ? watchedEditSellable : watchedCreateSellable,
+    isActive: watchedEditActive,
+    createRegister: createForm.register,
+    editRegister: editForm.register,
+    onCreateLocationTypeChange: (nextType: string) => {
+      createForm.setValue('is_sellable', nextType === 'SELLABLE', {
+        shouldValidate: true,
+        shouldDirty: true,
+      });
+    },
+    onIsSellableChange: (checked: boolean) => {
+      if (isEdit) {
+        editForm.setValue('is_sellable', checked, {
+          shouldDirty: true,
+          shouldValidate: true,
+        });
+      } else {
+        createForm.setValue('is_sellable', checked, {
+          shouldDirty: true,
+          shouldValidate: true,
+        });
+      }
+    },
+    onIsActiveChange: (checked: boolean) => {
+      editForm.setValue('is_active', checked, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+    },
+    errors: isEdit
+      ? {
+          name: editForm.formState.errors.name?.message,
+          is_sellable: editForm.formState.errors.is_sellable?.message,
+          is_active: editForm.formState.errors.is_active?.message,
+        }
+      : {
+          location_code: createForm.formState.errors.location_code?.message,
+          name: createForm.formState.errors.name?.message,
+          location_type: createForm.formState.errors.location_type?.message,
+          is_sellable: createForm.formState.errors.is_sellable?.message,
+        },
+    handleClose,
+    handleFormSubmit: isEdit ? handleEditSubmit : handleCreateSubmit,
   };
 }

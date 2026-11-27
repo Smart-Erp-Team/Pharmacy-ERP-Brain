@@ -6,50 +6,21 @@ import { toast } from 'react-toastify';
 import { Alert } from '../../../components/ui/Alert';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
-import { ApiClientError } from '../../../lib/api/client';
-import type { BranchEnrollmentResult } from '../../../types/api';
+import type { RedeemEnrollment } from '../../../types/api';
 import { useRedeemBranchEnrollmentMutation } from '../hooks/useBranches';
 import {
+  applyBranchEnrollmentApiError,
+  type BranchEnrollmentErrorState,
+} from '../schemas/branchErrorMapper';
+import {
   branchEnrollmentSchema,
+  toRedeemBranchEnrollmentPayload,
   type BranchEnrollmentFormValues,
 } from '../schemas/branchSchema';
 
 export interface BranchEnrollmentFormProps {
   disabled?: boolean;
-  onEnrolled: (result: BranchEnrollmentResult) => void;
-}
-
-interface EnrollmentErrorState {
-  title: string;
-  message: string;
-}
-
-function mapEnrollmentError(error: unknown): EnrollmentErrorState {
-  if (error instanceof ApiClientError) {
-    if (error.status === 410 || error.code === 'GONE') {
-      return {
-        title: 'Token expired or already used',
-        message:
-          'This enrollment token is no longer valid. Ask an administrator in the head office workspace to issue a fresh token.',
-      };
-    }
-    if (error.status === 401 || error.code === 'UNAUTHORIZED') {
-      return {
-        title: 'Invalid enrollment token',
-        message: 'The token was not recognized. Check for typos and try again.',
-      };
-    }
-    const trace = error.trace_id ? ` (Trace: ${error.trace_id})` : '';
-    return {
-      title: 'Enrollment failed',
-      message: `${error.message}${trace}`,
-    };
-  }
-
-  return {
-    title: 'Enrollment failed',
-    message: 'Unable to activate this branch terminal. Please try again.',
-  };
+  onEnrolled: (result: RedeemEnrollment) => void;
 }
 
 export function BranchEnrollmentForm({
@@ -57,9 +28,8 @@ export function BranchEnrollmentForm({
   onEnrolled,
 }: BranchEnrollmentFormProps) {
   const redeemMutation = useRedeemBranchEnrollmentMutation();
-  const [errorState, setErrorState] = useState<EnrollmentErrorState | null>(
-    null
-  );
+  const [errorState, setErrorState] =
+    useState<BranchEnrollmentErrorState | null>(null);
 
   const {
     register,
@@ -82,21 +52,12 @@ export function BranchEnrollmentForm({
     setErrorState(null);
     try {
       const result = await redeemMutation.mutateAsync({
-        payload: { token: values.token.trim() },
+        payload: toRedeemBranchEnrollmentPayload(values),
       });
       toast.success('Branch device enrolled successfully');
       onEnrolled(result);
-    } catch (error) {
-      if (error instanceof ApiClientError) {
-        const tokenDetail = error.details?.find(
-          (detail) => detail.field === 'token'
-        );
-        if (tokenDetail) {
-          setError('token', { type: 'server', message: tokenDetail.issue });
-        }
-      }
-      const mapped = mapEnrollmentError(error);
-      setErrorState(mapped);
+    } catch (error: unknown) {
+      setErrorState(applyBranchEnrollmentApiError(error, setError));
     }
   };
 
@@ -132,7 +93,7 @@ export function BranchEnrollmentForm({
         type="submit"
         variant="primary"
         fullWidth
-        disabled={disabled}
+        disabled={disabled || isBusy}
         isLoading={isBusy}
       >
         {isBusy ? 'Activating branch terminal...' : 'Activate branch terminal'}

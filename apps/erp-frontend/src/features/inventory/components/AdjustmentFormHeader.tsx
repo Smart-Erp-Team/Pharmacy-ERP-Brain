@@ -2,7 +2,7 @@ import { Controller, type Control, type FieldErrors } from 'react-hook-form';
 import { Input } from '../../../components/ui/Input';
 import { Select, type SelectOption } from '../../../components/ui/Select';
 import { Textarea } from '../../../components/ui/Textarea';
-import type { AdjustmentsTxnType, InventoryTxnDto } from '../../../types/api';
+import type { AdjustmentsTxnType, InventoryTxn } from '../../../types/api';
 import { isAdjustmentTxnType } from '../hooks/useAdjustmentForm';
 import type { InventoryAdjustmentFormValues } from '../schemas/inventoryAdjustmentSchema';
 
@@ -16,9 +16,8 @@ const TRANSACTION_TYPE_OPTIONS: readonly SelectOption[] = [
 export interface AdjustmentFormHeaderProps {
   transactionType: AdjustmentsTxnType;
   reversesTxnId: string;
-  isEditingDraft: boolean;
   disabled: boolean;
-  reversibleTransactions: readonly InventoryTxnDto[];
+  reversibleTransactions: readonly InventoryTxn[];
   control: Control<InventoryAdjustmentFormValues>;
   errors: FieldErrors<InventoryAdjustmentFormValues>;
   onTransactionTypeChange: (nextType: AdjustmentsTxnType) => void;
@@ -28,7 +27,6 @@ export interface AdjustmentFormHeaderProps {
 export function AdjustmentFormHeader({
   transactionType,
   reversesTxnId,
-  isEditingDraft,
   disabled,
   reversibleTransactions,
   control,
@@ -69,12 +67,7 @@ export function AdjustmentFormHeader({
             onTransactionTypeChange(candidate);
           }
         }}
-        disabled={disabled || isEditingDraft}
-        hint={
-          isEditingDraft
-            ? 'Transaction type is immutable while editing a draft.'
-            : undefined
-        }
+        disabled={disabled}
         error={errors.transaction_type?.message}
       />
 
@@ -85,12 +78,21 @@ export function AdjustmentFormHeader({
           <Input
             label="Reason code"
             name={field.name}
-            placeholder="e.g. INITIAL_COUNT, CYCLE_COUNT_SURPLUS"
+            placeholder={
+              transactionType === 'REVERSAL'
+                ? 'Optional (e.g. AUDIT_REVERSAL)'
+                : 'e.g. INITIAL_COUNT, CYCLE_COUNT_SURPLUS'
+            }
             maxLength={40}
             value={field.value}
             onBlur={field.onBlur}
             onChange={(event) => field.onChange(event.target.value)}
             disabled={disabled}
+            hint={
+              transactionType === 'REVERSAL'
+                ? 'Optional for reversal transactions.'
+                : undefined
+            }
             error={errors.reason_code?.message}
           />
         )}
@@ -104,12 +106,8 @@ export function AdjustmentFormHeader({
             options={reversalOptions}
             value={reversesTxnId}
             onChange={(event) => onReversalTargetChange(event.target.value)}
-            disabled={disabled || isEditingDraft}
-            hint={
-              isEditingDraft
-                ? 'Reversal target cannot be changed while editing a draft.'
-                : 'Select a POSTED transaction from this branch to negate its lines.'
-            }
+            disabled={disabled}
+            hint="Select a POSTED non-reversal transaction from this branch to negate its lines."
             error={errors.reverses_inventory_txn_id?.message}
           />
         </div>

@@ -13,8 +13,12 @@ import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import currentUserContext from '@contracts/fixtures/current-user-context.json';
 import { handlers } from '../../../mocks/handlers';
-import { resetMockBranches } from '../../../mocks/branchHandlers';
+import {
+  MOCK_BRANCH_IDS,
+  resetMockBranches,
+} from '../../../mocks/branchHandlers';
 import { renderWithProviders } from '../../../test/renderWithProviders';
 import { BranchesPage } from './BranchesPage';
 
@@ -32,37 +36,56 @@ afterEach(() => {
 afterAll(() => server.close());
 
 describe('BranchesPage', () => {
-  it('loads active branches, filters by search/status, and shows no delete button', async () => {
+  it('loads active MEDCARE branches, filters via server-side search/include_inactive, and shows no delete button', async () => {
     const user = userEvent.setup();
     renderWithProviders(<BranchesPage />);
 
-    expect(await screen.findByText('Cairo Main Branch')).toBeDefined();
-    expect(screen.getByText('Alexandria Corniche Branch')).toBeDefined();
-    expect(screen.queryByText('Giza Dokki Branch')).toBeNull();
+    expect(
+      await screen.findByText('MedCare - Downtown Flagship')
+    ).toBeDefined();
+    expect(screen.getByText('MED-DT')).toBeDefined();
+    expect(screen.getByText('MedCare - Alexandria Corniche')).toBeDefined();
+    expect(screen.getByText('MED-ALX')).toBeDefined();
+    expect(screen.queryByText('MedCare - Giza Storage')).toBeNull();
+    expect(screen.queryByText('MED-GZ')).toBeNull();
     expect(screen.queryByRole('button', { name: /delete/i })).toBeNull();
 
     await user.selectOptions(screen.getByLabelText('Status filter'), 'all');
-    expect(await screen.findByText('Giza Dokki Branch')).toBeDefined();
+    expect(await screen.findByText('MedCare - Giza Storage')).toBeDefined();
+    expect(screen.getByText('MED-GZ')).toBeDefined();
 
-    await user.type(screen.getByLabelText('Search branches'), 'Alexandria');
-    expect(screen.getByText('Alexandria Corniche Branch')).toBeDefined();
-    expect(screen.queryByText('Cairo Main Branch')).toBeNull();
+    await user.type(screen.getByLabelText('Search branches'), 'MED-ALX');
+    expect(
+      await screen.findByText('MedCare - Alexandria Corniche')
+    ).toBeDefined();
+    await waitFor(() => {
+      expect(screen.queryByText('MedCare - Downtown Flagship')).toBeNull();
+    });
 
     await user.clear(screen.getByLabelText('Search branches'));
-    await user.type(screen.getByLabelText('Search branches'), 'NoSuchCity');
-    expect(screen.getByText('No branches match your filters')).toBeDefined();
+    await user.type(screen.getByLabelText('Search branches'), 'NoSuchBranch');
+    expect(
+      await screen.findByText('No branches match your filters')
+    ).toBeDefined();
 
     await user.click(screen.getByRole('button', { name: 'Clear filters' }));
-    expect(await screen.findByText('Cairo Main Branch')).toBeDefined();
+    expect(
+      await screen.findByText('MedCare - Downtown Flagship')
+    ).toBeDefined();
+    expect(screen.queryByText('MedCare - Giza Storage')).toBeNull();
   });
 
-  it('validates and creates a branch, and surfaces 409 conflict errors', async () => {
+  it('validates and creates a branch without is_active toggle, and surfaces 409 conflict errors', async () => {
     const user = userEvent.setup();
     renderWithProviders(<BranchesPage />);
-    await screen.findByText('Cairo Main Branch');
+    await screen.findByText('MedCare - Downtown Flagship');
 
     await user.click(screen.getByRole('button', { name: 'Add branch' }));
     const dialog = screen.getByRole('dialog');
+
+    expect(
+      within(dialog).queryByRole('switch', { name: 'Active branch' })
+    ).toBeNull();
 
     await user.click(
       within(dialog).getByRole('button', { name: 'Create branch' })
@@ -71,10 +94,10 @@ describe('BranchesPage', () => {
       await within(dialog).findByText('Branch code is required')
     ).toBeDefined();
 
-    await user.type(within(dialog).getByLabelText('Branch code'), 'CAI-01');
+    await user.type(within(dialog).getByLabelText('Branch code'), 'MED-DT');
     await user.type(
       within(dialog).getByLabelText('Branch name'),
-      'Duplicate Cairo'
+      'Duplicate Downtown'
     );
     await user.type(
       within(dialog).getByLabelText('Address line 1'),
@@ -90,11 +113,11 @@ describe('BranchesPage', () => {
     ).toBeDefined();
 
     await user.clear(within(dialog).getByLabelText('Branch code'));
-    await user.type(within(dialog).getByLabelText('Branch code'), 'MAN-01');
+    await user.type(within(dialog).getByLabelText('Branch code'), 'MED-MAN');
     await user.clear(within(dialog).getByLabelText('Branch name'));
     await user.type(
       within(dialog).getByLabelText('Branch name'),
-      'Mansoura Branch'
+      'MedCare - Mansoura'
     );
     await user.clear(within(dialog).getByLabelText('City'));
     await user.type(within(dialog).getByLabelText('City'), 'Mansoura');
@@ -106,26 +129,28 @@ describe('BranchesPage', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull();
     });
-    expect(await screen.findByText('Mansoura Branch')).toBeDefined();
+    expect(await screen.findByText('MedCare - Mansoura')).toBeDefined();
+    expect(screen.getByText('MED-MAN')).toBeDefined();
   });
 
-  it('edits an existing branch with immutable branch code', async () => {
+  it('edits an existing branch with immutable branch_code and is_active toggle', async () => {
     const user = userEvent.setup();
     renderWithProviders(<BranchesPage />);
-    await screen.findByText('Cairo Main Branch');
+    await screen.findByText('MedCare - Downtown Flagship');
 
     const editButtons = screen.getAllByRole('button', { name: 'Edit' });
     await user.click(editButtons[0]);
 
     const dialog = screen.getByRole('dialog');
-    const codeInput = within(dialog).getByLabelText(
-      'Branch code'
-    ) as HTMLInputElement;
-    expect(codeInput.disabled).toBe(true);
+    const codeInput = within(dialog).getByLabelText('Branch code');
+    expect(codeInput.hasAttribute('disabled')).toBe(true);
+    expect(
+      within(dialog).getByRole('switch', { name: 'Active branch' })
+    ).toBeDefined();
 
     const nameInput = within(dialog).getByLabelText('Branch name');
     await user.clear(nameInput);
-    await user.type(nameInput, 'Cairo Downtown Flagship');
+    await user.type(nameInput, 'MedCare - Downtown Renovated');
     await user.click(
       within(dialog).getByRole('button', { name: 'Save changes' })
     );
@@ -133,26 +158,28 @@ describe('BranchesPage', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull();
     });
-    expect(await screen.findByText('Cairo Downtown Flagship')).toBeDefined();
+    expect(
+      await screen.findByText('MedCare - Downtown Renovated')
+    ).toBeDefined();
   });
 
   it('toggles branch active status softly without deleting', async () => {
     const user = userEvent.setup();
     renderWithProviders(<BranchesPage />);
-    await screen.findByText('Cairo Main Branch');
+    await screen.findByText('MedCare - Downtown Flagship');
 
     await user.click(
       screen.getByRole('switch', {
-        name: 'Toggle status for Cairo Main Branch',
+        name: 'Toggle status for MedCare - Downtown Flagship',
       })
     );
 
     await waitFor(() => {
-      expect(screen.queryByText('Cairo Main Branch')).toBeNull();
+      expect(screen.queryByText('MedCare - Downtown Flagship')).toBeNull();
     });
   });
 
-  it('generates and copies a single-use enrollment token', async () => {
+  it('generates and copies a single-use enrollment token without enrollment_id', async () => {
     const user = userEvent.setup();
     const writeTextMock = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {
@@ -161,7 +188,7 @@ describe('BranchesPage', () => {
     });
 
     renderWithProviders(<BranchesPage />);
-    await screen.findByText('Cairo Main Branch');
+    await screen.findByText('MedCare - Downtown Flagship');
 
     const tokenButtons = screen.getAllByRole('button', {
       name: 'Enrollment token',
@@ -170,19 +197,26 @@ describe('BranchesPage', () => {
 
     const dialog = screen.getByRole('dialog');
     expect(
-      await within(dialog).findByText(/enr_live_cai-01_9f8c7d6e/i)
+      await within(dialog).findByText(/enr_live_med-dt_0001/i)
     ).toBeDefined();
+    expect(within(dialog).getByText(/MED-DT/)).toBeDefined();
 
     await user.click(within(dialog).getByRole('button', { name: 'Copy' }));
-    expect(writeTextMock).toHaveBeenCalledWith('enr_live_cai-01_9f8c7d6e');
+    expect(writeTextMock).toHaveBeenCalledWith('enr_live_med-dt_0001');
     expect(
       await within(dialog).findByRole('button', { name: 'Copied' })
     ).toBeDefined();
   });
 
-  it('supports cursor pagination and retries on server failure', async () => {
+  it('supports server-side pagination, resets page on filter changes, and retries on server failure', async () => {
     const user = userEvent.setup();
     let shouldFail = true;
+    const seenRequests: Array<{
+      page: string | null;
+      pageSize: string | null;
+      includeInactive: string | null;
+      search: string | null;
+    }> = [];
 
     server.use(
       http.get('*/api/v1/branches', ({ request }) => {
@@ -190,50 +224,107 @@ describe('BranchesPage', () => {
           return HttpResponse.json(
             {
               error: {
-                code: 'INTERNAL_ERROR',
+                code: 'INTERNAL_SERVER_ERROR',
                 message: 'Temporary branch directory error',
+                details: [],
                 trace_id: 'trace-err-1',
               },
             },
             { status: 500 }
           );
         }
-        const cursor = new URL(request.url).searchParams.get('cursor');
-        if (cursor === 'page-2') {
+        const searchParams = new URL(request.url).searchParams;
+        const pageParam = searchParams.get('page');
+        const pageSizeParam = searchParams.get('page_size');
+        const includeInactiveParam = searchParams.get('include_inactive');
+        const searchParam = searchParams.get('search');
+        seenRequests.push({
+          page: pageParam,
+          pageSize: pageSizeParam,
+          includeInactive: includeInactiveParam,
+          search: searchParam,
+        });
+
+        if (searchParam === 'Aswan') {
           return HttpResponse.json({
             items: [
               {
-                branch_id: 'branch-page-2',
-                organization_id: 'org-1',
-                code: 'ASW-01',
-                name: 'Aswan Branch',
+                branch_id: '11111111-2222-4111-8111-000000000099',
+                organization_id: currentUserContext.organization_id,
+                branch_code: 'MED-ASW',
+                name: 'MedCare - Aswan Branch',
                 is_active: true,
                 address: {
                   line1: '1 Nile Corniche',
+                  line2: null,
                   city: 'Aswan',
+                  region: null,
+                  postal_code: null,
                   country_code: 'EG',
                 },
+                created_at: '2026-01-19T08:00:00+00:00',
+                updated_at: '2026-11-25T10:00:00+00:00',
               },
             ],
-            nextCursor: null,
+            page: 1,
+            page_size: 25,
+            total_count: 1,
+            next_cursor: null,
           });
         }
+
+        if (pageParam === '2') {
+          return HttpResponse.json({
+            items: [
+              {
+                branch_id: '11111111-2222-4111-8111-000000000099',
+                organization_id: currentUserContext.organization_id,
+                branch_code: 'MED-ASW',
+                name: 'MedCare - Aswan Branch',
+                is_active: true,
+                address: {
+                  line1: '1 Nile Corniche',
+                  line2: null,
+                  city: 'Aswan',
+                  region: null,
+                  postal_code: null,
+                  country_code: 'EG',
+                },
+                created_at: '2026-01-19T08:00:00+00:00',
+                updated_at: '2026-11-25T10:00:00+00:00',
+              },
+            ],
+            page: 2,
+            page_size: 25,
+            total_count: 26,
+            next_cursor: null,
+          });
+        }
+
         return HttpResponse.json({
           items: [
             {
-              branch_id: 'branch-page-1',
-              organization_id: 'org-1',
-              code: 'CAI-01',
-              name: 'Cairo Main Branch',
+              branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+              organization_id: currentUserContext.organization_id,
+              branch_code: 'MED-DT',
+              name: 'MedCare - Downtown Flagship',
               is_active: true,
               address: {
-                line1: '15 Tahrir Square',
+                line1: '24 Talaat Harb Street',
+                line2: 'Ground Floor',
                 city: 'Cairo',
+                region: 'Downtown',
+                postal_code: '11511',
                 country_code: 'EG',
               },
+              created_at: '2026-01-15T08:00:00+00:00',
+              updated_at: '2026-11-25T10:00:00+00:00',
             },
           ],
-          nextCursor: 'page-2',
+          page: 1,
+          page_size: 25,
+          total_count: 26,
+          next_cursor: '2',
         });
       })
     );
@@ -245,13 +336,42 @@ describe('BranchesPage', () => {
 
     shouldFail = false;
     await user.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(await screen.findByText('Cairo Main Branch')).toBeDefined();
+    expect(
+      await screen.findByText('MedCare - Downtown Flagship')
+    ).toBeDefined();
+    expect(screen.getByText('Showing 1–25 of 26')).toBeDefined();
 
     await user.click(screen.getByRole('button', { name: /Next/i }));
-    expect(await screen.findByText('Aswan Branch')).toBeDefined();
+    expect(await screen.findByText('MedCare - Aswan Branch')).toBeDefined();
+    expect(screen.getByText('Page 2')).toBeDefined();
 
-    await user.click(screen.getByRole('button', { name: /Previous/i }));
-    expect(await screen.findByText('Cairo Main Branch')).toBeDefined();
+    // Changing search resets page back to 1
+    await user.type(screen.getByLabelText('Search branches'), 'Aswan');
+    await waitFor(() => {
+      expect(screen.getByText('Page 1')).toBeDefined();
+    });
+
+    await user.clear(screen.getByLabelText('Search branches'));
+    expect(
+      await screen.findByText('MedCare - Downtown Flagship')
+    ).toBeDefined();
+
+    // Navigate to page 2 again, then verify include_inactive resets page to 1
+    await user.click(screen.getByRole('button', { name: /Next/i }));
+    expect(await screen.findByText('Page 2')).toBeDefined();
+
+    await user.selectOptions(screen.getByLabelText('Status filter'), 'all');
+    await waitFor(() => {
+      expect(screen.getByText('Page 1')).toBeDefined();
+    });
+
+    const lastRequest = seenRequests[seenRequests.length - 1];
+    expect(lastRequest).toEqual({
+      page: '1',
+      pageSize: '25',
+      includeInactive: 'true',
+      search: null,
+    });
   });
 
   it('maps 422 backend field errors onto the branch form inputs', async () => {
@@ -278,15 +398,15 @@ describe('BranchesPage', () => {
     );
 
     renderWithProviders(<BranchesPage />);
-    await screen.findByText('Cairo Main Branch');
+    await screen.findByText('MedCare - Downtown Flagship');
 
     await user.click(screen.getByRole('button', { name: 'Add branch' }));
     const dialog = screen.getByRole('dialog');
 
-    await user.type(within(dialog).getByLabelText('Branch code'), 'LUX-01');
+    await user.type(within(dialog).getByLabelText('Branch code'), 'MED-LUX');
     await user.type(
       within(dialog).getByLabelText('Branch name'),
-      'Luxor Branch'
+      'MedCare - Luxor'
     );
     await user.type(
       within(dialog).getByLabelText('Address line 1'),
@@ -302,64 +422,6 @@ describe('BranchesPage', () => {
     ).toBeDefined();
   });
 
-  it('keeps pagination visible when search filters page 2 down to zero matches', async () => {
-    const user = userEvent.setup();
-    server.use(
-      http.get('*/api/v1/branches', ({ request }) => {
-        const cursor = new URL(request.url).searchParams.get('cursor');
-        if (cursor === 'page-2') {
-          return HttpResponse.json({
-            items: [
-              {
-                branch_id: 'branch-page-2',
-                organization_id: 'org-1',
-                code: 'ASW-01',
-                name: 'Aswan Branch',
-                is_active: true,
-                address: {
-                  line1: '1 Nile Corniche',
-                  city: 'Aswan',
-                  country_code: 'EG',
-                },
-              },
-            ],
-            nextCursor: null,
-          });
-        }
-        return HttpResponse.json({
-          items: [
-            {
-              branch_id: 'branch-page-1',
-              organization_id: 'org-1',
-              code: 'CAI-01',
-              name: 'Cairo Main Branch',
-              is_active: true,
-              address: {
-                line1: '15 Tahrir Square',
-                city: 'Cairo',
-                country_code: 'EG',
-              },
-            },
-          ],
-          nextCursor: 'page-2',
-        });
-      })
-    );
-
-    renderWithProviders(<BranchesPage />);
-    expect(await screen.findByText('Cairo Main Branch')).toBeDefined();
-
-    await user.click(screen.getByRole('button', { name: /Next/i }));
-    expect(await screen.findByText('Aswan Branch')).toBeDefined();
-
-    await user.type(screen.getByLabelText('Search branches'), 'NoMatchHere');
-    expect(screen.getByText('No branches match your filters')).toBeDefined();
-
-    await user.click(screen.getByRole('button', { name: /Previous/i }));
-    await user.click(screen.getByRole('button', { name: 'Clear filters' }));
-    expect(await screen.findByText('Cairo Main Branch')).toBeDefined();
-  });
-
   it('guards pristine edit form and stabilizes Idempotency-Key across retries', async () => {
     const user = userEvent.setup();
     const seenKeys: Array<string | null> = [];
@@ -373,55 +435,60 @@ describe('BranchesPage', () => {
           return HttpResponse.json(
             {
               error: {
-                code: 'INTERNAL_ERROR',
+                code: 'INTERNAL_SERVER_ERROR',
                 message: 'Temporary save error',
+                details: [],
+                trace_id: 'trace-patch-500',
               },
             },
             { status: 500 }
           );
         }
         return HttpResponse.json({
-          branch_id: 'd4e5f6a7-3333-4c44-9d55-bbccddeeffaa',
-          organization_id: 'b1c2d3e4-2222-4b33-8c44-aabbccddeeff',
-          code: 'CAI-01',
-          name: 'Cairo Main Updated',
+          branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+          organization_id: currentUserContext.organization_id,
+          branch_code: 'MED-DT',
+          name: 'MedCare - Downtown Updated',
           is_active: true,
           address: {
-            line1: '15 Tahrir Square',
+            line1: '24 Talaat Harb Street',
+            line2: 'Ground Floor',
             city: 'Cairo',
+            region: 'Downtown',
+            postal_code: '11511',
             country_code: 'EG',
           },
+          created_at: '2026-01-15T08:00:00+00:00',
+          updated_at: '2026-11-26T10:00:00+00:00',
         });
       })
     );
 
     renderWithProviders(<BranchesPage />);
-    await screen.findByText('Cairo Main Branch');
+    await screen.findByText('MedCare - Downtown Flagship');
 
-    const row = screen.getByText('Cairo Main Branch').closest('tr');
+    const row = screen.getByText('MedCare - Downtown Flagship').closest('tr');
     if (!row) {
-      throw new Error('Expected Cairo Main Branch row');
+      throw new Error('Expected MedCare - Downtown Flagship row');
     }
     await user.click(within(row).getByRole('button', { name: 'Edit' }));
 
     const dialog = screen.getByRole('dialog');
     const saveButton = within(dialog).getByRole('button', {
       name: 'Save changes',
-    }) as HTMLButtonElement;
-    expect(saveButton.disabled).toBe(true);
+    });
+    expect(saveButton.hasAttribute('disabled')).toBe(true);
 
     const nameInput = within(dialog).getByLabelText('Branch name');
     await user.clear(nameInput);
-    await user.type(nameInput, 'Cairo Main Updated');
-    expect(saveButton.disabled).toBe(false);
+    await user.type(nameInput, 'MedCare - Downtown Updated');
+    expect(saveButton.hasAttribute('disabled')).toBe(false);
 
-    // First save fails 500
     await user.click(saveButton);
     expect(
-      await within(dialog).findByText('Temporary save error')
+      await within(dialog).findByText(/Temporary save error/)
     ).toBeDefined();
 
-    // Retry identical payload -> same Idempotency-Key
     await user.click(saveButton);
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
@@ -441,8 +508,10 @@ describe('BranchesPage', () => {
           return HttpResponse.json(
             {
               error: {
-                code: 'INTERNAL_ERROR',
+                code: 'INTERNAL_SERVER_ERROR',
                 message: 'Token service busy',
+                details: [],
+                trace_id: 'trace-token-500',
               },
             },
             { status: 500 }
@@ -465,11 +534,11 @@ describe('BranchesPage', () => {
     });
 
     renderWithProviders(<BranchesPage />);
-    await screen.findByText('Cairo Main Branch');
+    await screen.findByText('MedCare - Downtown Flagship');
 
-    const row = screen.getByText('Cairo Main Branch').closest('tr');
+    const row = screen.getByText('MedCare - Downtown Flagship').closest('tr');
     if (!row) {
-      throw new Error('Expected Cairo Main Branch row');
+      throw new Error('Expected MedCare - Downtown Flagship row');
     }
     await user.click(
       within(row).getByRole('button', { name: 'Enrollment token' })
@@ -485,5 +554,8 @@ describe('BranchesPage', () => {
 
     await user.click(within(dialog).getByRole('button', { name: 'Copy' }));
     expect(writeText).toHaveBeenCalledWith('enr_retry_secret_99');
+    expect(
+      await within(dialog).findByText(/Clipboard access was blocked/i)
+    ).toBeDefined();
   });
 });

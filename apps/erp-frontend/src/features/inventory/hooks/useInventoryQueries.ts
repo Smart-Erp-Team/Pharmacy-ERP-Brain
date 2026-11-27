@@ -1,12 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchAllPages } from '../../../lib/api/pagination';
 import {
-  getInventoryLocation,
-  getInventoryTransaction,
+  getInventorySummary,
   listInventoryBalances,
   listInventoryBatches,
   listInventoryLocations,
   listInventoryTransactions,
+  type GetInventorySummaryParams,
   type ListInventoryBalancesParams,
   type ListInventoryBatchesParams,
   type ListInventoryLocationsParams,
@@ -26,40 +26,63 @@ export interface UseInventoryQueryOptions {
 
 export type InventoryLocationsQueryParams = Omit<
   ListInventoryLocationsParams,
-  'branchId'
+  'branch_id'
 > & {
-  branchId?: string | null;
+  branch_id?: string | null;
 };
 
-export type InventoryBatchesQueryParams = Omit<
-  ListInventoryBatchesParams,
-  'branchId'
-> & {
-  branchId?: string | null;
-};
+export type InventoryBatchesQueryParams = ListInventoryBatchesParams;
 
 export type InventoryBalancesQueryParams = Omit<
   ListInventoryBalancesParams,
-  'branchId'
+  'branch_id'
 > & {
-  branchId?: string | null;
+  branch_id?: string | null;
 };
+
+export interface InventorySummaryQueryParams {
+  branch_id?: string | null;
+  product_id?: string | null;
+}
 
 export type InventoryTransactionsQueryParams = Omit<
   ListInventoryTransactionsParams,
-  'branchId'
+  'branch_id'
 > & {
-  branchId?: string | null;
+  branch_id?: string | null;
+};
+
+export type AllInventoryLocationsQueryParams = Omit<
+  AllInventoryLocationsKeyParams,
+  'branch_id'
+> & {
+  branch_id?: string | null;
+};
+
+export type AllInventoryBatchesQueryParams = AllInventoryBatchesKeyParams;
+
+export type AllInventoryBalancesQueryParams = Omit<
+  AllInventoryBalancesKeyParams,
+  'branch_id'
+> & {
+  branch_id?: string | null;
+};
+
+export type AllInventoryTransactionsQueryParams = Omit<
+  AllInventoryTransactionsKeyParams,
+  'branch_id'
+> & {
+  branch_id?: string | null;
 };
 
 export function useInventoryLocationsQuery(
   params: InventoryLocationsQueryParams,
   options: UseInventoryQueryOptions = {}
 ) {
-  const normalizedBranchId = params.branchId?.trim() ?? '';
+  const normalizedBranchId = params.branch_id?.trim() ?? '';
   const queryParams: ListInventoryLocationsParams = {
     ...params,
-    branchId: normalizedBranchId,
+    branch_id: normalizedBranchId,
   };
 
   return useQuery({
@@ -74,43 +97,14 @@ export function useInventoryLocationsQuery(
   });
 }
 
-export function useInventoryLocationQuery(
-  locationId: string | null | undefined,
-  options: UseInventoryQueryOptions = {}
-) {
-  const normalizedLocationId = locationId?.trim() ?? '';
-
-  return useQuery({
-    queryKey: inventoryKeys.locationDetail(normalizedLocationId),
-    queryFn: () => {
-      if (!normalizedLocationId) {
-        return Promise.reject(new Error('Location ID is required.'));
-      }
-      return getInventoryLocation(normalizedLocationId);
-    },
-    enabled: Boolean(normalizedLocationId) && (options.enabled ?? true),
-  });
-}
-
 export function useInventoryBatchesQuery(
-  params: InventoryBatchesQueryParams,
+  params: InventoryBatchesQueryParams = {},
   options: UseInventoryQueryOptions = {}
 ) {
-  const normalizedBranchId = params.branchId?.trim() ?? '';
-  const queryParams: ListInventoryBatchesParams = {
-    ...params,
-    branchId: normalizedBranchId,
-  };
-
   return useQuery({
-    queryKey: inventoryKeys.batchList(queryParams),
-    queryFn: () => {
-      if (!normalizedBranchId) {
-        return Promise.reject(new Error('Branch ID is required.'));
-      }
-      return listInventoryBatches(queryParams);
-    },
-    enabled: Boolean(normalizedBranchId) && (options.enabled ?? true),
+    queryKey: inventoryKeys.batchList(params),
+    queryFn: () => listInventoryBatches(params),
+    enabled: options.enabled ?? true,
   });
 }
 
@@ -118,10 +112,10 @@ export function useInventoryBalancesQuery(
   params: InventoryBalancesQueryParams,
   options: UseInventoryQueryOptions = {}
 ) {
-  const normalizedBranchId = params.branchId?.trim() ?? '';
+  const normalizedBranchId = params.branch_id?.trim() ?? '';
   const queryParams: ListInventoryBalancesParams = {
     ...params,
-    branchId: normalizedBranchId,
+    branch_id: normalizedBranchId,
   };
 
   return useQuery({
@@ -136,14 +130,42 @@ export function useInventoryBalancesQuery(
   });
 }
 
+export function useInventorySummaryQuery(
+  params: InventorySummaryQueryParams,
+  options: UseInventoryQueryOptions = {}
+) {
+  const normalizedBranchId = params.branch_id?.trim() ?? '';
+  const normalizedProductId = params.product_id?.trim() ?? '';
+  const queryParams: GetInventorySummaryParams = {
+    branch_id: normalizedBranchId,
+    product_id: normalizedProductId,
+  };
+
+  return useQuery({
+    queryKey: inventoryKeys.summary(queryParams),
+    queryFn: () => {
+      if (!normalizedBranchId || !normalizedProductId) {
+        return Promise.reject(
+          new Error('Branch ID and Product ID are required.')
+        );
+      }
+      return getInventorySummary(queryParams);
+    },
+    enabled:
+      Boolean(normalizedBranchId) &&
+      Boolean(normalizedProductId) &&
+      (options.enabled ?? true),
+  });
+}
+
 export function useInventoryTransactionsQuery(
   params: InventoryTransactionsQueryParams,
   options: UseInventoryQueryOptions = {}
 ) {
-  const normalizedBranchId = params.branchId?.trim() ?? '';
+  const normalizedBranchId = params.branch_id?.trim() ?? '';
   const queryParams: ListInventoryTransactionsParams = {
     ...params,
-    branchId: normalizedBranchId,
+    branch_id: normalizedBranchId,
   };
 
   return useQuery({
@@ -158,60 +180,14 @@ export function useInventoryTransactionsQuery(
   });
 }
 
-export function useInventoryTransactionQuery(
-  txnId: string | null | undefined,
-  options: UseInventoryQueryOptions = {}
-) {
-  const normalizedTxnId = txnId?.trim() ?? '';
-
-  return useQuery({
-    queryKey: inventoryKeys.transactionDetail(normalizedTxnId),
-    queryFn: () => {
-      if (!normalizedTxnId) {
-        return Promise.reject(new Error('Transaction ID is required.'));
-      }
-      return getInventoryTransaction(normalizedTxnId);
-    },
-    enabled: Boolean(normalizedTxnId) && (options.enabled ?? true),
-  });
-}
-
-export type AllInventoryLocationsQueryParams = Omit<
-  AllInventoryLocationsKeyParams,
-  'branchId'
-> & {
-  branchId?: string | null;
-};
-
-export type AllInventoryBatchesQueryParams = Omit<
-  AllInventoryBatchesKeyParams,
-  'branchId'
-> & {
-  branchId?: string | null;
-};
-
-export type AllInventoryBalancesQueryParams = Omit<
-  AllInventoryBalancesKeyParams,
-  'branchId'
-> & {
-  branchId?: string | null;
-};
-
-export type AllInventoryTransactionsQueryParams = Omit<
-  AllInventoryTransactionsKeyParams,
-  'branchId'
-> & {
-  branchId?: string | null;
-};
-
 export function useAllInventoryLocationsQuery(
   params: AllInventoryLocationsQueryParams,
   options: UseInventoryQueryOptions = {}
 ) {
-  const normalizedBranchId = params.branchId?.trim() ?? '';
+  const normalizedBranchId = params.branch_id?.trim() ?? '';
   const keyParams: AllInventoryLocationsKeyParams = {
     ...params,
-    branchId: normalizedBranchId,
+    branch_id: normalizedBranchId,
   };
 
   return useQuery({
@@ -220,8 +196,8 @@ export function useAllInventoryLocationsQuery(
       if (!normalizedBranchId) {
         return Promise.reject(new Error('Branch ID is required.'));
       }
-      return fetchAllPages((cursor, limit) =>
-        listInventoryLocations({ ...keyParams, cursor, limit })
+      return fetchAllPages((page, pageSize) =>
+        listInventoryLocations({ ...keyParams, page, page_size: pageSize })
       );
     },
     enabled: Boolean(normalizedBranchId) && (options.enabled ?? true),
@@ -229,26 +205,16 @@ export function useAllInventoryLocationsQuery(
 }
 
 export function useAllInventoryBatchesQuery(
-  params: AllInventoryBatchesQueryParams,
+  params: AllInventoryBatchesQueryParams = {},
   options: UseInventoryQueryOptions = {}
 ) {
-  const normalizedBranchId = params.branchId?.trim() ?? '';
-  const keyParams: AllInventoryBatchesKeyParams = {
-    ...params,
-    branchId: normalizedBranchId,
-  };
-
   return useQuery({
-    queryKey: inventoryKeys.allBatchList(keyParams),
-    queryFn: () => {
-      if (!normalizedBranchId) {
-        return Promise.reject(new Error('Branch ID is required.'));
-      }
-      return fetchAllPages((cursor, limit) =>
-        listInventoryBatches({ ...keyParams, cursor, limit })
-      );
-    },
-    enabled: Boolean(normalizedBranchId) && (options.enabled ?? true),
+    queryKey: inventoryKeys.allBatchList(params),
+    queryFn: () =>
+      fetchAllPages((page, pageSize) =>
+        listInventoryBatches({ ...params, page, page_size: pageSize })
+      ),
+    enabled: options.enabled ?? true,
   });
 }
 
@@ -256,10 +222,10 @@ export function useAllInventoryBalancesQuery(
   params: AllInventoryBalancesQueryParams,
   options: UseInventoryQueryOptions = {}
 ) {
-  const normalizedBranchId = params.branchId?.trim() ?? '';
+  const normalizedBranchId = params.branch_id?.trim() ?? '';
   const keyParams: AllInventoryBalancesKeyParams = {
     ...params,
-    branchId: normalizedBranchId,
+    branch_id: normalizedBranchId,
   };
 
   return useQuery({
@@ -268,8 +234,8 @@ export function useAllInventoryBalancesQuery(
       if (!normalizedBranchId) {
         return Promise.reject(new Error('Branch ID is required.'));
       }
-      return fetchAllPages((cursor, limit) =>
-        listInventoryBalances({ ...keyParams, cursor, limit })
+      return fetchAllPages((page, pageSize) =>
+        listInventoryBalances({ ...keyParams, page, page_size: pageSize })
       );
     },
     enabled: Boolean(normalizedBranchId) && (options.enabled ?? true),
@@ -280,10 +246,10 @@ export function useAllInventoryTransactionsQuery(
   params: AllInventoryTransactionsQueryParams,
   options: UseInventoryQueryOptions = {}
 ) {
-  const normalizedBranchId = params.branchId?.trim() ?? '';
+  const normalizedBranchId = params.branch_id?.trim() ?? '';
   const keyParams: AllInventoryTransactionsKeyParams = {
     ...params,
-    branchId: normalizedBranchId,
+    branch_id: normalizedBranchId,
   };
 
   return useQuery({
@@ -292,8 +258,8 @@ export function useAllInventoryTransactionsQuery(
       if (!normalizedBranchId) {
         return Promise.reject(new Error('Branch ID is required.'));
       }
-      return fetchAllPages((cursor, limit) =>
-        listInventoryTransactions({ ...keyParams, cursor, limit })
+      return fetchAllPages((page, pageSize) =>
+        listInventoryTransactions({ ...keyParams, page, page_size: pageSize })
       );
     },
     enabled: Boolean(normalizedBranchId) && (options.enabled ?? true),

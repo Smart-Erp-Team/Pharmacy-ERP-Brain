@@ -5,26 +5,21 @@ import { Card, CardHeader } from '../../../components/ui/Card';
 import { EmptyState } from '../../../components/ui/EmptyState';
 import { Select } from '../../../components/ui/Select';
 import { Skeleton } from '../../../components/ui/Skeleton';
-import type { ProductDto } from '../../../types/api';
+import type { Product } from '../../../types/api';
 import { formatCatalogApiError } from '../hooks/useProductUomsTab';
 import { useBranchReorderTab } from '../hooks/useReorderRuleForm';
 import { ReorderRuleForm } from './ReorderRuleForm';
 
 export interface BranchReorderTabProps {
-  product: ProductDto;
+  product: Product;
 }
 
-function RetryAlert({
-  title,
-  msg,
-  busy,
-  onRetry,
-}: {
-  title: string;
-  msg: string;
-  busy: boolean;
-  onRetry: () => void;
-}) {
+function renderRetryAlert(
+  title: string,
+  msg: string,
+  busy: boolean,
+  onRetry: () => void
+) {
   return (
     <Alert variant="danger" title={title}>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -39,7 +34,6 @@ function RetryAlert({
 
 export function BranchReorderTab({ product }: BranchReorderTabProps) {
   const {
-    isAdmin,
     canRead,
     canWrite,
     runtime,
@@ -62,23 +56,19 @@ export function BranchReorderTab({ product }: BranchReorderTabProps) {
       <div className="flex flex-col gap-4 p-4">
         {!canRead ? (
           <Alert variant="warning" title="Access restricted">
-            Reorder configuration is available to Admin and Pharmacist roles
-            only.
+            Reorder configuration requires inventory read permission.
           </Alert>
-        ) : isAdmin && branchesQ.isLoading ? (
+        ) : branchesQ.isLoading ? (
           <div role="status" aria-busy="true" aria-label="Loading branches">
             <Skeleton className="h-9 w-72" />
           </div>
-        ) : isAdmin && branchesQ.isError ? (
-          <RetryAlert
-            title="Could not load branches"
-            msg={formatCatalogApiError(
-              branchesQ.error,
-              'Unable to load branches.'
-            )}
-            busy={branchesQ.isFetching}
-            onRetry={() => void branchesQ.refetch()}
-          />
+        ) : branchesQ.isError ? (
+          renderRetryAlert(
+            'Could not load branches',
+            formatCatalogApiError(branchesQ.error, 'Unable to load branches.'),
+            branchesQ.isFetching,
+            () => void branchesQ.refetch()
+          )
         ) : options.length === 0 ? (
           <EmptyState
             title="No branches available"
@@ -95,15 +85,15 @@ export function BranchReorderTab({ product }: BranchReorderTabProps) {
               />
             </div>
             {ruleQ.isError ? (
-              <RetryAlert
-                title="Could not load reorder rule"
-                msg={formatCatalogApiError(
+              renderRetryAlert(
+                'Could not load reorder rule',
+                formatCatalogApiError(
                   ruleQ.error,
                   'Unable to load reorder rule.'
-                )}
-                busy={ruleQ.isFetching}
-                onRetry={() => void ruleQ.refetch()}
-              />
+                ),
+                ruleQ.isFetching,
+                () => void ruleQ.refetch()
+              )
             ) : ruleQ.isLoading ? (
               <div
                 role="status"

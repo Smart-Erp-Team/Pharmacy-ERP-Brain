@@ -5,7 +5,7 @@ import { Button } from '../../../components/ui/Button';
 import { Card } from '../../../components/ui/Card';
 import { PageHeading } from '../../../components/ui/PageHeading';
 import { useAuth } from '../../../hooks/useAuth';
-import type { BranchEnrollmentResult } from '../../../types/api';
+import type { RedeemEnrollment } from '../../../types/api';
 import { BranchEnrollmentForm } from '../components/BranchEnrollmentForm';
 
 export interface BranchEnrollmentPageProps {
@@ -13,18 +13,35 @@ export interface BranchEnrollmentPageProps {
   loginPath?: string;
 }
 
+const PRIMARY_LINK_CLASS =
+  'bg-primary text-body-sm hover:bg-primary-hover focus-visible:ring-primary/30 inline-flex h-10 w-full items-center justify-center rounded-md px-4 font-semibold text-white transition-colors focus-visible:ring-2 focus-visible:outline-none';
+
 /**
- * Branch device enrollment (DESIGN.md §5.10): the first-run screen of a branch
- * device. Supports Unenrolled, Activating, Success, and Error states.
+ * Branch device enrollment (`POST /api/v1/branch-enrollment`, Cloud runtime).
+ * Usable unauthenticated or on `Cloud`; warns and disables submission when
+ * an authenticated session is running on `BranchLocal`.
  */
 export function BranchEnrollmentPage({
   homePath,
   loginPath,
 }: BranchEnrollmentPageProps) {
   const { isAuthenticated, runtime } = useAuth();
-  const isCloudRuntime = runtime === 'Cloud';
-  const [enrolledResult, setEnrolledResult] =
-    useState<BranchEnrollmentResult | null>(null);
+  const isBranchLocalRuntime = isAuthenticated && runtime === 'BranchLocal';
+  const [enrolledResult, setEnrolledResult] = useState<RedeemEnrollment | null>(
+    null
+  );
+
+  const navLink = isAuthenticated
+    ? homePath
+      ? { to: homePath, label: 'Back to workspace' }
+      : null
+    : loginPath
+      ? {
+          to: loginPath,
+          label: 'Go to sign in',
+          enrolledLabel: 'Continue to sign in',
+        }
+      : null;
 
   return (
     <div className="bg-background flex min-h-screen items-center justify-center p-6">
@@ -34,13 +51,13 @@ export function BranchEnrollmentPage({
           title="Branch Enrollment"
           description="Activate this branch device with the enrollment token issued by the head office."
         />
-
         <Card className="mt-6">
           <div className="flex flex-col gap-4 p-5">
-            {isCloudRuntime ? (
+            {isBranchLocalRuntime ? (
               <Alert variant="warning" title="Wrong deployment">
-                This screen belongs to a branch device. The current runtime is
-                Cloud, so enrollment does not apply here.
+                Device enrollment must target the Cloud ERP API. The current
+                session is connected to a BranchLocal runtime, which does not
+                expose branch enrollment.
               </Alert>
             ) : null}
 
@@ -53,43 +70,48 @@ export function BranchEnrollmentPage({
                   </span>{' '}
                   and ready for initial sync.
                 </Alert>
-
                 <dl className="border-border bg-background text-body-sm grid grid-cols-1 gap-2 rounded-md border p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <dt className="text-text-muted">Initial sync cursor</dt>
-                    <dd className="text-text font-mono">
-                      {enrolledResult.initial_cursor}
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-text-muted">Organization ID</dt>
+                    <dd className="text-text font-mono break-all">
+                      {enrolledResult.organization_id}
                     </dd>
                   </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <dt className="text-text-muted">Credential valid until</dt>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-text-muted">Branch ID</dt>
+                    <dd className="text-text font-mono break-all">
+                      {enrolledResult.branch_id}
+                    </dd>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <dt className="text-text-muted">Runtime credential</dt>
+                    <dd className="text-text font-mono break-all select-all">
+                      {enrolledResult.runtime_credential}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-text-muted">Initial sync cursor</dt>
+                    <dd className="text-text font-mono">
+                      {enrolledResult.initial_sync_cursor}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-text-muted">Credential expiry</dt>
                     <dd className="text-text">
                       {new Date(
-                        enrolledResult.credential_expires_at
-                      ).toLocaleDateString()}
+                        enrolledResult.credential_expiry
+                      ).toLocaleString()}
                     </dd>
                   </div>
                 </dl>
-
                 <div className="flex flex-col gap-2">
-                  {!isAuthenticated && loginPath ? (
-                    <Link
-                      to={loginPath}
-                      className="bg-primary text-body-sm hover:bg-primary-hover focus-visible:ring-primary/30 inline-flex h-10 w-full items-center justify-center rounded-md px-4 font-semibold text-white transition-colors focus-visible:ring-2 focus-visible:outline-none"
-                    >
-                      Continue to sign in
+                  {navLink ? (
+                    <Link to={navLink.to} className={PRIMARY_LINK_CLASS}>
+                      {'enrolledLabel' in navLink
+                        ? navLink.enrolledLabel
+                        : navLink.label}
                     </Link>
                   ) : null}
-
-                  {isAuthenticated && homePath ? (
-                    <Link
-                      to={homePath}
-                      className="bg-primary text-body-sm hover:bg-primary-hover focus-visible:ring-primary/30 inline-flex h-10 w-full items-center justify-center rounded-md px-4 font-semibold text-white transition-colors focus-visible:ring-2 focus-visible:outline-none"
-                    >
-                      Back to workspace
-                    </Link>
-                  ) : null}
-
                   <Button
                     variant="secondary"
                     fullWidth
@@ -105,34 +127,20 @@ export function BranchEnrollmentPage({
                   An enrollment token can be redeemed once. It expires shortly
                   after it is issued by the head office.
                 </Alert>
-
                 <BranchEnrollmentForm
-                  disabled={isCloudRuntime}
+                  disabled={isBranchLocalRuntime}
                   onEnrolled={setEnrolledResult}
                 />
+                {navLink ? (
+                  <Link
+                    to={navLink.to}
+                    className="text-body text-primary font-semibold hover:underline"
+                  >
+                    {navLink.label}
+                  </Link>
+                ) : null}
               </>
             )}
-
-            {!enrolledResult ? (
-              <div className="flex items-center gap-4">
-                {isAuthenticated && homePath ? (
-                  <Link
-                    to={homePath}
-                    className="text-body text-primary font-semibold hover:underline"
-                  >
-                    Back to workspace
-                  </Link>
-                ) : null}
-                {!isAuthenticated && loginPath ? (
-                  <Link
-                    to={loginPath}
-                    className="text-body text-primary font-semibold hover:underline"
-                  >
-                    Go to sign in
-                  </Link>
-                ) : null}
-              </div>
-            ) : null}
           </div>
         </Card>
       </div>

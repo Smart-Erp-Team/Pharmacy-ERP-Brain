@@ -1,16 +1,16 @@
 /** @vitest-environment jsdom */
 import { zodResolver } from '@hookform/resolvers/zod';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
-import { useForm } from 'react-hook-form';
+import { useForm, type UseFormSetError } from 'react-hook-form';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { UseFormSetError } from 'react-hook-form';
 import productFixture from '@contracts/fixtures/product.json';
+import { normalizeProduct } from '../../../lib/api/catalogInventoryNormalizers';
 import { ApiClientError } from '../../../lib/api/client';
 import type {
-  ProductCategoryDto,
-  ProductDto,
-  ProductUomDto,
-  ReorderRuleDto,
+  Product,
+  ProductCategory,
+  ProductUom,
+  ReorderRule,
 } from '../../../types/api';
 import {
   applyCategoryFormApiError,
@@ -30,6 +30,8 @@ import {
   getEligibleParentCategories,
   toCategoryCreatePayload,
   toCategoryPatchPayload,
+  toCreateCategoryPayload,
+  toPatchCategoryPayload,
   type CategoryFormValues,
 } from './categorySchema';
 import {
@@ -40,6 +42,7 @@ import {
   productDtoToEditFormValues,
   taxRateDtoToPercentString,
   toCreateProductPayload,
+  toPatchProductPayload,
   toProductPatchPayload,
   type CreateProductFormValues,
   type EditProductFormValues,
@@ -51,9 +54,12 @@ import {
   editUomFormSchema,
   reorderRuleDtoToFormValues,
   reorderRuleFormSchema,
+  toCreateProductUomPayload,
   toCreateUomPayload,
+  toPatchProductUomPayload,
   toReorderRulePayload,
   toUomPatchPayload,
+  toUpsertReorderRulePayload,
   uomDtoToEditFormValues,
   type CreateUomFormValues,
   type EditUomFormValues,
@@ -65,54 +71,77 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const SAMPLE_CATEGORIES: readonly ProductCategoryDto[] = [
+const ORG_ID = '11111111-1111-4111-8111-111111111101';
+const TIMESTAMP = '2026-11-25T10:00:00+00:00';
+
+const ANALGESICS_CATEGORY: ProductCategory = {
+  category_id: 'cat-root-a',
+  organization_id: ORG_ID,
+  parent_category_id: null,
+  code: 'CAT-A',
+  name: 'Analgesics',
+  description: 'Pain relief',
+  is_active: true,
+  created_at: TIMESTAMP,
+  updated_at: TIMESTAMP,
+};
+
+const SAMPLE_CATEGORIES: readonly ProductCategory[] = [
   {
     category_id: 'cat-root-b',
+    organization_id: ORG_ID,
     parent_category_id: null,
     code: 'CAT-Z',
     name: 'Vitamins',
     description: null,
     is_active: true,
+    created_at: TIMESTAMP,
+    updated_at: TIMESTAMP,
   },
-  {
-    category_id: 'cat-root-a',
-    parent_category_id: null,
-    code: 'CAT-A',
-    name: 'Analgesics',
-    description: 'Pain relief',
-    is_active: true,
-  },
+  ANALGESICS_CATEGORY,
   {
     category_id: 'cat-child-1',
+    organization_id: ORG_ID,
     parent_category_id: 'cat-root-a',
     code: 'CAT-A1',
     name: 'Pediatric Analgesics',
     description: null,
     is_active: true,
+    created_at: TIMESTAMP,
+    updated_at: TIMESTAMP,
   },
   {
     category_id: 'cat-grandchild-1',
+    organization_id: ORG_ID,
     parent_category_id: 'cat-child-1',
     code: 'CAT-A1A',
     name: 'Infant Drops',
     description: null,
     is_active: true,
+    created_at: TIMESTAMP,
+    updated_at: TIMESTAMP,
   },
   {
     category_id: 'cat-inactive',
+    organization_id: ORG_ID,
     parent_category_id: null,
     code: 'CAT-OLD',
     name: 'Archived Parent',
     description: null,
     is_active: false,
+    created_at: TIMESTAMP,
+    updated_at: TIMESTAMP,
   },
   {
     category_id: 'cat-active-under-inactive',
+    organization_id: ORG_ID,
     parent_category_id: 'cat-inactive',
     code: 'CAT-ORPHAN',
     name: 'Active Child Under Inactive',
     description: null,
     is_active: true,
+    created_at: TIMESTAMP,
+    updated_at: TIMESTAMP,
   },
 ];
 
@@ -125,34 +154,50 @@ describe('categorySchema and tree helpers', () => {
       new Set()
     );
 
-    const cyclic: ProductCategoryDto[] = [
+    const cyclic: ProductCategory[] = [
       {
         category_id: 'c-1',
+        organization_id: ORG_ID,
         parent_category_id: 'c-3',
         code: 'C1',
         name: 'One',
+        description: null,
         is_active: true,
+        created_at: TIMESTAMP,
+        updated_at: TIMESTAMP,
       },
       {
         category_id: 'c-2',
+        organization_id: ORG_ID,
         parent_category_id: 'c-1',
         code: 'C2',
         name: 'Two',
+        description: null,
         is_active: true,
+        created_at: TIMESTAMP,
+        updated_at: TIMESTAMP,
       },
       {
         category_id: 'c-3',
+        organization_id: ORG_ID,
         parent_category_id: 'c-2',
         code: 'C3',
         name: 'Three',
+        description: null,
         is_active: true,
+        created_at: TIMESTAMP,
+        updated_at: TIMESTAMP,
       },
       {
         category_id: 'c-self',
+        organization_id: ORG_ID,
         parent_category_id: 'c-self',
         code: 'CS',
         name: 'Self',
+        description: null,
         is_active: true,
+        created_at: TIMESTAMP,
+        updated_at: TIMESTAMP,
       },
     ];
 
@@ -209,20 +254,28 @@ describe('categorySchema and tree helpers', () => {
   });
 
   it('handles pure parent cycles in buildCategoryTree without infinite loops or dropped nodes', () => {
-    const cyclic: ProductCategoryDto[] = [
+    const cyclic: ProductCategory[] = [
       {
         category_id: 'a',
+        organization_id: ORG_ID,
         parent_category_id: 'b',
         code: 'A',
         name: 'Alpha',
+        description: null,
         is_active: true,
+        created_at: TIMESTAMP,
+        updated_at: TIMESTAMP,
       },
       {
         category_id: 'b',
+        organization_id: ORG_ID,
         parent_category_id: 'a',
         code: 'B',
         name: 'Beta',
+        description: null,
         is_active: true,
+        created_at: TIMESTAMP,
+        updated_at: TIMESTAMP,
       },
     ];
 
@@ -231,14 +284,17 @@ describe('categorySchema and tree helpers', () => {
     expect(tree[0]?.category.category_id).toBe('a');
     expect(tree[0]?.children.map((c) => c.category.category_id)).toEqual(['b']);
 
-    // Promoted cycle roots sort deterministically alongside regular roots
-    const mixedCyclic: ProductCategoryDto[] = [
+    const mixedCyclic: ProductCategory[] = [
       {
         category_id: 'z',
+        organization_id: ORG_ID,
         parent_category_id: null,
         code: 'Z',
         name: 'Zebra',
+        description: null,
         is_active: true,
+        created_at: TIMESTAMP,
+        updated_at: TIMESTAMP,
       },
       ...cyclic,
     ];
@@ -246,7 +302,7 @@ describe('categorySchema and tree helpers', () => {
     expect(mixedTree.map((n) => n.category.category_id)).toEqual(['a', 'z']);
   });
 
-  it('validates category fields, prevents self/descendant cycles, and converts payloads', () => {
+  it('validates category fields, prevents cycles, omits is_active on create, and omits code on patch', () => {
     const schema = createCategoryFormSchema('cat-root-a', SAMPLE_CATEGORIES);
 
     const selfParent = schema.safeParse({
@@ -286,22 +342,28 @@ describe('categorySchema and tree helpers', () => {
       parent_category_id: '   ',
       is_active: false,
     });
-    expect(toCategoryCreatePayload(valid)).toEqual({
-      parent_category_id: null,
-      code: 'CAT-A',
-      name: 'Analgesics',
-      description: null,
-      is_active: false,
-    });
-    expect(toCategoryPatchPayload(valid)).toEqual({
-      parent_category_id: null,
-      code: 'CAT-A',
-      name: 'Analgesics',
-      description: null,
-      is_active: false,
-    });
 
-    const dtoValues = categoryDtoToFormValues(SAMPLE_CATEGORIES[1]);
+    const createPayload = toCategoryCreatePayload(valid);
+    expect(createPayload).toEqual({
+      parent_category_id: null,
+      code: 'CAT-A',
+      name: 'Analgesics',
+      description: null,
+    });
+    expect('is_active' in createPayload).toBe(false);
+    expect(toCreateCategoryPayload(valid)).toEqual(createPayload);
+
+    const patchPayload = toCategoryPatchPayload(valid);
+    expect(patchPayload).toEqual({
+      parent_category_id: null,
+      name: 'Analgesics',
+      description: null,
+      is_active: false,
+    });
+    expect('code' in patchPayload).toBe(false);
+    expect(toPatchCategoryPayload(valid)).toEqual(patchPayload);
+
+    const dtoValues = categoryDtoToFormValues(ANALGESICS_CATEGORY);
     expect(dtoValues).toEqual({
       code: 'CAT-A',
       name: 'Analgesics',
@@ -351,39 +413,40 @@ describe('categorySchema and tree helpers', () => {
 });
 
 describe('productSchema and tax conversion helpers', () => {
-  it('converts fractional tax rates to percent strings and back without float drift', () => {
-    expect(taxRateDtoToPercentString('0.1400')).toBe('14');
-    expect(taxRateDtoToPercentString('0.1450')).toBe('14.5');
-    expect(taxRateDtoToPercentString('0.1425')).toBe('14.25');
-    expect(taxRateDtoToPercentString('0.0000')).toBe('0');
-    expect(taxRateDtoToPercentString('1.0000')).toBe('100');
-    expect(taxRateDtoToPercentString('0.2900')).toBe('29');
-    expect(taxRateDtoToPercentString('0.05')).toBe('5');
-    expect(taxRateDtoToPercentString('.14')).toBe('14');
-    expect(taxRateDtoToPercentString('0.0050')).toBe('0.5');
-    expect(taxRateDtoToPercentString('0.0005')).toBe('0.05');
+  it('converts native fractional tax_rate numbers to percent strings and back without IEEE-754 float drift', () => {
+    expect(taxRateDtoToPercentString(0.14)).toBe('14');
+    expect(taxRateDtoToPercentString(0.145)).toBe('14.5');
+    expect(taxRateDtoToPercentString(0.1425)).toBe('14.25');
+    expect(taxRateDtoToPercentString(0)).toBe('0');
+    expect(taxRateDtoToPercentString(1)).toBe('100');
+    expect(taxRateDtoToPercentString(0.29)).toBe('29');
+    expect(taxRateDtoToPercentString(0.05)).toBe('5');
+    expect(taxRateDtoToPercentString(0.005)).toBe('0.5');
+    expect(taxRateDtoToPercentString(0.0005)).toBe('0.05');
 
-    expect(percentToTaxRateDto('14')).toBe('0.1400');
-    expect(percentToTaxRateDto('14.5')).toBe('0.1450');
-    expect(percentToTaxRateDto('0')).toBe('0.0000');
-    expect(percentToTaxRateDto('100')).toBe('1.0000');
-    expect(percentToTaxRateDto('29')).toBe('0.2900');
+    expect(percentToTaxRateDto('14')).toBe(0.14);
+    expect(percentToTaxRateDto('14.5')).toBe(0.145);
+    expect(percentToTaxRateDto('14.25')).toBe(0.1425);
+    expect(percentToTaxRateDto('0')).toBe(0);
+    expect(percentToTaxRateDto('100')).toBe(1);
+    expect(percentToTaxRateDto('29')).toBe(0.29);
+    expect(percentToTaxRateDto('5')).toBe(0.05);
   });
 
-  it('validates createProductFormSchema and emits CreateProductRequest with base UOM factor 1.000000', () => {
+  it('validates createProductFormSchema and emits CreateProductRequest with native numbers', () => {
     const parsed = createProductFormSchema.parse({
-      category_id: ' c9d8e7f6-4444-4d55-8e66-cbccddeeffbb ',
+      category_id: ' 11111111-5555-4111-8111-000000000003 ',
       sku: ' ANA-NEW-01 ',
       name: ' New Analgesic 500mg ',
       barcode: '   ',
       generic_name: ' Paracetamol ',
       brand_name: '',
-      image_url: ' https://cdn.pharmaplus.eg/p1.png ',
+      image_url: ' https://cdn.medcare.eg/p1.png ',
       tax_percent: '14.5',
       lot_tracking_required: true,
       expiry_alert_days: '60',
       base_uom: {
-        uom_code: ' tablet ',
+        uom_code: ' TAB ',
         display_name: ' Tablet ',
         is_sellable: true,
         is_purchasable: false,
@@ -393,30 +456,32 @@ describe('productSchema and tax conversion helpers', () => {
 
     const payload = toCreateProductPayload(parsed);
     expect(payload).toEqual({
-      category_id: 'c9d8e7f6-4444-4d55-8e66-cbccddeeffbb',
+      category_id: '11111111-5555-4111-8111-000000000003',
       sku: 'ANA-NEW-01',
       barcode: null,
       name: 'New Analgesic 500mg',
       generic_name: 'Paracetamol',
       brand_name: null,
-      base_uom_code: 'tablet',
-      tax_rate: '0.1450',
-      image_url: 'https://cdn.pharmaplus.eg/p1.png',
+      base_uom_code: 'TAB',
+      tax_rate: 0.145,
+      image_url: 'https://cdn.medcare.eg/p1.png',
       lot_tracking_required: true,
       expiry_alert_days: 60,
       uoms: [
         {
-          uom_code: 'tablet',
+          uom_code: 'TAB',
           display_name: 'Tablet',
-          conversion_to_base: '1.000000',
-          sale_unit_price: '2.5000',
+          conversion_to_base: 1,
+          sale_unit_price: 2.5,
           is_base: true,
           is_sellable: true,
           is_purchasable: false,
         },
       ],
     });
-    expect('primary_supplier_id' in payload).toBe(false);
+    expect(typeof payload.tax_rate).toBe('number');
+    expect(typeof payload.uoms?.[0]?.conversion_to_base).toBe('number');
+    expect(typeof payload.uoms?.[0]?.sale_unit_price).toBe('number');
   });
 
   it('enforces sellable base UOM price, non-sellable null price, URL protocol, tax bounds, and integer expiry days', () => {
@@ -426,7 +491,7 @@ describe('productSchema and tax conversion helpers', () => {
       sku: 'SKU-1',
       name: 'Product 1',
       base_uom: {
-        uom_code: 'tab',
+        uom_code: 'TAB',
         display_name: 'Tablet',
         is_sellable: true,
         is_purchasable: true,
@@ -447,7 +512,7 @@ describe('productSchema and tax conversion helpers', () => {
       sku: 'SKU-2',
       name: 'Product 2',
       base_uom: {
-        uom_code: 'tab',
+        uom_code: 'TAB',
         display_name: 'Tablet',
         is_sellable: false,
         is_purchasable: true,
@@ -455,8 +520,25 @@ describe('productSchema and tax conversion helpers', () => {
       },
     });
     expect(
-      toCreateProductPayload(nonSellableParsed).uoms[0]?.sale_unit_price
+      toCreateProductPayload(nonSellableParsed).uoms?.[0]?.sale_unit_price
     ).toBeNull();
+
+    const zeroPriceParsed = createProductFormSchema.parse({
+      ...DEFAULT_CREATE_PRODUCT_FORM_VALUES,
+      category_id: 'cat-1',
+      sku: 'SKU-ZERO',
+      name: 'Zero Price Sample',
+      base_uom: {
+        uom_code: 'TAB',
+        display_name: 'Tablet',
+        is_sellable: true,
+        is_purchasable: false,
+        sale_unit_price: '0',
+      },
+    });
+    expect(
+      toCreateProductPayload(zeroPriceParsed).uoms?.[0]?.sale_unit_price
+    ).toBe(0);
 
     const invalidBounds = createProductFormSchema.safeParse({
       ...DEFAULT_CREATE_PRODUCT_FORM_VALUES,
@@ -489,24 +571,7 @@ describe('productSchema and tax conversion helpers', () => {
       expect(paths).toContain('base_uom.sale_unit_price');
     }
 
-    const overMaxExpiry = createProductFormSchema.safeParse({
-      ...DEFAULT_CREATE_PRODUCT_FORM_VALUES,
-      category_id: 'cat-1',
-      sku: 'SKU-3',
-      name: 'Product 3',
-      expiry_alert_days: '3651',
-      base_uom: {
-        uom_code: 'tab',
-        display_name: 'Tablet',
-        is_sellable: false,
-        is_purchasable: false,
-        sale_unit_price: '',
-      },
-    });
-    expect(overMaxExpiry.success).toBe(false);
-
-    // Negative zero and OpenAPI Numeric4 overflow must be rejected
-    const negZeroAndOverflow = createProductFormSchema.safeParse({
+    const negZero = createProductFormSchema.safeParse({
       ...DEFAULT_CREATE_PRODUCT_FORM_VALUES,
       category_id: 'cat-1',
       sku: 'SKU-4',
@@ -514,55 +579,14 @@ describe('productSchema and tax conversion helpers', () => {
       tax_percent: '-0',
       expiry_alert_days: '-0',
       base_uom: {
-        uom_code: 'tab',
+        uom_code: 'TAB',
         display_name: 'Tablet',
         is_sellable: true,
         is_purchasable: false,
         sale_unit_price: '-0',
       },
     });
-    expect(negZeroAndOverflow.success).toBe(false);
-    if (!negZeroAndOverflow.success) {
-      const paths = negZeroAndOverflow.error.issues.map((issue) =>
-        issue.path.join('.')
-      );
-      expect(paths).toContain('tax_percent');
-      expect(paths).toContain('expiry_alert_days');
-      expect(paths).toContain('base_uom.sale_unit_price');
-    }
-
-    const priceOverflow = createProductFormSchema.safeParse({
-      ...DEFAULT_CREATE_PRODUCT_FORM_VALUES,
-      category_id: 'cat-1',
-      sku: 'SKU-5',
-      name: 'Product 5',
-      base_uom: {
-        uom_code: 'tab',
-        display_name: 'Tablet',
-        is_sellable: true,
-        is_purchasable: false,
-        sale_unit_price: '100000000000000',
-      },
-    });
-    expect(priceOverflow.success).toBe(false);
-
-    // Max 14-digit Numeric4 precision must remain exact without float corruption
-    const maxPrecisionProduct = createProductFormSchema.parse({
-      ...DEFAULT_CREATE_PRODUCT_FORM_VALUES,
-      category_id: 'cat-1',
-      sku: 'SKU-6',
-      name: 'Product 6',
-      base_uom: {
-        uom_code: 'tab',
-        display_name: 'Tablet',
-        is_sellable: true,
-        is_purchasable: false,
-        sale_unit_price: '99999999999999.9999',
-      },
-    });
-    expect(
-      toCreateProductPayload(maxPrecisionProduct).uoms[0]?.sale_unit_price
-    ).toBe('99999999999999.9999');
+    expect(negZero.success).toBe(false);
   });
 
   it('integrates createProductFormSchema with React Hook Form zodResolver including nested base_uom paths', async () => {
@@ -575,7 +599,7 @@ describe('productSchema and tax conversion helpers', () => {
           sku: 'SKU-RHF',
           name: 'RHF Product',
           base_uom: {
-            uom_code: 'tab',
+            uom_code: 'TAB',
             display_name: 'Tablet',
             is_sellable: true,
             is_purchasable: true,
@@ -601,20 +625,20 @@ describe('productSchema and tax conversion helpers', () => {
     });
   });
 
-  it('converts ProductDto to EditProductFormValues and omits immutable sku/base_uom_code from ProductPatchRequest', () => {
-    const product: ProductDto = productFixture;
+  it('converts Product to EditProductFormValues and emits UpdateProductRequest with native numbers', () => {
+    const product: Product = normalizeProduct(productFixture);
     const formValues = productDtoToEditFormValues(product);
 
     expect(formValues).toEqual({
       category_id: product.category_id,
-      name: 'Panadol 500mg Tablets',
-      barcode: '6221048001234',
-      generic_name: 'Paracetamol 500mg',
-      brand_name: 'Panadol',
-      image_url: 'https://cdn.pharmaplus.eg/products/ana-pcm-500-tab.jpg',
-      tax_percent: '14',
-      lot_tracking_required: false,
-      expiry_alert_days: '30',
+      name: 'Augmentin 1g Film-Coated Tablets',
+      barcode: '6221001000019',
+      generic_name: 'Amoxicillin 875mg + Clavulanic Acid 125mg',
+      brand_name: 'GSK',
+      image_url: '',
+      tax_percent: '0',
+      lot_tracking_required: true,
+      expiry_alert_days: '90',
       is_active: true,
     });
     expect('sku' in formValues).toBe(false);
@@ -623,51 +647,58 @@ describe('productSchema and tax conversion helpers', () => {
     const parsed = editProductFormSchema.parse({
       ...formValues,
       barcode: '',
+      tax_percent: '14',
       is_active: false,
     });
-    const patchPayload = toProductPatchPayload(parsed);
+    const patchPayload = toPatchProductPayload(parsed);
 
     expect(patchPayload).toEqual({
       category_id: product.category_id,
       barcode: null,
-      name: 'Panadol 500mg Tablets',
-      generic_name: 'Paracetamol 500mg',
-      brand_name: 'Panadol',
-      tax_rate: '0.1400',
-      image_url: 'https://cdn.pharmaplus.eg/products/ana-pcm-500-tab.jpg',
-      lot_tracking_required: false,
-      expiry_alert_days: 30,
+      name: 'Augmentin 1g Film-Coated Tablets',
+      generic_name: 'Amoxicillin 875mg + Clavulanic Acid 125mg',
+      brand_name: 'GSK',
+      tax_rate: 0.14,
+      image_url: null,
+      lot_tracking_required: true,
+      expiry_alert_days: 90,
       is_active: false,
     });
+    expect(typeof patchPayload.tax_rate).toBe('number');
+    expect(toProductPatchPayload(parsed)).toEqual(patchPayload);
     expect('sku' in patchPayload).toBe(false);
     expect('base_uom_code' in patchPayload).toBe(false);
   });
 });
 
 describe('uomReorderSchema', () => {
-  it('validates createUomFormSchema, enforces base factor === 1, and formats 6dp/4dp strings', () => {
+  it('validates createUomFormSchema, enforces base factor === 1, and emits native numbers', () => {
     const validNonBase = createUomFormSchema.parse({
-      uom_code: ' strip ',
-      display_name: ' Strip of 10 ',
-      conversion_to_base: '10',
+      uom_code: ' STRIP ',
+      display_name: ' Strip of 7 ',
+      conversion_to_base: '7',
       is_base: false,
       is_sellable: true,
       is_purchasable: false,
-      sale_unit_price: '12.5',
+      sale_unit_price: '70.5',
     });
-    expect(toCreateUomPayload(validNonBase)).toEqual({
-      uom_code: 'strip',
-      display_name: 'Strip of 10',
-      conversion_to_base: '10.000000',
-      sale_unit_price: '12.5000',
+    const payload = toCreateProductUomPayload(validNonBase);
+    expect(payload).toEqual({
+      uom_code: 'STRIP',
+      display_name: 'Strip of 7',
+      conversion_to_base: 7,
+      sale_unit_price: 70.5,
       is_base: false,
       is_sellable: true,
       is_purchasable: false,
     });
+    expect(typeof payload.conversion_to_base).toBe('number');
+    expect(typeof payload.sale_unit_price).toBe('number');
+    expect(toCreateUomPayload(validNonBase)).toEqual(payload);
 
     const invalidBaseFactor = createUomFormSchema.safeParse({
       ...DEFAULT_CREATE_UOM_FORM_VALUES,
-      uom_code: 'tab',
+      uom_code: 'TAB',
       display_name: 'Tablet',
       conversion_to_base: '2',
       is_base: true,
@@ -680,36 +711,40 @@ describe('uomReorderSchema', () => {
       });
     }
 
-    const tinyFactor = createUomFormSchema.safeParse({
-      ...DEFAULT_CREATE_UOM_FORM_VALUES,
-      uom_code: 'micro',
-      display_name: 'Micro',
-      conversion_to_base: '0.0000001',
-    });
-    expect(tinyFactor.success).toBe(false);
+    expect(
+      createUomFormSchema.safeParse({
+        ...DEFAULT_CREATE_UOM_FORM_VALUES,
+        uom_code: 'ZERO',
+        display_name: 'Zero',
+        conversion_to_base: '0',
+      }).success
+    ).toBe(false);
 
-    const missingSellablePrice = createUomFormSchema.safeParse({
-      ...DEFAULT_CREATE_UOM_FORM_VALUES,
-      uom_code: 'box',
-      display_name: 'Box',
-      conversion_to_base: '20',
-      is_sellable: true,
-      sale_unit_price: '',
-    });
-    expect(missingSellablePrice.success).toBe(false);
+    expect(
+      createUomFormSchema.safeParse({
+        ...DEFAULT_CREATE_UOM_FORM_VALUES,
+        uom_code: 'BOX',
+        display_name: 'Box',
+        conversion_to_base: '20',
+        is_sellable: true,
+        sale_unit_price: '',
+      }).success
+    ).toBe(false);
   });
 
-  it('validates editUomFormSchema strictly with ProductUomPatchRequest fields', () => {
-    const uom: ProductUomDto = {
+  it('validates editUomFormSchema and emits UpdateProductUomRequest with native numbers or null', () => {
+    const uom: ProductUom = {
       product_uom_id: 'u-1',
-      uom_code: 'strip',
+      product_id: 'p-1',
+      uom_code: 'STRIP',
       display_name: 'Strip of 10',
-      conversion_to_base: '10.000000',
-      sale_unit_price: '12.0000',
+      conversion_to_base: 10,
+      sale_unit_price: 12.5,
       is_base: false,
       is_sellable: true,
       is_purchasable: false,
       is_active: true,
+      updated_at: TIMESTAMP,
     };
 
     const formValues = uomDtoToEditFormValues(uom);
@@ -717,60 +752,76 @@ describe('uomReorderSchema', () => {
       display_name: 'Strip of 10',
       is_sellable: true,
       is_purchasable: false,
-      sale_unit_price: '12.0000',
+      sale_unit_price: '12.5',
       is_active: true,
     });
-    expect('conversion_to_base' in formValues).toBe(false);
-    expect('is_base' in formValues).toBe(false);
 
-    const parsed = editUomFormSchema.parse({
+    const parsedSellable = editUomFormSchema.parse({
+      ...formValues,
+      sale_unit_price: '15.25',
+    });
+    expect(toPatchProductUomPayload(parsedSellable)).toEqual({
+      display_name: 'Strip of 10',
+      sale_unit_price: 15.25,
+      is_sellable: true,
+      is_purchasable: false,
+      is_active: true,
+    });
+
+    const parsedNonSellable = editUomFormSchema.parse({
       ...formValues,
       is_sellable: false,
-      sale_unit_price: '12.0000',
+      sale_unit_price: '12.5',
       is_active: false,
     });
-    expect(toUomPatchPayload(parsed)).toEqual({
+    const nonSellablePatch = toPatchProductUomPayload(parsedNonSellable);
+    expect(nonSellablePatch).toEqual({
       display_name: 'Strip of 10',
       sale_unit_price: null,
       is_sellable: false,
       is_purchasable: false,
       is_active: false,
     });
+    expect(toUomPatchPayload(parsedNonSellable)).toEqual(nonSellablePatch);
   });
 
-  it('validates reorderRuleFormSchema bounds including max >= reorder_point and optional empty max', () => {
+  it('validates reorderRuleFormSchema bounds and emits UpsertReorderRuleRequest with native numbers', () => {
     expect(reorderRuleDtoToFormValues(null)).toEqual(
       DEFAULT_REORDER_RULE_VALUES
     );
 
-    const existingRule: ReorderRuleDto = {
+    const existingRule: ReorderRule = {
       reorder_rule_id: 'r-1',
+      organization_id: ORG_ID,
       product_id: 'p-1',
       branch_id: 'b-1',
-      reorder_point_base: '100.0000',
-      reorder_quantity_base: '250.0000',
+      reorder_point_base: 50,
+      reorder_quantity_base: 200,
       max_quantity_base: null,
       is_active: true,
+      updated_at: TIMESTAMP,
     };
     expect(reorderRuleDtoToFormValues(existingRule)).toEqual({
-      reorder_point_base: '100.0000',
-      reorder_quantity_base: '250.0000',
+      reorder_point_base: '50',
+      reorder_quantity_base: '200',
       max_quantity_base: '',
       is_active: true,
     });
 
     const parsedNoMax = reorderRuleFormSchema.parse({
       reorder_point_base: '0',
-      reorder_quantity_base: '50',
+      reorder_quantity_base: '50.5',
       max_quantity_base: '   ',
       is_active: true,
     });
-    expect(toReorderRulePayload(parsedNoMax)).toEqual({
-      reorder_point_base: '0.0000',
-      reorder_quantity_base: '50.0000',
+    const payloadNoMax = toUpsertReorderRulePayload(parsedNoMax);
+    expect(payloadNoMax).toEqual({
+      reorder_point_base: 0,
+      reorder_quantity_base: 50.5,
       max_quantity_base: null,
       is_active: true,
     });
+    expect(toReorderRulePayload(parsedNoMax)).toEqual(payloadNoMax);
 
     const equalBoundary = reorderRuleFormSchema.parse({
       reorder_point_base: '100',
@@ -778,8 +829,8 @@ describe('uomReorderSchema', () => {
       max_quantity_base: '100',
       is_active: false,
     });
-    expect(toReorderRulePayload(equalBoundary).max_quantity_base).toBe(
-      '100.0000'
+    expect(toUpsertReorderRulePayload(equalBoundary).max_quantity_base).toBe(
+      100
     );
 
     const invalidMax = reorderRuleFormSchema.safeParse({
@@ -796,6 +847,15 @@ describe('uomReorderSchema', () => {
       expect(paths).toContain('reorder_quantity_base');
       expect(paths).toContain('max_quantity_base');
     }
+
+    expect(
+      reorderRuleFormSchema.safeParse({
+        reorder_point_base: '-0',
+        reorder_quantity_base: '1',
+        max_quantity_base: '-0',
+        is_active: true,
+      }).success
+    ).toBe(false);
   });
 
   it('integrates reorderRuleFormSchema with React Hook Form zodResolver', async () => {
@@ -826,70 +886,12 @@ describe('uomReorderSchema', () => {
       );
     });
   });
-
-  it('rejects -0 and OpenAPI digit overflows while preserving exact 12dp/14dp boundary precision', () => {
-    const uomBoundary = createUomFormSchema.parse({
-      uom_code: 'bulk',
-      display_name: 'Bulk',
-      conversion_to_base: '999999999999.999999',
-      is_base: false,
-      is_sellable: true,
-      is_purchasable: true,
-      sale_unit_price: '99999999999999.9999',
-    });
-    expect(toCreateUomPayload(uomBoundary)).toMatchObject({
-      conversion_to_base: '999999999999.999999',
-      sale_unit_price: '99999999999999.9999',
-    });
-
-    expect(
-      createUomFormSchema.safeParse({
-        ...DEFAULT_CREATE_UOM_FORM_VALUES,
-        uom_code: 'bad',
-        display_name: 'Bad',
-        conversion_to_base: '1000000000000',
-        is_sellable: true,
-        sale_unit_price: '-0',
-      }).success
-    ).toBe(false);
-
-    expect(
-      reorderRuleFormSchema.safeParse({
-        reorder_point_base: '-0',
-        reorder_quantity_base: '1',
-        max_quantity_base: '-0',
-        is_active: true,
-      }).success
-    ).toBe(false);
-
-    // Exact decimal comparison catches 14-digit .9998 < .9999 where float collapses
-    expect(
-      reorderRuleFormSchema.safeParse({
-        reorder_point_base: '99999999999999.9999',
-        reorder_quantity_base: '1',
-        max_quantity_base: '99999999999999.9998',
-        is_active: true,
-      }).success
-    ).toBe(false);
-
-    const exactReorder = reorderRuleFormSchema.parse({
-      reorder_point_base: '99999999999999.9999',
-      reorder_quantity_base: '99999999999999.9999',
-      max_quantity_base: '99999999999999.9999',
-      is_active: true,
-    });
-    expect(toReorderRulePayload(exactReorder)).toEqual({
-      reorder_point_base: '99999999999999.9999',
-      reorder_quantity_base: '99999999999999.9999',
-      max_quantity_base: '99999999999999.9999',
-      is_active: true,
-    });
-  });
 });
 
 describe('catalogErrorMapper', () => {
-  it('maps category 422 and 409 errors cleanly', () => {
-    const setError = vi.fn();
+  it('handles 422 VALIDATION_ERROR, 409 CONFLICT, 400 MALFORMED_REQUEST, and 403 FORBIDDEN cleanly', () => {
+    const setError = vi.fn<UseFormSetError<CategoryFormValues>>();
+
     const err422 = new ApiClientError(
       {
         code: 'VALIDATION_ERROR',
@@ -901,7 +903,6 @@ describe('catalogErrorMapper', () => {
       },
       422
     );
-
     expect(applyCategoryFormApiError(err422, setError)).toBeNull();
     expect(setError).toHaveBeenCalledWith('parent_category_id', {
       type: 'server',
@@ -928,9 +929,43 @@ describe('catalogErrorMapper', () => {
       type: 'server',
       message: 'Must be unique',
     });
+
+    setError.mockClear();
+    const err400 = new ApiClientError(
+      {
+        code: 'MALFORMED_REQUEST',
+        message: 'The idempotency key is required.',
+        trace_id: 'tr-cat-400',
+        details: [
+          {
+            field: 'Idempotency-Key',
+            issue: 'The idempotency key is required.',
+          },
+        ],
+      },
+      400
+    );
+    expect(applyCategoryFormApiError(err400, setError)).toBe(
+      'The idempotency key is required. (Trace: tr-cat-400)'
+    );
+    expect(setError).not.toHaveBeenCalled();
+
+    const err403 = new ApiClientError(
+      {
+        code: 'FORBIDDEN',
+        message: 'Cashier role cannot modify product categories.',
+        trace_id: 'tr-cat-403',
+        details: [],
+      },
+      403
+    );
+    expect(applyCategoryFormApiError(err403, setError)).toBe(
+      'Cashier role cannot modify product categories. (Trace: tr-cat-403)'
+    );
+    expect(setError).not.toHaveBeenCalled();
   });
 
-  it('maps create/edit product, UOM, and reorder rule errors cleanly', () => {
+  it('maps create/edit product, UOM, and reorder rule errors including 403 FORBIDDEN_BRANCH and unmapped 422 details', () => {
     const createProductSetError =
       vi.fn<UseFormSetError<CreateProductFormValues>>();
     const createErr = new ApiClientError(
@@ -948,11 +983,9 @@ describe('catalogErrorMapper', () => {
       422
     );
 
-    const createBanner = applyCreateProductFormApiError(
-      createErr,
-      createProductSetError
-    );
-    expect(createBanner).toBeNull();
+    expect(
+      applyCreateProductFormApiError(createErr, createProductSetError)
+    ).toBeNull();
     expect(createProductSetError).toHaveBeenCalledWith('base_uom.uom_code', {
       type: 'server',
       message: 'Invalid UOM code',
@@ -968,17 +1001,23 @@ describe('catalogErrorMapper', () => {
       type: 'server',
       message: 'Invalid tax',
     });
-    expect(createProductSetError).toHaveBeenCalledWith('sku', {
-      type: 'server',
-      message: 'Invalid SKU',
-    });
-    expect(createProductSetError).toHaveBeenCalledWith(
-      'lot_tracking_required',
+
+    // Unmapped 422 detail surfaces top-level banner while still setting mapped fields
+    const unmapped422 = new ApiClientError(
       {
-        type: 'server',
-        message: 'Invalid lot flag',
-      }
+        code: 'VALIDATION_ERROR',
+        message: 'Product validation failed.',
+        trace_id: 'tr-unmapped-422',
+        details: [
+          { field: 'sku', issue: 'Bad SKU' },
+          { field: 'uoms', issue: 'Exactly one base UOM required' },
+        ],
+      },
+      422
     );
+    expect(
+      applyCreateProductFormApiError(unmapped422, createProductSetError)
+    ).toBe('Product validation failed. (Trace: tr-unmapped-422)');
 
     const editProductSetError = vi.fn<UseFormSetError<EditProductFormValues>>();
     const editConflict = new ApiClientError(
@@ -1016,10 +1055,6 @@ describe('catalogErrorMapper', () => {
     expect(applyCreateUomFormApiError(createUomErr, createUomSetError)).toBe(
       'Duplicate UOM code (Trace: tr-uom-409)'
     );
-    expect(createUomSetError).toHaveBeenCalledWith('uom_code', {
-      type: 'server',
-      message: 'Already exists',
-    });
 
     const editUomSetError = vi.fn<UseFormSetError<EditUomFormValues>>();
     const editUomErr = new ApiClientError(
@@ -1034,10 +1069,6 @@ describe('catalogErrorMapper', () => {
     expect(applyEditUomFormApiError(editUomErr, editUomSetError)).toBe(
       'Base UOM cannot be deactivated. (Trace: tr-uom-base)'
     );
-    expect(editUomSetError).toHaveBeenCalledWith('is_active', {
-      type: 'server',
-      message: 'Base UOM must stay active',
-    });
 
     const reorderSetError = vi.fn<UseFormSetError<ReorderRuleFormValues>>();
     const reorderErr = new ApiClientError(
@@ -1056,6 +1087,19 @@ describe('catalogErrorMapper', () => {
       applyReorderRuleFormApiError(reorderErr, reorderSetError)
     ).toBeNull();
     expect(reorderSetError).toHaveBeenCalledTimes(3);
+
+    const forbiddenBranchErr = new ApiClientError(
+      {
+        code: 'FORBIDDEN_BRANCH',
+        message: 'User is not authorized for this branch.',
+        trace_id: 'tr-reorder-403',
+        details: [],
+      },
+      403
+    );
+    expect(
+      applyReorderRuleFormApiError(forbiddenBranchErr, reorderSetError)
+    ).toBe('User is not authorized for this branch. (Trace: tr-reorder-403)');
 
     expect(
       applyReorderRuleFormApiError(new Error('network'), reorderSetError)

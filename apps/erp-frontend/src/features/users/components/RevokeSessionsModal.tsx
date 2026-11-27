@@ -5,11 +5,11 @@ import { Alert } from '../../../components/ui/Alert';
 import { Button } from '../../../components/ui/Button';
 import { Modal } from '../../../components/ui/Modal';
 import { ApiClientError } from '../../../lib/api/client';
-import type { UserDto } from '../../../types/api';
+import type { User } from '../../../types/api';
 import { useRevokeUserSessionsMutation } from '../hooks/useUsers';
 
 export interface RevokeSessionsModalProps {
-  user: UserDto | null;
+  user: User | null;
   onClose: () => void;
 }
 

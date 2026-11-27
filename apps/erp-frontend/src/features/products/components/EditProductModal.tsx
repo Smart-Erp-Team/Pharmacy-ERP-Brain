@@ -1,14 +1,14 @@
 import { Alert } from '../../../components/ui/Alert';
 import { Button } from '../../../components/ui/Button';
 import { Modal } from '../../../components/ui/Modal';
-import type { ProductCategoryDto, ProductDto } from '../../../types/api';
+import type { Product, ProductCategory } from '../../../types/api';
 import { useEditProductForm } from '../hooks/useProductsPageState';
 import { EditProductFormFields } from './EditProductFormFields';
 
 export interface EditProductModalProps {
   open: boolean;
-  product: ProductDto | null;
-  categories: readonly ProductCategoryDto[];
+  product: Product | null;
+  categories: readonly ProductCategory[];
   isCategoriesError?: boolean;
   isRetryingCategories?: boolean;
   onRetryCategories?: () => void;
@@ -19,7 +19,7 @@ type EditProductModalContentProps = Omit<
   EditProductModalProps,
   'open' | 'product'
 > & {
-  product: ProductDto;
+  product: Product;
 };
 
 function EditProductModalContent({

@@ -3,22 +3,27 @@ import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { TableCell, TableRow } from '../../../components/ui/Table';
 import { Toggle } from '../../../components/ui/Toggle';
-import type { UserDto } from '../../../types/api';
-import type { EmployeeDisplay } from '../hooks/useUsersPageState';
+import type { User } from '../../../types/api';
+import type {
+  BranchAccessDisplay,
+  EmployeeDisplay,
+} from '../hooks/useUsersPageState';
 
 export interface UserTableRowProps {
-  user: UserDto;
+  user: User;
   employeeDisplay: EmployeeDisplay;
+  branchAccessDisplay: BranchAccessDisplay;
   referenceNowMs: number;
+  isSelf: boolean;
   isToggling: boolean;
-  onEdit: (user: UserDto) => void;
-  onResetPassword: (user: UserDto) => void;
-  onRevokeSessions: (user: UserDto) => void;
-  onToggleActive: (user: UserDto, nextActive: boolean) => void;
+  onEdit: (user: User) => void;
+  onResetPassword: (user: User) => void;
+  onRevokeSessions: (user: User) => void;
+  onToggleActive: (user: User, nextActive: boolean) => void;
 }
 
 function isLockoutActive(
-  lockoutEnd: UserDto['lockout_end'],
+  lockoutEnd: User['lockout_end'],
   referenceNowMs: number
 ): boolean {
   if (!lockoutEnd) {
@@ -31,7 +36,9 @@ function isLockoutActive(
 export function UserTableRow({
   user,
   employeeDisplay,
+  branchAccessDisplay,
   referenceNowMs,
+  isSelf,
   isToggling,
   onEdit,
   onResetPassword,
@@ -39,6 +46,8 @@ export function UserTableRow({
   onToggleActive,
 }: UserTableRowProps) {
   const isLocked = isLockoutActive(user.lockout_end, referenceNowMs);
+  const useMonoBranchLabel =
+    user.branch_scope === 'ASSIGNED' && !branchAccessDisplay.isMuted;
 
   return (
     <TableRow>
@@ -69,9 +78,20 @@ export function UserTableRow({
         </Badge>
       </TableCell>
       <TableCell>
-        <Badge variant={user.branch_scope === 'ALL' ? 'info' : 'neutral'}>
-          {user.branch_scope}
-        </Badge>
+        <div className="flex flex-col items-start gap-1">
+          <Badge variant={user.branch_scope === 'ALL' ? 'info' : 'neutral'}>
+            {user.branch_scope}
+          </Badge>
+          <span
+            className={`text-body-sm ${
+              useMonoBranchLabel
+                ? 'text-text-secondary font-mono'
+                : 'text-text-muted'
+            }`}
+          >
+            {branchAccessDisplay.label}
+          </span>
+        </div>
       </TableCell>
       <TableCell>
         <div className="flex flex-col gap-1.5">
@@ -82,7 +102,7 @@ export function UserTableRow({
             <Toggle
               label={`Toggle status for ${user.username}`}
               checked={user.is_active}
-              disabled={isToggling}
+              disabled={isToggling || isSelf}
               onChange={(nextActive) => onToggleActive(user, nextActive)}
             />
           </div>

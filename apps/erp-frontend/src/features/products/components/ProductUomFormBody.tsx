@@ -1,13 +1,13 @@
 import { Alert } from '../../../components/ui/Alert';
 import { Button } from '../../../components/ui/Button';
 import { Modal } from '../../../components/ui/Modal';
-import type { ProductUomDto } from '../../../types/api';
+import type { ProductUom } from '../../../types/api';
 import { useProductUomForm } from '../hooks/useProductUomForm';
 import { ProductUomFormFields } from './ProductUomFormFields';
 
 export interface ProductUomFormBodyProps {
   productId: string;
-  uom: ProductUomDto | null;
+  uom: ProductUom | null;
   hasBaseUom: boolean;
   onClose: () => void;
 }

@@ -5,12 +5,12 @@ import { Alert } from '../../../components/ui/Alert';
 import { Button } from '../../../components/ui/Button';
 import { Modal } from '../../../components/ui/Modal';
 import { Skeleton } from '../../../components/ui/Skeleton';
-import type { BranchDto, EnrollmentTokenDto } from '../../../types/api';
+import type { Branch, EnrollmentToken } from '../../../types/api';
 
 export interface EnrollmentTokenModalProps {
   open: boolean;
-  branch: BranchDto | null;
-  tokenData: EnrollmentTokenDto | null;
+  branch: Branch | null;
+  tokenData: EnrollmentToken | null;
   isLoading: boolean;
   errorMessage: string | null;
   onRetry: () => void;
@@ -28,7 +28,7 @@ function formatRemainingTime(expiresAt: string, nowMs: number): string {
   return `${minutes}m ${String(seconds).padStart(2, '0')}s remaining`;
 }
 
-function TokenDisplay({ tokenData }: { tokenData: EnrollmentTokenDto }) {
+function TokenDisplay({ tokenData }: { tokenData: EnrollmentToken }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -39,7 +39,7 @@ function TokenDisplay({ tokenData }: { tokenData: EnrollmentTokenDto }) {
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [tokenData.enrollment_id]);
+  }, [tokenData.token]);
 
   const handleCopy = async () => {
     setCopyError(null);
@@ -107,7 +107,9 @@ export function EnrollmentTokenModal({
     <Modal
       open={open}
       onClose={onClose}
-      eyebrow={branch ? `${branch.code} · ${branch.name}` : 'Branch device'}
+      eyebrow={
+        branch ? `${branch.branch_code} · ${branch.name}` : 'Branch device'
+      }
       title="Branch enrollment token"
       icon={<KeyRound className="h-4 w-4" />}
       footer={
@@ -134,7 +136,7 @@ export function EnrollmentTokenModal({
             {errorMessage}
           </Alert>
         ) : tokenData ? (
-          <TokenDisplay key={tokenData.enrollment_id} tokenData={tokenData} />
+          <TokenDisplay key={tokenData.token} tokenData={tokenData} />
         ) : null}
       </div>
     </Modal>

@@ -1,13 +1,13 @@
 import { Alert } from '../../../components/ui/Alert';
 import { Button } from '../../../components/ui/Button';
 import { Modal } from '../../../components/ui/Modal';
-import type { ProductCategoryDto } from '../../../types/api';
+import type { ProductCategory } from '../../../types/api';
 import { useCreateProductForm } from '../hooks/useProductsPageState';
 import { CreateProductFormFields } from './CreateProductFormFields';
 
 export interface CreateProductModalProps {
   open: boolean;
-  categories: readonly ProductCategoryDto[];
+  categories: readonly ProductCategory[];
   isCategoriesError?: boolean;
   isRetryingCategories?: boolean;
   onRetryCategories?: () => void;

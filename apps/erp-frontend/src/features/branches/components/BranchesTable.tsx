@@ -11,11 +11,11 @@ import {
   TableHeader,
   TableRow,
 } from '../../../components/ui/Table';
-import type { BranchDto } from '../../../types/api';
+import type { Branch } from '../../../types/api';
 import { BranchTableRow } from './BranchTableRow';
 
 export interface BranchesTableProps {
-  branches: readonly BranchDto[];
+  branches: readonly Branch[];
   isLoading: boolean;
   errorMessage: string | null;
   togglingBranchId: string | null;
@@ -23,9 +23,9 @@ export interface BranchesTableProps {
   onRetry: () => void;
   onResetFilters: () => void;
   onAddBranch: () => void;
-  onEdit: (branch: BranchDto) => void;
-  onToggleActive: (branch: BranchDto, nextActive: boolean) => void;
-  onGenerateToken: (branch: BranchDto) => void;
+  onEdit: (branch: Branch) => void;
+  onToggleActive: (branch: Branch, nextActive: boolean) => void;
+  onGenerateToken: (branch: Branch) => void;
 }
 
 const HEADERS = (

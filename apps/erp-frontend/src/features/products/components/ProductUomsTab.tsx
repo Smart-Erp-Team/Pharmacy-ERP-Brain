@@ -11,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from '../../../components/ui/Table';
-import type { ProductDto } from '../../../types/api';
+import type { Product } from '../../../types/api';
 import {
   formatCatalogApiError,
   useProductUomsTab,
@@ -20,7 +20,7 @@ import { ProductUomFormModal } from './ProductUomFormModal';
 import { ProductUomTableRow } from './ProductUomTableRow';
 
 export interface ProductUomsTabProps {
-  product: ProductDto;
+  product: Product;
 }
 
 export function ProductUomsTab({ product }: ProductUomsTabProps) {

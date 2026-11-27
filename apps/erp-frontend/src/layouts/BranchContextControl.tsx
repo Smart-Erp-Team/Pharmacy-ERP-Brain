@@ -3,11 +3,11 @@ import { Badge } from '../components/ui/Badge';
 import { Select } from '../components/ui/Select';
 import { useAllBranchesQuery } from '../features/branches';
 import { useAuth } from '../hooks/useAuth';
-import type { BranchDto } from '../types/api';
+import type { Branch } from '../types/api';
 
-function formatBranchLabel(branch: BranchDto): string {
-  const code = branch.branch_code?.trim();
-  const name = branch.name?.trim();
+function formatBranchLabel(branch: Branch): string {
+  const code = branch.branch_code.trim();
+  const name = branch.name.trim();
   if (code && name) {
     return `${code} — ${name}`;
   }
@@ -33,7 +33,7 @@ export function BranchContextControl() {
   } = useAuth();
 
   const branchesQuery = useAllBranchesQuery(
-    { includeInactive: false },
+    { include_inactive: false },
     { enabled: isAuthenticated }
   );
 

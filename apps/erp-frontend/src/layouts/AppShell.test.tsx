@@ -88,7 +88,7 @@ const renderShell = ({
 
   if (seedBranches.length > 0) {
     queryClient.setQueryData<BranchDto[]>(
-      branchesKeys.allList({ includeInactive: false }),
+      branchesKeys.allList({ include_inactive: false }),
       seedBranches
     );
   }

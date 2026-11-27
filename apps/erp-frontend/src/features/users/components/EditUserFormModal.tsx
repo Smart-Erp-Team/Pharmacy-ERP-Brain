@@ -2,11 +2,15 @@ import { useId, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'react-toastify';
-import type { BranchDto, UserDto } from '../../../types/api';
+import type { Branch } from '../../../features/branches';
+import { useAuth } from '../../../hooks/useAuth';
+import type { User } from '../../../types/api';
 import { usePatchUserMutation } from '../hooks/useUsers';
-import type {
-  DirectoryQueryStatus,
-  EmployeeDisplay,
+import {
+  hasEffectiveEditChanges,
+  resolveEffectiveEditValues,
+  type DirectoryQueryStatus,
+  type EmployeeDisplay,
 } from '../hooks/useUsersPageState';
 import { applyEditUserFormApiError } from '../schemas/userErrorMapper';
 import {
@@ -20,9 +24,9 @@ import { type UserAccessPatch } from './UserFormFields';
 import { UserFormModalShell } from './UserFormModalShell';
 
 export interface EditUserFormModalProps {
-  user: UserDto;
+  user: User;
   employeeDisplay: EmployeeDisplay;
-  branches: readonly BranchDto[];
+  branches: readonly Branch[];
   branchesDirectory: DirectoryQueryStatus;
   onClose: () => void;
 }
@@ -35,63 +39,53 @@ export function EditUserFormModal({
   onClose,
 }: EditUserFormModalProps) {
   const formId = useId();
+  const { currentUser } = useAuth();
+  const isSelf = currentUser?.user_id === user.user_id;
   const patchMutation = usePatchUserMutation();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const form = useForm<EditUserFormValues>({
-    resolver: zodResolver(createEditUserFormSchema(user.branch_scope)),
+    resolver: zodResolver(createEditUserFormSchema()),
     mode: 'onTouched',
     defaultValues: userDtoToEditFormValues(user),
   });
   const watched = useWatch({ control: form.control });
-  const role = watched.role ?? user.role;
-  const branchScope = watched.branch_scope ?? user.branch_scope;
-  const branchIds = watched.branch_ids ?? [];
-  const hasBranchAccessEdit = watched.has_branch_access_edit ?? false;
-  const isActive = watched.is_active ?? user.is_active;
-  const { errors } = form.formState;
+  const currentValues = resolveEffectiveEditValues(watched, user, isSelf);
   const isPending = patchMutation.isPending;
-  const hasEffectiveChanges =
-    role !== user.role ||
-    branchScope !== user.branch_scope ||
-    isActive !== user.is_active ||
-    (branchScope === 'ASSIGNED' &&
-      (hasBranchAccessEdit || branchIds.length > 0));
-  const handleClose = () => {
-    if (!isPending) onClose();
-  };
+  const hasEffectiveChanges = hasEffectiveEditChanges(currentValues, user);
 
   const handleAccessChange = (patch: UserAccessPatch) => {
-    if (patch.role) form.setValue('role', patch.role, { shouldDirty: true });
-    if (patch.branch_scope) {
+    if (!isSelf && patch.role) {
+      form.setValue('role', patch.role, { shouldDirty: true });
+      void form.trigger('role');
+    }
+    if (!isSelf && patch.branch_scope) {
       form.setValue('branch_scope', patch.branch_scope, { shouldDirty: true });
       form.clearErrors('branch_scope');
       if (patch.branch_scope === 'ALL') {
-        form.resetField('branch_ids');
-        form.resetField('has_branch_access_edit');
+        form.setValue('branch_ids', [...user.branch_ids], {
+          shouldDirty: false,
+        });
         form.clearErrors('branch_ids');
       }
+      void form.trigger('branch_scope');
     }
     if (patch.branch_ids) {
       form.setValue('branch_ids', patch.branch_ids, {
         shouldDirty: true,
         shouldTouch: true,
       });
-      if (!hasBranchAccessEdit) {
-        form.setValue('has_branch_access_edit', true, { shouldDirty: true });
-      }
+      void form.trigger('branch_ids');
     }
-    if (patch.role) void form.trigger('role');
-    if (patch.branch_scope) void form.trigger('branch_scope');
-    if (patch.branch_ids) void form.trigger('branch_ids');
   };
 
   const onSubmit = form.handleSubmit(async (values) => {
     if (isPending || !hasEffectiveChanges) return;
     setSubmitError(null);
+    const safeValues = resolveEffectiveEditValues(values, user, isSelf);
     try {
       await patchMutation.mutateAsync({
         userId: user.user_id,
-        payload: toUserPatchPayload(values, user.branch_scope),
+        payload: toUserPatchPayload(safeValues, user),
       });
       toast.success(`User account "${user.username}" updated`);
       onClose();
@@ -115,27 +109,23 @@ export function EditUserFormModal({
       isPending={isPending}
       isSubmitDisabled={isPending || !hasEffectiveChanges}
       branchesDirectory={branchesDirectory}
-      onClose={handleClose}
+      onClose={() => {
+        if (!isPending) onClose();
+      }}
       onSubmit={onSubmit}
     >
       <EditUserFormFields
         employeeDisplay={employeeDisplay}
         username={user.username}
-        role={role}
-        branchScope={branchScope}
-        branchIds={branchIds}
-        isActive={isActive}
-        showPreservedGrantsNotice={
-          user.branch_scope === 'ASSIGNED' &&
-          branchScope === 'ASSIGNED' &&
-          !hasBranchAccessEdit
-        }
+        values={currentValues}
+        isSelf={isSelf}
         branches={branches}
         branchesDirectory={branchesDirectory}
         disabled={isPending}
-        errors={errors}
+        errors={form.formState.errors}
         onAccessChange={handleAccessChange}
         onStatusChange={(nextActive) => {
+          if (isSelf) return;
           form.setValue('is_active', nextActive, {
             shouldDirty: true,
             shouldValidate: true,

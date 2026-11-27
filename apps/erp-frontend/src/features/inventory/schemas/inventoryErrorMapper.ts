@@ -15,7 +15,7 @@ function mapCreateLocationField(
     case 'location_code':
     case 'name':
     case 'location_type':
-    case 'is_active':
+    case 'is_sellable':
       return field;
     default:
       return null;
@@ -27,7 +27,7 @@ function mapEditLocationField(
 ): Path<EditLocationFormValues> | null {
   switch (field) {
     case 'name':
-    case 'location_type':
+    case 'is_sellable':
     case 'is_active':
       return field;
     default:
@@ -60,17 +60,21 @@ function mapAdjustmentField(
       switch (subField) {
         case 'product_id':
           return `lines.${index}.product_id`;
-        case 'location_id':
-          return `lines.${index}.location_id`;
-        case 'batch_id':
-          return `lines.${index}.batch_id`;
         case 'product_uom_id':
           return `lines.${index}.product_uom_id`;
+        case 'location_id':
+          return `lines.${index}.location_id`;
+        case 'batch_number':
+          return `lines.${index}.batch_number`;
+        case 'manufactured_on':
+          return `lines.${index}.manufactured_on`;
+        case 'expires_on':
+          return `lines.${index}.expires_on`;
         case 'entered_qty':
         case 'quantity':
           return `lines.${index}.entered_qty`;
-        case 'unit_cost_base':
-          return `lines.${index}.unit_cost_base`;
+        case 'unit_cost_entered':
+          return `lines.${index}.unit_cost_entered`;
         default:
           return null;
       }
@@ -78,13 +82,23 @@ function mapAdjustmentField(
   }
 }
 
-function isConflictLikeApiError(error: ApiClientError): boolean {
+function requiresTopLevelBanner(error: ApiClientError): boolean {
   return (
+    error.status === 400 ||
+    error.status === 403 ||
+    error.status === 404 ||
     error.status === 409 ||
+    (error.status !== undefined && error.status >= 500) ||
+    error.code === 'MALFORMED_REQUEST' ||
+    error.code === 'FORBIDDEN' ||
+    error.code === 'FORBIDDEN_BRANCH' ||
+    error.code === 'NOT_FOUND' ||
     error.code === 'OUT_OF_STOCK' ||
     error.code === 'CONFLICT' ||
     error.code === 'INVALID_STATE_TRANSITION' ||
-    error.code === 'IDEMPOTENCY_MISMATCH'
+    error.code === 'IDEMPOTENCY_MISMATCH' ||
+    error.code === 'EXPIRY_POLICY_VIOLATION' ||
+    error.code === 'INTERNAL_SERVER_ERROR'
   );
 }
 
@@ -106,7 +120,7 @@ function applyMappedApiError<TFieldValues extends FieldValues>(
   let mappedFieldError = false;
   let hasUnmappedDetail = false;
 
-  for (const detail of error.details ?? []) {
+  for (const detail of error.details) {
     if (!detail.field) {
       hasUnmappedDetail = true;
       continue;
@@ -120,7 +134,7 @@ function applyMappedApiError<TFieldValues extends FieldValues>(
     }
   }
 
-  if (!mappedFieldError || hasUnmappedDetail || isConflictLikeApiError(error)) {
+  if (!mappedFieldError || hasUnmappedDetail || requiresTopLevelBanner(error)) {
     return formatErrorBanner(error);
   }
 

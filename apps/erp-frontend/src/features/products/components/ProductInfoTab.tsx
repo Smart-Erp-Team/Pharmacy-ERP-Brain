@@ -1,11 +1,11 @@
 import { Badge } from '../../../components/ui/Badge';
 import { Card, CardHeader } from '../../../components/ui/Card';
-import type { ProductCategoryDto, ProductDto } from '../../../types/api';
+import type { Product, ProductCategory } from '../../../types/api';
 import { taxRateDtoToPercentString } from '../schemas/productSchema';
 
 export interface ProductInfoTabProps {
-  product: ProductDto;
-  categories: readonly ProductCategoryDto[];
+  product: Product;
+  categories: readonly ProductCategory[];
 }
 
 function formatTimestamp(value: string | undefined): string | null {
@@ -20,6 +20,15 @@ function formatTimestamp(value: string | undefined): string | null {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(date);
+}
+
+function formatBasePrice(value: number | null | undefined): string | null {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return null;
+  }
+  const clean = String(Number(value.toPrecision(12)));
+  const [intPart = '0', fracPart = ''] = clean.split('.');
+  return `EGP ${intPart}.${fracPart.length <= 2 ? fracPart.padEnd(2, '0') : fracPart}`;
 }
 
 function renderOptionalText(value: string | null | undefined, mono = false) {
@@ -38,6 +47,10 @@ export function ProductInfoTab({ product, categories }: ProductInfoTabProps) {
   const category = categories.find(
     (item) => item.category_id === product.category_id
   );
+  const baseUom =
+    product.uoms.find((u) => u.is_base) ??
+    product.uoms.find((u) => u.uom_code === product.base_uom_code);
+  const basePrice = formatBasePrice(baseUom?.sale_unit_price);
   const taxPercent = taxRateDtoToPercentString(product.tax_rate);
   const createdAt = formatTimestamp(product.created_at);
   const updatedAt = formatTimestamp(product.updated_at);
@@ -52,6 +65,10 @@ export function ProductInfoTab({ product, categories }: ProductInfoTabProps) {
       value: (
         <span className="text-text font-mono">{product.base_uom_code}</span>
       ),
+    },
+    {
+      label: 'Base price',
+      value: renderOptionalText(basePrice, true),
     },
     {
       label: 'Category',
@@ -86,30 +103,12 @@ export function ProductInfoTab({ product, categories }: ProductInfoTabProps) {
         <span className="text-text">{product.expiry_alert_days} days</span>
       ),
     },
-    {
-      label: 'Barcode',
-      value: renderOptionalText(product.barcode, true),
-    },
-    {
-      label: 'Generic name',
-      value: renderOptionalText(product.generic_name),
-    },
-    {
-      label: 'Brand name',
-      value: renderOptionalText(product.brand_name),
-    },
-    {
-      label: 'Image URL',
-      value: renderOptionalText(product.image_url, true),
-    },
-    {
-      label: 'Created at',
-      value: renderOptionalText(createdAt),
-    },
-    {
-      label: 'Updated at',
-      value: renderOptionalText(updatedAt),
-    },
+    { label: 'Barcode', value: renderOptionalText(product.barcode, true) },
+    { label: 'Generic name', value: renderOptionalText(product.generic_name) },
+    { label: 'Brand name', value: renderOptionalText(product.brand_name) },
+    { label: 'Image URL', value: renderOptionalText(product.image_url, true) },
+    { label: 'Created at', value: renderOptionalText(createdAt) },
+    { label: 'Updated at', value: renderOptionalText(updatedAt) },
   ];
 
   return (

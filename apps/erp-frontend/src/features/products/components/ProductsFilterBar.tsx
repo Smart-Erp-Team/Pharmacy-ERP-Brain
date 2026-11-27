@@ -6,14 +6,14 @@ import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
 import { Toggle } from '../../../components/ui/Toggle';
 import { useAuth } from '../../../hooks/useAuth';
-import type { ProductCategoryDto } from '../../../types/api';
+import type { ProductCategory } from '../../../types/api';
 import { buildProductCategoryOptions } from '../hooks/useProductsPageState';
 
 export interface ProductsFilterBarProps {
   searchTerm: string;
   selectedCategoryId: string;
   includeInactive: boolean;
-  categories: readonly ProductCategoryDto[];
+  categories: readonly ProductCategory[];
   hasActiveFilters: boolean;
   isBranchLocal?: boolean;
   onSearchChange: (value: string) => void;

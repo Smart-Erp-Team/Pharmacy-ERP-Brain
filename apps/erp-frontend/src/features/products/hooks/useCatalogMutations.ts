@@ -5,13 +5,13 @@ import {
   type AttemptKeyRecord,
 } from '../../../lib/api/idempotency';
 import type {
+  CreateProductCategoryRequest,
   CreateProductRequest,
-  ProductCategoryPatchRequest,
-  ProductCategoryRequest,
-  ProductPatchRequest,
-  ProductUomPatchRequest,
-  ProductUomRequest,
-  ReorderRuleRequest,
+  CreateProductUomRequest,
+  UpdateProductCategoryRequest,
+  UpdateProductRequest,
+  UpdateProductUomRequest,
+  UpsertReorderRuleRequest,
 } from '../../../types/api';
 import {
   createProduct,
@@ -20,12 +20,12 @@ import {
   patchProduct,
   patchProductCategory,
   patchProductUom,
-  putReorderRule,
+  upsertReorderRule,
 } from '../api/catalogApi';
 import { productsKeys } from './productsKeys';
 
 export interface CreateCategoryVariables {
-  payload: ProductCategoryRequest;
+  payload: CreateProductCategoryRequest;
   idempotencyKey?: string;
 }
 
@@ -53,7 +53,7 @@ export function useCreateCategoryMutation() {
 
 export interface PatchCategoryVariables {
   categoryId: string;
-  payload: ProductCategoryPatchRequest;
+  payload: UpdateProductCategoryRequest;
   idempotencyKey?: string;
 }
 
@@ -115,7 +115,7 @@ export function useCreateProductMutation() {
 
 export interface PatchProductVariables {
   productId: string;
-  payload: ProductPatchRequest;
+  payload: UpdateProductRequest;
   idempotencyKey?: string;
 }
 
@@ -150,7 +150,7 @@ export function usePatchProductMutation() {
 
 export interface CreateProductUomVariables {
   productId: string;
-  payload: ProductUomRequest;
+  payload: CreateProductUomRequest;
   idempotencyKey?: string;
 }
 
@@ -190,7 +190,7 @@ export function useCreateProductUomMutation() {
 export interface PatchProductUomVariables {
   productId: string;
   uomId: string;
-  payload: ProductUomPatchRequest;
+  payload: UpdateProductUomRequest;
   idempotencyKey?: string;
 }
 
@@ -232,14 +232,16 @@ export function usePatchProductUomMutation() {
   });
 }
 
-export interface PutReorderRuleVariables {
+export interface UpsertReorderRuleVariables {
   branchId: string;
   productId: string;
-  payload: ReorderRuleRequest;
+  payload: UpsertReorderRuleRequest;
   idempotencyKey?: string;
 }
 
-export function usePutReorderRuleMutation() {
+export type PutReorderRuleVariables = UpsertReorderRuleVariables;
+
+export function useUpsertReorderRuleMutation() {
   const queryClient = useQueryClient();
   const attemptRef = useRef<AttemptKeyRecord | null>(null);
 
@@ -249,8 +251,8 @@ export function usePutReorderRuleMutation() {
       productId,
       payload,
       idempotencyKey,
-    }: PutReorderRuleVariables) =>
-      putReorderRule(branchId, productId, payload, {
+    }: UpsertReorderRuleVariables) =>
+      upsertReorderRule(branchId, productId, payload, {
         idempotencyKey: getStableAttemptKey(
           attemptRef,
           JSON.stringify({
@@ -272,3 +274,5 @@ export function usePutReorderRuleMutation() {
     },
   });
 }
+
+export const usePutReorderRuleMutation = useUpsertReorderRuleMutation;

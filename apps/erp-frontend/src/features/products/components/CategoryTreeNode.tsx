@@ -1,7 +1,7 @@
 import { Folder, Pencil } from 'lucide-react';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
-import type { ProductCategoryDto } from '../../../types/api';
+import type { ProductCategory } from '../../../types/api';
 import type { CategoryTreeNode as CategoryTreeNodeModel } from '../schemas/categorySchema';
 
 export interface CategoryTreeNodeProps {
@@ -9,7 +9,7 @@ export interface CategoryTreeNodeProps {
   selectedCategoryId: string;
   canWriteCatalog: boolean;
   onSelectCategory: (categoryId: string) => void;
-  onEditCategory: (category: ProductCategoryDto) => void;
+  onEditCategory: (category: ProductCategory) => void;
 }
 
 const DEPTH_INDENT_CLASSES: Record<number, string> = {

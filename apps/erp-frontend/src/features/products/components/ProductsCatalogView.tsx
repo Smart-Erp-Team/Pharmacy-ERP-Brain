@@ -76,9 +76,10 @@ export function ProductsCatalogView({ state }: ProductsCatalogViewProps) {
             errorMessage={productsError}
             togglingProductIds={state.togglingProductIds}
             hasActiveFilters={state.hasActiveFilters}
-            pageIndex={state.pageIndex}
+            page={state.page}
             pageSize={state.pageSize}
-            nextCursor={state.productsQuery.data?.nextCursor}
+            totalCount={state.totalCount}
+            hasNextPage={state.hasNextPage}
             onPageChange={state.handlePageChange}
             onRetry={() => {
               void state.productsQuery.refetch();

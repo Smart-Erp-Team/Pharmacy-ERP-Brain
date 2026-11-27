@@ -15,55 +15,75 @@ import {
   vi,
 } from 'vitest';
 import currentUserContext from '@contracts/fixtures/current-user-context.json';
-import inventoryBalanceFixture from '@contracts/fixtures/inventory-balance.json';
-import productFixture from '@contracts/fixtures/product.json';
 import { resetMockBranches } from '../../../mocks/branchHandlers';
 import { resetMockEmployees } from '../../../mocks/employeeHandlers';
 import { handlers } from '../../../mocks/handlers';
 import {
-  inventoryHandlers,
+  MOCK_BRANCH_IDS,
+  MOCK_LOCATION_IDS,
+  MOCK_PRODUCT_IDS,
+  MOCK_PRODUCT_UOM_IDS,
+  MOCK_TRANSACTION_IDS,
   resetMockInventory,
 } from '../../../mocks/inventoryHandlers';
 import { resetMockCatalog } from '../../../mocks/productHandlers';
 import { useAuthStore } from '../../../stores/authStore';
 import { renderWithProviders } from '../../../test/renderWithProviders';
-import type { CurrentUserContext, InventoryTxnDto } from '../../../types/api';
+import type {
+  CurrentUser,
+  InventoryTxn,
+  PermissionScope,
+  Role,
+  RuntimeMode,
+} from '../../../types/api';
 import { LedgerHistoryTab } from './LedgerHistoryTab';
 import { StockAdjustmentsTab } from './StockAdjustmentsTab';
 
-const CAIRO_BRANCH_ID = inventoryBalanceFixture.branch_id;
-const AUGMENTIN_PRODUCT_ID = inventoryBalanceFixture.product_id;
-const AUGMENTIN_BOX_UOM_ID = 'c1d2e3f4-1111-4aaa-8a1b-111111110002';
-const PANADOL_PRODUCT_ID = productFixture.product_id;
-const PANADOL_NON_LOT_BATCH_ID = '4b53e1f6-9090-4c3f-9e5b-4d5e6f7a8b01';
-const PANADOL_BASE_UOM_ID = 'f1a2b3c4-0101-4fff-8a1b-56789012abcd';
-const CAIRO_SELL_LOCATION_ID = inventoryBalanceFixture.location_id;
-const AUGMENTIN_BATCH_B_ID = '3a42d0e5-8080-4b2f-8d4a-3c4d5e6f8a17';
+const DOWNTOWN_BRANCH_ID = MOCK_BRANCH_IDS.DOWNTOWN;
 
-const server = setupServer(...handlers, ...inventoryHandlers);
+const server = setupServer(...handlers);
 
-function buildAuthUser(
-  overrides: Partial<CurrentUserContext> = {}
-): CurrentUserContext {
+interface SeedAuthOverrides {
+  role?: Role;
+  branch_scope?: 'ALL' | 'ASSIGNED';
+  branch_ids?: string[];
+  scopes?: PermissionScope[];
+  runtime_mode?: RuntimeMode;
+}
+
+function buildAuthUser(overrides: SeedAuthOverrides = {}): CurrentUser {
+  const role = overrides.role ?? 'Admin';
+  const branch_scope = overrides.branch_scope ?? 'ALL';
+  const branch_ids = overrides.branch_ids ?? [];
+  const scopes: PermissionScope[] = overrides.scopes ?? [
+    'user:admin',
+    'inventory:read',
+    'inventory:write',
+    'sales:read',
+    'sales:write',
+  ];
+  const runtime_mode = overrides.runtime_mode ?? 'BranchLocal';
+
   return {
-    user: { ...currentUserContext.user, role: 'Admin', branch_scope: 'ALL' },
+    user_id: currentUserContext.user_id,
+    employee_id: currentUserContext.employee_id,
     organization_id: currentUserContext.organization_id,
-    organization_code: currentUserContext.organization_code,
-    branch_scope: 'ALL',
-    branch_ids: [],
-    roles: ['Admin'],
-    scopes: ['user:admin', 'inventory:read', 'inventory:write'],
-    runtime: 'BranchLocal',
-    ...overrides,
+    username: currentUserContext.username,
+    role,
+    branch_scope,
+    branch_ids,
+    scopes,
+    runtime_mode,
   };
 }
 
 function seedAuth(
-  overrides: Partial<CurrentUserContext> = {},
-  activeBranchId: string | null = CAIRO_BRANCH_ID
+  overrides: SeedAuthOverrides = {},
+  activeBranchId: string | null = DOWNTOWN_BRANCH_ID
 ) {
   useAuthStore.setState({
     currentUser: buildAuthUser(overrides),
+    organizationCode: 'MEDCARE',
     activeBranchId,
     isAuthenticated: true,
     isInitializing: false,
@@ -103,15 +123,6 @@ function getAdjustmentsFormSection(): HTMLElement {
   return section;
 }
 
-function getDraftsSection(): HTMLElement {
-  const heading = screen.getByRole('heading', { name: 'Draft adjustments' });
-  const section = heading.closest('section');
-  if (!section) {
-    throw new Error('Expected Draft adjustments card');
-  }
-  return section;
-}
-
 function getLedgerSection(): HTMLElement {
   const heading = screen.getByRole('heading', {
     name: 'Inventory Ledger History',
@@ -127,7 +138,7 @@ function CombinedInventoryHarness({ branchId }: { branchId: string }) {
   const [activeView, setActiveView] = useState<'adjustments' | 'ledger'>(
     'ledger'
   );
-  const [reversalTxn, setReversalTxn] = useState<InventoryTxnDto | null>(null);
+  const [reversalTxn, setReversalTxn] = useState<InventoryTxn | null>(null);
 
   return (
     <div>
@@ -159,6 +170,7 @@ function CombinedInventoryHarness({ branchId }: { branchId: string }) {
 }
 
 beforeAll(() => server.listen());
+
 beforeEach(() => {
   resetMockBranches();
   resetMockEmployees();
@@ -166,10 +178,12 @@ beforeEach(() => {
   resetMockInventory();
   seedAuth();
 });
+
 afterEach(() => {
   server.resetHandlers();
   useAuthStore.setState({
     currentUser: null,
+    organizationCode: null,
     activeBranchId: null,
     isAuthenticated: false,
     isInitializing: false,
@@ -177,113 +191,114 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
+
 afterAll(() => server.close());
 
-describe('StockAdjustmentsTab and LedgerHistoryTab', () => {
+describe('StockAdjustmentsTab and LedgerHistoryTab (Stage 1 MEDCARE)', () => {
   it('blocks Cashier on both tabs with Access restricted and zero network calls', async () => {
     seedAuth({
-      user: {
-        ...currentUserContext.user,
-        role: 'Cashier',
-        branch_scope: 'ASSIGNED',
-      },
+      role: 'Cashier',
       branch_scope: 'ASSIGNED',
-      branch_ids: [CAIRO_BRANCH_ID],
-      roles: ['Cashier'],
-      scopes: ['sales:read', 'sales:write', 'inventory:read'],
-      runtime: 'BranchLocal',
+      branch_ids: [DOWNTOWN_BRANCH_ID],
+      scopes: ['inventory:read', 'sales:read', 'sales:write'],
+      runtime_mode: 'BranchLocal',
     });
 
     const requestedUrls: string[] = [];
-    server.events.on('request:start', ({ request }) => {
+    const recordUrl = ({ request }: { request: Request }) => {
       requestedUrls.push(request.url);
-    });
+    };
+    server.events.on('request:start', recordUrl);
 
-    renderWithProviders(
-      <>
-        <StockAdjustmentsTab branchId={CAIRO_BRANCH_ID} />
-        <LedgerHistoryTab branchId={CAIRO_BRANCH_ID} />
-      </>
-    );
+    try {
+      renderWithProviders(
+        <>
+          <StockAdjustmentsTab branchId={DOWNTOWN_BRANCH_ID} />
+          <LedgerHistoryTab branchId={DOWNTOWN_BRANCH_ID} />
+        </>
+      );
 
-    expect(screen.getAllByText('Access restricted')).toHaveLength(2);
-    await waitFor(() => {
-      expect(requestedUrls).toEqual([]);
-    });
+      expect(screen.getAllByText('Access restricted')).toHaveLength(2);
+      await waitFor(() => {
+        expect(requestedUrls).toEqual([]);
+      });
+    } finally {
+      server.events.removeListener('request:start', recordUrl);
+    }
   });
 
-  it('shows BranchLocal notice and disables adjustment writes for Admin on Cloud while Ledger remains readable with employee names', async () => {
+  it('shows BranchLocal notice and disables writes for Admin on Cloud while Ledger resolves Omar Khaled & Mona Adel and opens inline detail modal with zero GET /transactions/:id calls', async () => {
     const user = userEvent.setup();
     seedAuth({
-      roles: ['Admin'],
+      role: 'Admin',
       scopes: ['user:admin', 'inventory:read', 'inventory:write'],
-      runtime: 'Cloud',
+      runtime_mode: 'Cloud',
     });
 
-    renderWithProviders(
-      <>
-        <StockAdjustmentsTab branchId={CAIRO_BRANCH_ID} />
-        <LedgerHistoryTab branchId={CAIRO_BRANCH_ID} />
-      </>
-    );
+    const detailRequests: string[] = [];
+    const recordUrl = ({ request }: { request: Request }) => {
+      const pathname = new URL(request.url).pathname;
+      if (/\/api\/v1\/inventory\/transactions\/[^/]+$/.test(pathname)) {
+        detailRequests.push(request.url);
+      }
+    };
+    server.events.on('request:start', recordUrl);
 
-    expect(
-      await screen.findByText(
-        /Stock adjustments and opening balances must be posted on the BranchLocal runtime\./i
-      )
-    ).toBeDefined();
-    expect(
-      screen.queryByRole('button', { name: 'Submit adjustment' })
-    ).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Edit draft' })).toBeNull();
-    expect(
-      screen.queryByRole('button', { name: 'Post adjustment' })
-    ).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Cancel draft' })).toBeNull();
+    try {
+      renderWithProviders(
+        <>
+          <StockAdjustmentsTab branchId={DOWNTOWN_BRANCH_ID} />
+          <LedgerHistoryTab branchId={DOWNTOWN_BRANCH_ID} />
+        </>
+      );
 
-    const adjSection = getAdjustmentsFormSection();
-    expect(
-      (
-        await within(adjSection).findByLabelText('Transaction type')
-      ).hasAttribute('disabled')
-    ).toBe(true);
+      expect(
+        await screen.findByText(
+          /Stock adjustments and opening balances must be posted on the BranchLocal runtime\./i
+        )
+      ).toBeDefined();
+      expect(
+        screen.queryByRole('button', { name: 'Submit adjustment' })
+      ).toBeNull();
+      expect(screen.queryByText('Draft adjustments')).toBeNull();
 
-    // Ledger History loads and resolves employee names via GET /employees for Admin+user:admin
-    const ledgerSection = getLedgerSection();
-    expect(
-      await within(ledgerSection).findByText('TXN-2026-000002')
-    ).toBeDefined();
-    expect(await within(ledgerSection).findByText('Omar Khaled')).toBeDefined();
-    expect(
-      within(ledgerSection).getAllByText('Youssef Tarek').length
-    ).toBeGreaterThan(0);
+      const adjSection = getAdjustmentsFormSection();
+      expect(
+        (
+          await within(adjSection).findByLabelText('Transaction type')
+        ).hasAttribute('disabled')
+      ).toBe(true);
 
-    // Draft row shows Unavailable for posted_at
-    const draftRow = within(ledgerSection)
-      .getByText('TXN-2026-000003')
-      .closest('tr');
-    if (!draftRow) {
-      throw new Error('Expected draft ledger row');
+      const ledgerSection = getLedgerSection();
+      expect(
+        await within(ledgerSection).findByText('TXN-2026-000002')
+      ).toBeDefined();
+      expect(within(ledgerSection).getByText('TXN-2026-000001')).toBeDefined();
+      expect(await within(ledgerSection).findByText('Mona Adel')).toBeDefined();
+      expect(within(ledgerSection).getByText('Omar Khaled')).toBeDefined();
+
+      const postedRow = within(ledgerSection)
+        .getByText('TXN-2026-000002')
+        .closest('tr');
+      if (!postedRow) {
+        throw new Error('Expected posted ledger row');
+      }
+      await user.click(
+        within(postedRow).getByRole('button', { name: 'View details' })
+      );
+
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText('Immutable posted record')).toBeDefined();
+      expect(within(dialog).getByText('MEDCARE-PAN-01')).toBeDefined();
+      expect(within(dialog).getByText('+48')).toBeDefined();
+      expect(within(dialog).getByText('+70')).toBeDefined();
+      expect(
+        within(dialog).queryByRole('button', { name: 'Reverse transaction' })
+      ).toBeNull();
+      expect(detailRequests).toEqual([]);
+    } finally {
+      server.events.removeListener('request:start', recordUrl);
     }
-    expect(within(draftRow).getByText('Unavailable')).toBeDefined();
-
-    // Detail modal works on Cloud, but hides "Reverse transaction" since runtime !== BranchLocal
-    const postedRow = within(ledgerSection)
-      .getByText('TXN-2026-000002')
-      .closest('tr');
-    if (!postedRow) {
-      throw new Error('Expected posted ledger row');
-    }
-    await user.click(
-      within(postedRow).getByRole('button', { name: 'View details' })
-    );
-    const dialog = await screen.findByRole('dialog');
-    expect(
-      await within(dialog).findByText('Immutable posted record')
-    ).toBeDefined();
-    expect(
-      within(dialog).queryByRole('button', { name: 'Reverse transaction' })
-    ).toBeNull();
   });
 
   it('never calls GET /employees for Pharmacist on BranchLocal and falls back to Employee <uuid8>', async () => {
@@ -292,38 +307,40 @@ describe('StockAdjustmentsTab and LedgerHistoryTab', () => {
       http.get('*/api/v1/employees', ({ request }) => {
         employeeRequests.push(request.url);
         return HttpResponse.json(
-          { error: { code: 'FORBIDDEN', message: 'Forbidden' } },
+          {
+            error: {
+              code: 'FORBIDDEN',
+              message: 'Forbidden',
+              details: [],
+              trace_id: 'trace-forbidden-emp',
+            },
+          },
           { status: 403 }
         );
       })
     );
 
     seedAuth({
-      user: {
-        ...currentUserContext.user,
-        role: 'Pharmacist',
-        branch_scope: 'ASSIGNED',
-      },
+      role: 'Pharmacist',
       branch_scope: 'ASSIGNED',
-      branch_ids: [CAIRO_BRANCH_ID],
-      roles: ['Pharmacist'],
-      scopes: ['inventory:read', 'inventory:write'],
-      runtime: 'BranchLocal',
+      branch_ids: [DOWNTOWN_BRANCH_ID],
+      scopes: ['inventory:read', 'inventory:write', 'sales:read'],
+      runtime_mode: 'BranchLocal',
     });
 
-    renderWithProviders(<LedgerHistoryTab branchId={CAIRO_BRANCH_ID} />);
+    renderWithProviders(<LedgerHistoryTab branchId={DOWNTOWN_BRANCH_ID} />);
 
     expect(await screen.findByText('TXN-2026-000002')).toBeDefined();
-    expect(screen.getAllByText('Employee a1111111').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Employee 11111111').length).toBeGreaterThan(0);
     expect(employeeRequests).toHaveLength(0);
   });
 
-  it('auto-locks Panadol to NON-LOT, posts OPENING_BALANCE and ADJUSTMENT_IN with Box UOM, and supports multi-line add/remove', async () => {
+  it('posts atomic immediate OPENING_BALANCE (with non-lot Vitamin D3 + multi-line Box UOM) and ADJUSTMENT_IN on BranchLocal', async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <>
-        <StockAdjustmentsTab branchId={CAIRO_BRANCH_ID} />
-        <LedgerHistoryTab branchId={CAIRO_BRANCH_ID} />
+        <StockAdjustmentsTab branchId={DOWNTOWN_BRANCH_ID} />
+        <LedgerHistoryTab branchId={DOWNTOWN_BRANCH_ID} />
       </>
     );
 
@@ -331,40 +348,43 @@ describe('StockAdjustmentsTab and LedgerHistoryTab', () => {
     const ledgerSection = getLedgerSection();
     await within(adjSection).findByLabelText('Adjustment line 1');
 
-    // Verify 1 line cannot be removed
     const removeLine1 = within(adjSection).getByRole('button', {
       name: 'Remove line 1',
     });
     expect(removeLine1.hasAttribute('disabled')).toBe(true);
 
-    // 1. Select OPENING_BALANCE and Panadol -> auto-resolves NON-LOT batch & locks Batch select
+    // 1. Atomic OPENING_BALANCE with Line 1 = Vitamin D3 (non-lot) in QUAR-01 and Line 2 = Augmentin Box UOM
     await user.selectOptions(
       getSelect(adjSection, 'Transaction type'),
       'OPENING_BALANCE'
     );
-    await user.type(getInput(adjSection, 'Reason code'), 'OPENING_CHECK');
+    await user.type(getInput(adjSection, 'Reason code'), 'OPENING_AUDIT');
 
     const line1 = within(adjSection).getByRole('group', {
       name: 'Adjustment line 1',
     });
-    await user.selectOptions(getSelect(line1, 'Product'), PANADOL_PRODUCT_ID);
+    await user.selectOptions(
+      getSelect(line1, 'Product'),
+      MOCK_PRODUCT_IDS.VITAMIN_D3
+    );
 
-    const batchSelect1 = getSelect(line1, 'Batch');
-    expect(batchSelect1.value).toBe(PANADOL_NON_LOT_BATCH_ID);
-    expect(batchSelect1.hasAttribute('disabled')).toBe(true);
+    expect(getSelect(line1, 'Unit of measure').value).toBe(
+      MOCK_PRODUCT_UOM_IDS.VITAMIN_D3_BOTTLE
+    );
+    expect(getInput(line1, 'Batch number').hasAttribute('disabled')).toBe(true);
+    expect(getInput(line1, 'Expiry date').hasAttribute('disabled')).toBe(true);
     expect(
-      within(line1).getByText('Locked to NON-LOT (lot tracking not required).')
+      within(line1).getByText('Non-lot product (automatic NON-LOT batch)')
     ).toBeDefined();
-    expect(getSelect(line1, 'Unit of measure').value).toBe(PANADOL_BASE_UOM_ID);
 
     await user.selectOptions(
       getSelect(line1, 'Location'),
-      CAIRO_SELL_LOCATION_ID
+      MOCK_LOCATION_IDS.QUAR_01
     );
-    await user.type(getInput(line1, 'Quantity'), '50');
-    await user.type(getInput(line1, 'Unit cost (base)'), '0.90');
+    await user.type(getInput(line1, 'Quantity'), '25');
+    await user.type(getInput(line1, 'Unit cost'), '64');
 
-    // Add second line, then test remove & re-add
+    // Add second line, test remove, then re-add
     await user.click(
       within(adjSection).getByRole('button', { name: 'Add line' })
     );
@@ -386,192 +406,154 @@ describe('StockAdjustmentsTab and LedgerHistoryTab', () => {
     const line2 = within(adjSection).getByRole('group', {
       name: 'Adjustment line 2',
     });
-    await user.selectOptions(getSelect(line2, 'Product'), AUGMENTIN_PRODUCT_ID);
     await user.selectOptions(
-      getSelect(line2, 'Location'),
-      CAIRO_SELL_LOCATION_ID
+      getSelect(line2, 'Product'),
+      MOCK_PRODUCT_IDS.AUGMENTIN_1G
     );
-    await user.selectOptions(getSelect(line2, 'Batch'), AUGMENTIN_BATCH_B_ID);
     await user.selectOptions(
       getSelect(line2, 'Unit of measure'),
-      AUGMENTIN_BOX_UOM_ID
+      MOCK_PRODUCT_UOM_IDS.AUGMENTIN_BOX
     );
+    await user.selectOptions(
+      getSelect(line2, 'Location'),
+      MOCK_LOCATION_IDS.MAIN_SELLABLE
+    );
+    await user.type(getInput(line2, 'Batch number'), 'MEDCARE-LOT-2801');
+    await user.type(getInput(line2, 'Manufactured date'), '2026-06-01');
+    await user.type(getInput(line2, 'Expiry date'), '2028-05-31');
     await user.type(getInput(line2, 'Quantity'), '2');
-    await user.type(getInput(line2, 'Unit cost (base)'), '1.50');
+    await user.type(getInput(line2, 'Unit cost'), '100.8');
 
     await user.click(
       within(adjSection).getByRole('button', { name: 'Submit adjustment' })
     );
+
     expect(
-      await within(ledgerSection).findByText('TXN-2026-000005')
+      await within(ledgerSection).findByText('TXN-2026-000004')
     ).toBeDefined();
 
-    // 2. Post ADJUSTMENT_IN using Box UOM
+    // 2. Atomic ADJUSTMENT_IN for Panadol Extra using Box of 24 UOM
     await user.selectOptions(
       getSelect(adjSection, 'Transaction type'),
       'ADJUSTMENT_IN'
     );
-    await user.type(getInput(adjSection, 'Reason code'), 'FOUND_BOXES');
+    await user.type(getInput(adjSection, 'Reason code'), 'CYCLE_SURPLUS');
+
     const nextLine1 = within(adjSection).getByRole('group', {
       name: 'Adjustment line 1',
     });
     await user.selectOptions(
       getSelect(nextLine1, 'Product'),
-      AUGMENTIN_PRODUCT_ID
-    );
-    await user.selectOptions(
-      getSelect(nextLine1, 'Location'),
-      CAIRO_SELL_LOCATION_ID
-    );
-    await user.selectOptions(
-      getSelect(nextLine1, 'Batch'),
-      AUGMENTIN_BATCH_B_ID
+      MOCK_PRODUCT_IDS.PANADOL_EXTRA
     );
     await user.selectOptions(
       getSelect(nextLine1, 'Unit of measure'),
-      AUGMENTIN_BOX_UOM_ID
+      MOCK_PRODUCT_UOM_IDS.PANADOL_BOX
     );
-    await user.type(getInput(nextLine1, 'Quantity'), '1');
-    await user.type(getInput(nextLine1, 'Unit cost (base)'), '1.25');
+    await user.selectOptions(
+      getSelect(nextLine1, 'Location'),
+      MOCK_LOCATION_IDS.MAIN_SELLABLE
+    );
+    await user.type(getInput(nextLine1, 'Batch number'), 'MEDCARE-PAN-01');
+    await user.type(getInput(nextLine1, 'Quantity'), '2');
+    await user.type(getInput(nextLine1, 'Unit cost'), '36');
+
     await user.click(
       within(adjSection).getByRole('button', { name: 'Submit adjustment' })
     );
 
     expect(
-      await within(ledgerSection).findByText('TXN-2026-000006')
+      await within(ledgerSection).findByText('TXN-2026-000005')
     ).toBeDefined();
   }, 15_000);
 
-  it('clears and disables unit_cost_base on ADJUSTMENT_OUT and maps 409 OUT_OF_STOCK to lines.0.entered_qty + trace_id banner', async () => {
+  it('hides/clears unit_cost_entered on ADJUSTMENT_OUT and maps 409 OUT_OF_STOCK and 422 EXPIRY_POLICY_VIOLATION inline', async () => {
     const user = userEvent.setup();
-    renderWithProviders(<StockAdjustmentsTab branchId={CAIRO_BRANCH_ID} />);
+    renderWithProviders(<StockAdjustmentsTab branchId={DOWNTOWN_BRANCH_ID} />);
 
     const line1 = await screen.findByRole('group', {
       name: 'Adjustment line 1',
     });
-    const costInput = getInput(line1, 'Unit cost (base)');
-    await user.type(costInput, '12.50');
-    expect(costInput.value).toBe('12.50');
 
+    // 1. Test 422 EXPIRY_POLICY_VIOLATION when placing expired MEDCARE-LOT-EXP into sellable MAIN-SELLABLE
+    await user.type(screen.getByLabelText('Reason code'), 'EXPIRED_CHECK');
     await user.selectOptions(
-      screen.getByLabelText('Transaction type'),
-      'ADJUSTMENT_OUT'
+      getSelect(line1, 'Product'),
+      MOCK_PRODUCT_IDS.AUGMENTIN_1G
     );
-    expect(costInput.value).toBe('');
-    expect(costInput.hasAttribute('disabled')).toBe(true);
-
-    await user.type(screen.getByLabelText('Reason code'), 'DAMAGE_WRITE_OFF');
-    await user.selectOptions(getSelect(line1, 'Product'), AUGMENTIN_PRODUCT_ID);
     await user.selectOptions(
       getSelect(line1, 'Location'),
-      CAIRO_SELL_LOCATION_ID
+      MOCK_LOCATION_IDS.MAIN_SELLABLE
     );
-    await user.selectOptions(getSelect(line1, 'Batch'), AUGMENTIN_BATCH_B_ID);
-    await user.type(getInput(line1, 'Quantity'), '99999');
+    await user.type(getInput(line1, 'Batch number'), 'MEDCARE-LOT-EXP');
+    await user.type(getInput(line1, 'Quantity'), '5');
+    await user.type(getInput(line1, 'Unit cost'), '7.2');
 
     await user.click(screen.getByRole('button', { name: 'Submit adjustment' }));
 
     expect(
       await within(line1).findByText(
-        /Available on-hand quantity is 1400\.0000\./i
+        /Batch "MEDCARE-LOT-EXP" is expired and cannot enter a sellable location\./i
       )
+    ).toBeDefined();
+    expect(getInput(line1, 'Expiry date').getAttribute('aria-invalid')).toBe(
+      'true'
+    );
+    expect(
+      screen.getAllByText(/mock-trace-inventory-expiry-policy/i).length
+    ).toBeGreaterThan(0);
+
+    // 2. Switch to ADJUSTMENT_OUT -> hides and clears Unit cost
+    await user.selectOptions(
+      screen.getByLabelText('Transaction type'),
+      'ADJUSTMENT_OUT'
+    );
+    expect(within(line1).queryByLabelText('Unit cost')).toBeNull();
+
+    // Switch back briefly to confirm Unit cost was cleared to empty string, then back to ADJUSTMENT_OUT
+    await user.selectOptions(
+      screen.getByLabelText('Transaction type'),
+      'ADJUSTMENT_IN'
+    );
+    expect(getInput(line1, 'Unit cost').value).toBe('');
+    await user.selectOptions(
+      screen.getByLabelText('Transaction type'),
+      'ADJUSTMENT_OUT'
+    );
+
+    const batchInput = getInput(line1, 'Batch number');
+    await user.clear(batchInput);
+    await user.type(batchInput, 'MEDCARE-LOT-2601');
+    const qtyInput = getInput(line1, 'Quantity');
+    await user.clear(qtyInput);
+    await user.type(qtyInput, '9999');
+
+    await user.click(screen.getByRole('button', { name: 'Submit adjustment' }));
+
+    expect(
+      await within(line1).findByText(/Available on-hand quantity is 280\./i)
     ).toBeDefined();
     expect(getInput(line1, 'Quantity').getAttribute('aria-invalid')).toBe(
       'true'
     );
     expect(
-      (
-        await screen.findAllByText(
-          /The requested quantity exceeds available on-hand stock\. \(Trace: mock-trace-inventory-out-of-stock\)/i
-        )
-      ).length
+      screen.getAllByText(/mock-trace-inventory-out-of-stock/i).length
     ).toBeGreaterThan(0);
   });
 
-  it('supports DRAFT edit (with !isDirty guard & immutable type), post, and cancel lifecycle', async () => {
+  it('filters ledger history, paginates server pages, handles error/retry, and executes inline Detail -> Reverse transaction -> REVERSAL post flow', async () => {
     const user = userEvent.setup();
-    renderWithProviders(
-      <>
-        <StockAdjustmentsTab branchId={CAIRO_BRANCH_ID} />
-        <LedgerHistoryTab branchId={CAIRO_BRANCH_ID} />
-      </>
-    );
-
-    const draftSection = getDraftsSection();
-    const editBtn = await within(draftSection).findByRole('button', {
-      name: 'Edit draft',
-    });
-    await user.click(editBtn);
-
-    const editFormCard = screen
-      .getByRole('heading', { name: /Edit Draft TXN-2026-000003/i })
-      .closest('section');
-    if (!editFormCard) {
-      throw new Error('Expected Edit Draft card');
-    }
-
-    expect(
-      getSelect(editFormCard, 'Transaction type').hasAttribute('disabled')
-    ).toBe(true);
-    const saveBtn = within(editFormCard).getByRole('button', {
-      name: 'Save draft changes',
-    });
-    expect(saveBtn.hasAttribute('disabled')).toBe(true);
-
-    const reasonInput = getInput(editFormCard, 'Reason code');
-    expect(reasonInput.value).toBe('PENDING_RECOUNT');
-    await user.clear(reasonInput);
-    await user.type(reasonInput, 'RECOUNT_UPDATED');
-    expect(saveBtn.hasAttribute('disabled')).toBe(false);
-
-    await user.click(saveBtn);
-    expect(
-      await within(draftSection).findByText('RECOUNT_UPDATED')
-    ).toBeDefined();
-
-    // Post the updated draft
-    await user.click(
-      within(draftSection).getByRole('button', { name: 'Post adjustment' })
-    );
-    expect(
-      await within(draftSection).findByText('No draft adjustments')
-    ).toBeDefined();
-
-    // Reset mock inventory and verify Cancel draft on TXN-2026-000003
-    cleanup();
-    resetMockInventory();
-    renderWithProviders(
-      <>
-        <StockAdjustmentsTab branchId={CAIRO_BRANCH_ID} />
-        <LedgerHistoryTab branchId={CAIRO_BRANCH_ID} />
-      </>
-    );
-
-    const nextDraftCard = getDraftsSection();
-    const cancelDraftBtn = await within(nextDraftCard).findByRole('button', {
-      name: 'Cancel draft',
-    });
-    await user.click(cancelDraftBtn);
-    expect(
-      await within(nextDraftCard).findByText('No draft adjustments')
-    ).toBeDefined();
-    expect(
-      await within(getLedgerSection()).findByText('CANCELLED')
-    ).toBeDefined();
-  });
-
-  it('filters ledger history, handles error/retry, and supports Ledger detail -> Reverse transaction -> REVERSAL post flow', async () => {
-    const user = userEvent.setup();
-    let failNextLedgerList = true;
+    let failFirstLedgerLoad = true;
     server.use(
       http.get('*/api/v1/inventory/transactions', () => {
-        if (failNextLedgerList) {
-          failNextLedgerList = false;
+        if (failFirstLedgerLoad) {
+          failFirstLedgerLoad = false;
           return HttpResponse.json(
             {
               error: {
-                code: 'INTERNAL_ERROR',
+                code: 'INTERNAL_SERVER_ERROR',
                 message: 'Ledger temporarily unavailable',
+                details: [],
                 trace_id: 'trace-ledger-500',
               },
             },
@@ -583,7 +565,7 @@ describe('StockAdjustmentsTab and LedgerHistoryTab', () => {
     );
 
     renderWithProviders(
-      <CombinedInventoryHarness branchId={CAIRO_BRANCH_ID} />
+      <CombinedInventoryHarness branchId={DOWNTOWN_BRANCH_ID} />
     );
 
     expect(
@@ -595,19 +577,29 @@ describe('StockAdjustmentsTab and LedgerHistoryTab', () => {
 
     expect(await screen.findByText('TXN-2026-000002')).toBeDefined();
     expect(screen.getByText('TXN-2026-000001')).toBeDefined();
+    expect(screen.getByText('Showing 1–2 of 2')).toBeDefined();
 
     // Filter by OPENING_BALANCE -> hides TXN-2026-000002
-    const filterTypeSelect = getSelect(document.body, 'Transaction type');
-    await user.selectOptions(filterTypeSelect, 'OPENING_BALANCE');
+    await user.selectOptions(
+      getSelect(document.body, 'Transaction type'),
+      'OPENING_BALANCE'
+    );
     await waitFor(() => {
       expect(screen.queryByText('TXN-2026-000002')).toBeNull();
     });
     expect(screen.getByText('TXN-2026-000001')).toBeDefined();
 
-    await user.click(screen.getByRole('button', { name: 'Clear filters' }));
+    // Filter by date window with no matches -> empty state + Clear filters recovery
+    await user.type(screen.getByLabelText('From date'), '2026-11-24');
+    expect(
+      await screen.findByText('No matching ledger transactions')
+    ).toBeDefined();
+    await user.click(
+      screen.getAllByRole('button', { name: 'Clear filters' })[0]
+    );
     expect(await screen.findByText('TXN-2026-000002')).toBeDefined();
 
-    // Open details for TXN-2026-000002 and click Reverse transaction
+    // Open inline detail modal for TXN-2026-000002 and click Reverse transaction
     const postedRow = screen.getByText('TXN-2026-000002').closest('tr');
     if (!postedRow) {
       throw new Error('Expected posted row');
@@ -617,34 +609,29 @@ describe('StockAdjustmentsTab and LedgerHistoryTab', () => {
     );
 
     const dialog = await screen.findByRole('dialog');
-    expect(await within(dialog).findByText('+200')).toBeDefined();
-    expect(within(dialog).getByText('+1,400')).toBeDefined();
+    expect(within(dialog).getByText('+48')).toBeDefined();
+    expect(within(dialog).getByText('+70')).toBeDefined();
 
     await user.click(
       within(dialog).getByRole('button', { name: 'Reverse transaction' })
     );
 
-    // Now on StockAdjustmentsTab with REVERSAL pre-populated
+    // Switched to StockAdjustmentsTab with REVERSAL selected and lines hidden
     await screen.findByLabelText('Transaction type');
     expect(getSelect(document.body, 'Transaction type').value).toBe('REVERSAL');
     expect(
       getSelect(document.body, 'Original transaction to reverse').value
-    ).toBe('7d9503b8-1001-4ca5-8a0b-cd4040620002');
-
-    const line1 = screen.getByRole('group', { name: 'Adjustment line 1' });
-    expect(getInput(line1, 'Unit cost (base)').value).toBe('');
-    expect(getInput(line1, 'Unit cost (base)').hasAttribute('disabled')).toBe(
-      true
-    );
-    expect(getInput(line1, 'Quantity').value).toBe('200.0000');
+    ).toBe(MOCK_TRANSACTION_IDS.DOWNTOWN_ADJUSTMENT_IN);
+    expect(screen.queryByText('Adjustment lines')).toBeNull();
 
     await user.type(screen.getByLabelText('Reason code'), 'AUDIT_REVERSAL');
     await user.click(screen.getByRole('button', { name: 'Submit adjustment' }));
 
-    // Switch back to Ledger and verify new REVERSAL transaction is listed with negative delta
+    // Switch back to Ledger View and inspect the posted REVERSAL transaction
     await user.click(screen.getByRole('button', { name: 'Ledger View' }));
-    expect(await screen.findByText('TXN-2026-000005')).toBeDefined();
-    const reversalRow = screen.getByText('TXN-2026-000005').closest('tr');
+    expect(await screen.findByText('TXN-2026-000004')).toBeDefined();
+
+    const reversalRow = screen.getByText('TXN-2026-000004').closest('tr');
     if (!reversalRow) {
       throw new Error('Expected reversal row');
     }
@@ -652,73 +639,13 @@ describe('StockAdjustmentsTab and LedgerHistoryTab', () => {
       within(reversalRow).getByRole('button', { name: 'View details' })
     );
     const reversalDialog = await screen.findByRole('dialog');
-    expect(await within(reversalDialog).findByText('-200')).toBeDefined();
-    expect(within(reversalDialog).getByText('-1,400')).toBeDefined();
-  });
-
-  it('filters ledger by product and date range, handles pagination/empty recovery, and retries detail modal errors', async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<LedgerHistoryTab branchId={CAIRO_BRANCH_ID} />);
-
-    expect(await screen.findByText('TXN-2026-000002')).toBeDefined();
-
-    // Filter by date window covering only 2026-10-15 (TXN-2026-000002)
-    await user.type(screen.getByLabelText('From date'), '2026-10-10');
-    await user.type(screen.getByLabelText('To date'), '2026-10-20');
-    await waitFor(() => {
-      expect(screen.queryByText('TXN-2026-000001')).toBeNull();
-    });
-    expect(screen.getByText('TXN-2026-000002')).toBeDefined();
-
-    // Filter by Product with no matches -> empty state + Clear filters recovery
-    await user.selectOptions(
-      screen.getByLabelText('Product'),
-      'd7e8f9a0-5555-4fff-9d4e-567890123bcd'
-    );
+    expect(within(reversalDialog).getByText('-48')).toBeDefined();
+    expect(within(reversalDialog).getByText('-70')).toBeDefined();
+    // Cannot reverse a REVERSAL transaction
     expect(
-      await screen.findByText('No matching ledger transactions')
-    ).toBeDefined();
-    await user.click(
-      screen.getAllByRole('button', { name: 'Clear filters' })[0]
-    );
-    expect(await screen.findByText('TXN-2026-000001')).toBeDefined();
-
-    // Detail modal error + Retry
-    let failDetail = true;
-    server.use(
-      http.get('*/api/v1/inventory/transactions/:txnId', () => {
-        if (failDetail) {
-          failDetail = false;
-          return HttpResponse.json(
-            {
-              error: {
-                code: 'INTERNAL_ERROR',
-                message: 'Detail lookup failed',
-                trace_id: 'trace-detail-500',
-              },
-            },
-            { status: 500 }
-          );
-        }
-        return undefined;
+      within(reversalDialog).queryByRole('button', {
+        name: 'Reverse transaction',
       })
-    );
-
-    const postedRow = screen.getByText('TXN-2026-000002').closest('tr');
-    if (!postedRow) {
-      throw new Error('Expected posted row');
-    }
-    await user.click(
-      within(postedRow).getByRole('button', { name: 'View details' })
-    );
-    const dialog = await screen.findByRole('dialog');
-    expect(
-      await within(dialog).findByText(
-        /Detail lookup failed \(Trace: trace-detail-500\)/i
-      )
-    ).toBeDefined();
-
-    await user.click(within(dialog).getByRole('button', { name: 'Retry' }));
-    expect(await within(dialog).findByText('+200')).toBeDefined();
-  });
+    ).toBeNull();
+  }, 15_000);
 });

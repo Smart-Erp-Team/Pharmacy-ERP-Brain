@@ -1,10 +1,10 @@
-import type { ProductUomDto } from '../../../types/api';
+import type { ProductUom } from '../../../types/api';
 import { ProductUomFormBody } from './ProductUomFormBody';
 
 export interface ProductUomFormModalProps {
   open: boolean;
   productId: string;
-  uom: ProductUomDto | null;
+  uom: ProductUom | null;
   hasBaseUom?: boolean;
   onClose: () => void;
 }

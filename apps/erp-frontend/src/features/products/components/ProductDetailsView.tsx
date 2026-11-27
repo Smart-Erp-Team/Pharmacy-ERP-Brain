@@ -8,7 +8,7 @@ import { Skeleton } from '../../../components/ui/Skeleton';
 import { Tabs } from '../../../components/ui/Tabs';
 import { useAuth } from '../../../hooks/useAuth';
 import { ApiClientError } from '../../../lib/api/client';
-import type { ProductCategoryDto, ProductDto } from '../../../types/api';
+import type { Product, ProductCategory } from '../../../types/api';
 import { useProductQuery } from '../hooks/useCatalogQueries';
 import { BranchReorderTab } from './BranchReorderTab';
 import { ProductDetailsHeader } from './ProductDetailsHeader';
@@ -18,10 +18,10 @@ import { ProductUomsTab } from './ProductUomsTab';
 
 export interface ProductDetailsViewProps {
   productId: string;
-  initialProduct?: ProductDto | null;
-  categories: readonly ProductCategoryDto[];
+  initialProduct?: Product | null;
+  categories: readonly ProductCategory[];
   onBack: () => void;
-  onEditProduct?: (product: ProductDto) => void;
+  onEditProduct?: (product: Product) => void;
 }
 
 const formatErr = (e: unknown) =>
@@ -40,9 +40,11 @@ export function ProductDetailsView({
 }: ProductDetailsViewProps) {
   const { hasAnyRole, can, runtime } = useAuth();
   const canReadReorder =
-    hasAnyRole(['Admin', 'Pharmacist']) && can('inventory:read');
+    hasAnyRole(['Admin', 'Pharmacist', 'Cashier']) && can('inventory:read');
   const canWrite =
-    canReadReorder && can('inventory:write') && runtime === 'Cloud';
+    hasAnyRole(['Admin', 'Pharmacist']) &&
+    can('inventory:write') &&
+    runtime === 'Cloud';
   const query = useProductQuery(productId);
   const [activeTab, setActiveTab] = useState('Product Information');
   const product =

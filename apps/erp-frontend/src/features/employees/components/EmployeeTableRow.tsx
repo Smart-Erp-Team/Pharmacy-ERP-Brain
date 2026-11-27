@@ -3,14 +3,14 @@ import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { TableCell, TableRow } from '../../../components/ui/Table';
 import { Toggle } from '../../../components/ui/Toggle';
-import type { EmployeeDto } from '../../../types/api';
+import type { Employee } from '../../../types/api';
 
 export interface EmployeeTableRowProps {
-  employee: EmployeeDto;
+  employee: Employee;
   branchLabel: string;
   isToggling: boolean;
-  onEdit: (employee: EmployeeDto) => void;
-  onToggleActive: (employee: EmployeeDto, nextActive: boolean) => void;
+  onEdit: (employee: Employee) => void;
+  onToggleActive: (employee: Employee, nextActive: boolean) => void;
 }
 
 export function EmployeeTableRow({
@@ -36,7 +36,7 @@ export function EmployeeTableRow({
         </div>
       </TableCell>
       <TableCell className="text-text-secondary">
-        {employee.job_title ? employee.job_title : '—'}
+        {employee.job_title}
       </TableCell>
       <TableCell className="text-text-secondary">{branchLabel}</TableCell>
       <TableCell className="text-text-secondary">

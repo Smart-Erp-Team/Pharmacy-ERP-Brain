@@ -5,20 +5,21 @@ import {
   type AttemptKeyRecord,
 } from '../../../lib/api/idempotency';
 import { fetchAllPages } from '../../../lib/api/pagination';
+import type {
+  CreateBranchRequest,
+  RedeemBranchEnrollmentRequest,
+  UpdateBranchRequest,
+} from '../../../types/api';
 import {
   createBranch,
   createBranchEnrollmentToken,
+  getBranch,
+  listBranches,
   patchBranch,
   redeemBranchEnrollment,
-  listBranches,
   type ListBranchesParams,
 } from '../api/branchesApi';
 import { branchesKeys, type AllBranchesKeyParams } from './branchesKeys';
-import type {
-  BranchEnrollmentRequest,
-  BranchPatchRequest,
-  BranchRequest,
-} from '../../../types/api';
 
 export interface UseBranchesQueryOptions {
   enabled?: boolean;
@@ -35,6 +36,22 @@ export function useBranchesQuery(
   });
 }
 
+export function useBranchQuery(
+  branchId: string | undefined,
+  options: UseBranchesQueryOptions = {}
+) {
+  return useQuery({
+    queryKey: branchesKeys.detail(branchId ?? ''),
+    queryFn: () => {
+      if (!branchId) {
+        throw new Error('Branch ID is required to fetch branch details.');
+      }
+      return getBranch(branchId);
+    },
+    enabled: Boolean(branchId) && (options.enabled ?? true),
+  });
+}
+
 export function useAllBranchesQuery(
   params: AllBranchesKeyParams = {},
   options: UseBranchesQueryOptions = {}
@@ -42,15 +59,15 @@ export function useAllBranchesQuery(
   return useQuery({
     queryKey: branchesKeys.allList(params),
     queryFn: () =>
-      fetchAllPages((cursor, limit) =>
-        listBranches({ ...params, cursor, limit })
+      fetchAllPages((page, pageSize) =>
+        listBranches({ ...params, page, page_size: pageSize })
       ),
     enabled: options.enabled ?? true,
   });
 }
 
 export interface CreateBranchVariables {
-  payload: BranchRequest;
+  payload: CreateBranchRequest;
   idempotencyKey?: string;
 }
 
@@ -76,7 +93,7 @@ export function useCreateBranchMutation() {
 
 export interface PatchBranchVariables {
   branchId: string;
-  payload: BranchPatchRequest;
+  payload: UpdateBranchRequest;
   idempotencyKey?: string;
 }
 
@@ -132,27 +149,12 @@ export function useCreateEnrollmentTokenMutation() {
 }
 
 export interface RedeemBranchEnrollmentVariables {
-  payload: BranchEnrollmentRequest;
-  idempotencyKey?: string;
+  payload: RedeemBranchEnrollmentRequest;
 }
 
 export function useRedeemBranchEnrollmentMutation() {
-  const attemptRef = useRef<AttemptKeyRecord | null>(null);
-
   return useMutation({
-    mutationFn: ({
-      payload,
-      idempotencyKey,
-    }: RedeemBranchEnrollmentVariables) =>
-      redeemBranchEnrollment(payload, {
-        idempotencyKey: getStableAttemptKey(
-          attemptRef,
-          JSON.stringify(payload),
-          idempotencyKey
-        ),
-      }),
-    onSuccess: () => {
-      attemptRef.current = null;
-    },
+    mutationFn: ({ payload }: RedeemBranchEnrollmentVariables) =>
+      redeemBranchEnrollment(payload),
   });
 }

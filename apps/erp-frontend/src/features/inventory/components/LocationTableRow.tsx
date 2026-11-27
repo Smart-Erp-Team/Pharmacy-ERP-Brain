@@ -3,19 +3,20 @@ import { Badge, type BadgeVariant } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { TableCell, TableRow } from '../../../components/ui/Table';
 import { Toggle } from '../../../components/ui/Toggle';
-import type { InventoryLocationDto, LocationType } from '../../../types/api';
+import type { InventoryLocation, LocationType } from '../../../types/api';
 
 export interface LocationTableRowProps {
-  location: InventoryLocationDto;
+  location: InventoryLocation;
   canWrite: boolean;
   isToggling: boolean;
-  onEdit: (location: InventoryLocationDto) => void;
-  onToggleActive: (location: InventoryLocationDto, nextActive: boolean) => void;
+  onEdit: (location: InventoryLocation) => void;
+  onToggleActive: (location: InventoryLocation, nextActive: boolean) => void;
 }
 
 const LOCATION_TYPE_VARIANT: Record<LocationType, BadgeVariant> = {
   SELLABLE: 'success',
   QUARANTINE: 'warning',
+  DAMAGED: 'danger',
   SCRAP: 'danger',
 };
 

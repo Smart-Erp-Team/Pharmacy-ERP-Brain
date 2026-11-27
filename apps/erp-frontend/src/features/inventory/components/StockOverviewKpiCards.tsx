@@ -2,20 +2,17 @@ import { AlertTriangle, Boxes, MapPin, Package } from 'lucide-react';
 import { Card } from '../../../components/ui/Card';
 import { Skeleton } from '../../../components/ui/Skeleton';
 import type {
-  InventoryBalanceDto,
-  InventoryBatchDto,
-  InventoryLocationDto,
+  InventoryBatch,
+  InventoryLocation,
+  StockBalance,
 } from '../../../types/api';
-import {
-  compareDecimalStrings,
-  formatNumericDisplay,
-  sumDecimalStrings,
-} from '../schemas/inventoryAdjustmentSchema';
+import { isNonLotBatchNumber } from '../hooks/useInventoryBranchState';
+import { formatNumericDisplay } from '../schemas/inventoryAdjustmentSchema';
 
 export interface StockOverviewKpiCardsProps {
-  balances: readonly InventoryBalanceDto[];
-  batches: readonly InventoryBatchDto[];
-  locations: readonly InventoryLocationDto[];
+  balances: readonly StockBalance[];
+  batches: readonly InventoryBatch[];
+  locations: readonly InventoryLocation[];
   isBalancesLoading: boolean;
   isBalancesError: boolean;
   isBatchesLoading: boolean;
@@ -28,7 +25,7 @@ function getTodayUtcDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function isBatchFlagged(batch: InventoryBatchDto, todayUtc: string): boolean {
+function isBatchFlagged(batch: InventoryBatch, todayUtc: string): boolean {
   if (
     batch.quality_status === 'QUARANTINED' ||
     batch.quality_status === 'EXPIRED' ||
@@ -37,7 +34,9 @@ function isBatchFlagged(batch: InventoryBatchDto, todayUtc: string): boolean {
     return true;
   }
   return Boolean(
-    !batch.is_non_lot && batch.expires_on && batch.expires_on < todayUtc
+    !isNonLotBatchNumber(batch.batch_number) &&
+    batch.expires_on !== null &&
+    batch.expires_on < todayUtc
   );
 }
 
@@ -56,12 +55,12 @@ export function StockOverviewKpiCards({
 
   const activeSkuCount = new Set(
     balances
-      .filter((row) => compareDecimalStrings(row.on_hand_qty_base, '0') > 0)
+      .filter((row) => row.on_hand_qty_base > 0)
       .map((row) => row.product_id)
   ).size;
 
   const totalSellableAvailable = formatNumericDisplay(
-    sumDecimalStrings(balances.map((row) => row.available_qty_base)),
+    balances.reduce((sum, row) => sum + row.available_qty_base, 0),
     { maxDecimals: 4 }
   );
 
@@ -89,14 +88,14 @@ export function StockOverviewKpiCards({
     {
       label: 'Batches flagged',
       value: isBatchesError ? 'Unavailable' : String(flaggedBatchCount),
-      helper: 'Quarantined, recalled, or expired lots',
+      helper: 'Quarantined, recalled, or expired org lots',
       loading: isBatchesLoading,
       icon: AlertTriangle,
     },
     {
       label: 'Active storage locations',
       value: isLocationsError ? 'Unavailable' : String(activeLocationCount),
-      helper: 'Configured shelf, quarantine, & scrap bins',
+      helper: 'Configured shelf, quarantine, damaged, & scrap bins',
       loading: isLocationsLoading,
       icon: MapPin,
     },

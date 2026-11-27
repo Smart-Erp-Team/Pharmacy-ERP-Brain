@@ -1,61 +1,90 @@
 import { z } from 'zod';
+import { LOCATION_TYPES } from '../../../lib/api/catalogInventoryNormalizers';
 import type {
-  InventoryLocationDto,
-  InventoryLocationPatchRequest,
-  InventoryLocationRequest,
+  CreateInventoryLocationRequest,
+  InventoryLocation,
   LocationType,
+  UpdateInventoryLocationRequest,
 } from '../../../types/api';
 
-export const LOCATION_TYPES = [
-  'SELLABLE',
-  'QUARANTINE',
-  'SCRAP',
-] as const satisfies readonly LocationType[];
+export { LOCATION_TYPES };
 
-const locationCoreFields = {
-  name: z
-    .string()
-    .trim()
-    .min(1, 'Location name is required')
-    .max(100, 'Location name must be at most 100 characters'),
-  location_type: z.enum(LOCATION_TYPES, {
-    errorMap: () => ({
-      message: 'Location type must be SELLABLE, QUARANTINE, or SCRAP',
+export function isSellableAllowedForLocationType(
+  locationType: LocationType
+): boolean {
+  return locationType === 'SELLABLE';
+}
+
+const locationNameSchema = z
+  .string()
+  .trim()
+  .min(1, 'Location name is required')
+  .max(100, 'Location name must be at most 100 characters');
+
+export const createLocationFormSchema = z
+  .object({
+    location_code: z
+      .string()
+      .trim()
+      .min(1, 'Location code is required')
+      .max(30, 'Location code must be at most 30 characters'),
+    name: locationNameSchema,
+    location_type: z.enum(LOCATION_TYPES, {
+      errorMap: () => ({
+        message:
+          'Location type must be SELLABLE, QUARANTINE, DAMAGED, or SCRAP',
+      }),
     }),
-  }),
-  is_active: z.boolean(),
-};
-
-export const createLocationFormSchema = z.object({
-  location_code: z
-    .string()
-    .trim()
-    .min(1, 'Location code is required')
-    .max(30, 'Location code must be at most 30 characters'),
-  ...locationCoreFields,
-});
+    is_sellable: z.boolean(),
+  })
+  .superRefine((values, ctx) => {
+    if (
+      !isSellableAllowedForLocationType(values.location_type) &&
+      values.is_sellable
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['is_sellable'],
+        message: 'Only SELLABLE locations can be marked as sellable',
+      });
+    }
+  });
 
 export type CreateLocationFormValues = z.infer<typeof createLocationFormSchema>;
 
 export const editLocationFormSchema = z.object({
-  ...locationCoreFields,
+  name: locationNameSchema,
+  is_sellable: z.boolean(),
+  is_active: z.boolean(),
 });
 
 export type EditLocationFormValues = z.infer<typeof editLocationFormSchema>;
+
+export function createEditLocationFormSchema(locationType: LocationType) {
+  return editLocationFormSchema.superRefine((values, ctx) => {
+    if (!isSellableAllowedForLocationType(locationType) && values.is_sellable) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['is_sellable'],
+        message: 'Only SELLABLE locations can be marked as sellable',
+      });
+    }
+  });
+}
 
 export const DEFAULT_LOCATION_FORM_VALUES: CreateLocationFormValues = {
   location_code: '',
   name: '',
   location_type: 'SELLABLE',
-  is_active: true,
+  is_sellable: true,
 };
 
 export function locationDtoToFormValues(
-  location: InventoryLocationDto
+  location: InventoryLocation
 ): EditLocationFormValues {
   return {
     name: location.name,
-    location_type: location.location_type,
+    is_sellable: location.is_sellable,
     is_active: location.is_active,
   };
 }
@@ -63,22 +92,24 @@ export function locationDtoToFormValues(
 export function toCreateLocationPayload(
   values: CreateLocationFormValues,
   branchId: string
-): InventoryLocationRequest {
+): CreateInventoryLocationRequest {
   return {
     branch_id: branchId.trim(),
     location_code: values.location_code.trim(),
     name: values.name.trim(),
     location_type: values.location_type,
-    is_active: values.is_active,
+    is_sellable: isSellableAllowedForLocationType(values.location_type)
+      ? values.is_sellable
+      : false,
   };
 }
 
 export function toLocationPatchPayload(
   values: EditLocationFormValues
-): InventoryLocationPatchRequest {
+): UpdateInventoryLocationRequest {
   return {
     name: values.name.trim(),
-    location_type: values.location_type,
+    is_sellable: values.is_sellable,
     is_active: values.is_active,
   };
 }

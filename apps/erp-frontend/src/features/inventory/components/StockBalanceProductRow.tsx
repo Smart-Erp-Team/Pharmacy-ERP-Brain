@@ -1,12 +1,8 @@
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Badge } from '../../../components/ui/Badge';
 import { TableCell, TableRow } from '../../../components/ui/Table';
-import type { ProductDto } from '../../products';
-import {
-  compareDecimalStrings,
-  formatNumericDisplay,
-  sumDecimalStrings,
-} from '../schemas/inventoryAdjustmentSchema';
+import type { Product } from '../../products';
+import { formatNumericDisplay } from '../schemas/inventoryAdjustmentSchema';
 import {
   StockBalanceBatchTable,
   type StockBalanceBatchItem,
@@ -14,33 +10,39 @@ import {
 
 export interface StockBalanceProductRowProps {
   productId: string;
-  product: ProductDto | undefined;
+  product: Product | undefined;
   items: readonly StockBalanceBatchItem[];
   expanded: boolean;
   onToggleExpand: () => void;
 }
 
 function summarizeAverageCost(items: readonly StockBalanceBatchItem[]): string {
-  const costs = items
-    .map((item) => item.balance.average_unit_cost)
-    .filter((cost): cost is string => Boolean(cost && cost.trim().length > 0));
+  let weightedSum = 0;
+  let totalQty = 0;
+  let minCost: number | null = null;
+  let maxCost: number | null = null;
 
-  if (costs.length === 0) {
+  for (const { balance } of items) {
+    const cost = balance.average_unit_cost;
+    if (cost === null || !Number.isFinite(cost)) continue;
+    minCost = minCost === null ? cost : Math.min(minCost, cost);
+    maxCost = maxCost === null ? cost : Math.max(maxCost, cost);
+    if (balance.on_hand_qty_base > 0) {
+      weightedSum += cost * balance.on_hand_qty_base;
+      totalQty += balance.on_hand_qty_base;
+    }
+  }
+
+  if (minCost === null || maxCost === null) {
     return 'Unavailable';
   }
-
-  let minCost = costs[0];
-  let maxCost = costs[0];
-  for (const cost of costs) {
-    if (compareDecimalStrings(cost, minCost) < 0) minCost = cost;
-    if (compareDecimalStrings(cost, maxCost) > 0) maxCost = cost;
+  if (totalQty > 0) {
+    return formatNumericDisplay(weightedSum / totalQty, { maxDecimals: 4 });
   }
-
   const formattedMin = formatNumericDisplay(minCost);
-  if (compareDecimalStrings(minCost, maxCost) === 0) {
-    return formattedMin;
-  }
-  return `${formattedMin} – ${formatNumericDisplay(maxCost)}`;
+  return minCost === maxCost
+    ? formattedMin
+    : `${formattedMin} – ${formatNumericDisplay(maxCost)}`;
 }
 
 export function StockBalanceProductRow({
@@ -50,12 +52,19 @@ export function StockBalanceProductRow({
   expanded,
   onToggleExpand,
 }: StockBalanceProductRowProps) {
-  const productName = product?.name ?? `Product ${productId.slice(0, 8)}`;
+  const firstBalance = items[0]?.balance;
+  const productName =
+    product?.name ??
+    firstBalance?.product_name ??
+    `Product ${productId.slice(0, 8)}`;
+  const productSku = product?.sku ?? firstBalance?.product_sku;
+  const baseUomCode = product?.base_uom_code ?? firstBalance?.base_uom_code;
+
   const totalOnHand = formatNumericDisplay(
-    sumDecimalStrings(items.map((item) => item.balance.on_hand_qty_base))
+    items.reduce((sum, item) => sum + item.balance.on_hand_qty_base, 0)
   );
   const totalAvailable = formatNumericDisplay(
-    sumDecimalStrings(items.map((item) => item.balance.available_qty_base))
+    items.reduce((sum, item) => sum + item.balance.available_qty_base, 0)
   );
   const averageCostSummary = summarizeAverageCost(items);
 
@@ -80,13 +89,13 @@ export function StockBalanceProductRow({
             <div className="flex flex-col gap-0.5">
               <span className="font-semibold">{productName}</span>
               <div className="flex flex-wrap items-center gap-1.5">
-                {product?.sku ? (
+                {productSku ? (
                   <span className="text-caption text-text-muted font-mono">
-                    {product.sku}
+                    {productSku}
                   </span>
                 ) : null}
-                {product?.base_uom_code ? (
-                  <Badge variant="neutral">{product.base_uom_code}</Badge>
+                {baseUomCode ? (
+                  <Badge variant="neutral">{baseUomCode}</Badge>
                 ) : null}
                 <span className="text-caption text-text-muted">
                   {items.length} {items.length === 1 ? 'lot' : 'lots'}

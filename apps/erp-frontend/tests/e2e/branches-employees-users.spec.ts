@@ -1,146 +1,145 @@
 import { expect, test } from '@playwright/test';
-import { BRANCH_CAI_ID } from './helpers/authContext';
+import { BRANCH_DT_ID } from './helpers/authContext.ts';
 import {
+  createBranchViaDialog,
   createEmployeeViaDialog,
-  fillAddressFields,
-} from './helpers/formFillers';
+  createPharmacistUserViaDialog,
+  issueAndCopyBranchToken,
+  submitResetPasswordDialog,
+} from './helpers/formFillers.ts';
 import {
   loginAsWorkspaceUser,
+  loginWithUserContext,
   trackUncaughtErrors,
-  waitForMswReady,
-} from './helpers/session';
+} from './helpers/session.ts';
 
-test('manages branches, enrollment tokens, and branch-enrollment runtime modes', async ({
+const EMP_003_ID = '11111111-3333-4111-8111-000000000003';
+
+test('manages MEDCARE branches, enrollment tokens, and Cloud vs BranchLocal enrollment modes', async ({
   page,
   context,
   browser,
 }) => {
   const errors = trackUncaughtErrors(page);
+  const dlg = (name: string | RegExp) => page.getByRole('dialog', { name });
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await loginAsWorkspaceUser(page, '/branches');
 
+  await expect(page.getByRole('row', { name: /MED-ALX/ })).toBeVisible();
   await page.getByRole('button', { name: 'Add branch' }).click();
-  const addDialog = page.getByRole('dialog', { name: 'Add branch' });
-  await addDialog.getByLabel('Branch code').fill('GIZ-09');
-  await addDialog.getByLabel('Branch name').fill('Dokki Flagship');
-  await fillAddressFields(addDialog, {
-    line1: '10 El Tahrir St',
-    city: 'Giza',
+  await createBranchViaDialog(dlg('Add branch'), {
+    code: 'MED-HEL',
+    name: 'MedCare - Heliopolis',
+    line1: '10 El Merghani St',
+    city: 'Cairo',
     countryCode: 'EG',
   });
-  await addDialog.getByRole('button', { name: 'Create branch' }).click();
-  await expect(page.getByText('GIZ-09')).toBeVisible();
-  await expect(page.getByText('Branch "Dokki Flagship" created')).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'MED-HEL' })).toBeVisible();
 
-  const cairoRow = page.getByRole('row', { name: /CAI-01/ });
-  await cairoRow.getByRole('button', { name: 'Edit' }).click();
-  const editDialog = page.getByRole('dialog', { name: /Edit / });
-  await expect(editDialog.getByLabel('Branch code')).toBeDisabled();
-  await expect(editDialog.getByLabel('Branch code')).toHaveValue('CAI-01');
-  await editDialog.getByLabel('Branch name').fill('Cairo Central Branch');
-  await editDialog.getByRole('button', { name: 'Save changes' }).click();
+  const dtRow = page.getByRole('row', { name: /MED-DT/ });
+  await dtRow.getByRole('button', { name: 'Edit' }).click();
+  const editDlg = dlg(/Edit /);
+  await expect(editDlg.getByLabel('Branch code')).toBeDisabled();
+  await expect(editDlg.getByLabel('Branch code')).toHaveValue('MED-DT');
+  await editDlg.getByLabel('Branch name').fill('MedCare - Downtown Main');
+  await editDlg.getByRole('button', { name: 'Save changes' }).click();
   await expect(
-    cairoRow.getByText('Cairo Central Branch', { exact: true })
+    dtRow.getByText('MedCare - Downtown Main', { exact: true })
   ).toBeVisible();
 
-  await cairoRow.getByRole('button', { name: 'Enrollment token' }).click();
-  const tokenDialog = page.getByRole('dialog');
-  await expect(tokenDialog.getByText(/\dm \d{2}s remaining/)).toBeVisible();
-  const tokenCode = tokenDialog.getByText(/^enr_live_/);
-  const rawToken = (await tokenCode.textContent())?.trim() ?? '';
-  expect(rawToken).toMatch(/^enr_live_cai-01_/);
-  await tokenDialog.getByRole('button', { name: 'Copy' }).click();
-  await expect(
-    tokenDialog.getByRole('button', { name: 'Copied' })
-  ).toBeVisible();
-  await tokenDialog.getByRole('button', { name: 'Close dialog' }).click();
+  const rawToken = await issueAndCopyBranchToken(dtRow, page);
+  expect(rawToken).toMatch(/^enr_live_med-dt_/);
 
-  await page.goto('/branch-enrollment');
-  await expect(page.getByText('Wrong deployment')).toBeVisible();
-  await expect(page.getByLabel('Enrollment token')).toBeDisabled();
+  await page.getByRole('link', { name: 'Branch Enrollment' }).click();
+  await page.getByLabel('Enrollment token').fill(rawToken);
+  await page.getByRole('button', { name: 'Activate branch terminal' }).click();
+  await expect(page.getByText('Branch terminal enrolled')).toBeVisible();
+  await expect(page.getByText(/^rc_live_branch_device_/)).toBeVisible();
 
-  const anonContext = await browser.newContext({
-    viewport: { width: 1280, height: 800 },
-  });
+  const localCtx = await browser.newContext();
   try {
-    const anonPage = await anonContext.newPage();
-    await anonPage.goto('/branch-enrollment');
-    await waitForMswReady(anonPage);
-    await expect(anonPage.getByText('Wrong deployment')).toBeHidden();
-    await expect(anonPage.getByLabel('Enrollment token')).toBeEnabled();
-    await anonPage.getByLabel('Enrollment token').fill(rawToken);
-    await anonPage
-      .getByRole('button', { name: 'Activate branch terminal' })
-      .click();
-    await expect(anonPage.getByText('Branch terminal enrolled')).toBeVisible();
-    await expect(anonPage.getByText('cursor_sync_0001')).toBeVisible();
+    const local = await localCtx.newPage();
+    await loginWithUserContext(local, {
+      role: 'Cashier',
+      runtime_mode: 'BranchLocal',
+    });
+    await local.goto('/branch-enrollment');
+    await expect(local.getByText('Wrong deployment')).toBeVisible();
+    await expect(local.getByLabel('Enrollment token')).toBeDisabled();
   } finally {
-    await anonContext.close();
+    await localCtx.close();
   }
   expect(errors).toEqual([]);
 });
 
-test('creates and edits employees and manages user lockouts, scopes, and sessions', async ({
+test('enforces required job_title, 12-char passwords, branch_ids editing, and self-edit protection', async ({
   page,
 }) => {
   const errors = trackUncaughtErrors(page);
+  const row = (re: RegExp) => page.getByRole('row', { name: re });
+  const dlg = (name: string | RegExp) => page.getByRole('dialog', { name });
   await loginAsWorkspaceUser(page, '/employees');
 
+  for (const code of ['EMP-001', 'EMP-002', 'EMP-003']) {
+    await expect(row(new RegExp(code))).toBeVisible();
+  }
   await page.getByRole('button', { name: 'Add employee' }).click();
-  const empDialog = page.getByRole('dialog', { name: 'Add employee' });
-  await createEmployeeViaDialog(empDialog, BRANCH_CAI_ID);
-  await expect(page.getByRole('row', { name: /EMP-099/ })).toContainText(
-    'Nadia Samir'
-  );
+  const empDlg = dlg('Add employee');
+  await empDlg.getByRole('button', { name: 'Create employee' }).click();
+  await expect(empDlg.getByText('Job title is required')).toBeVisible();
+  await createEmployeeViaDialog(empDlg, BRANCH_DT_ID);
+  await expect(row(/EMP-099/)).toContainText('Nadia Samir');
 
-  const emp1Row = page.getByRole('row', { name: /EMP-001/ });
-  await emp1Row.getByRole('button', { name: 'Edit' }).click();
-  const editEmpDialog = page.getByRole('dialog', { name: /Edit / });
-  await editEmpDialog
-    .getByLabel('Job title (optional)')
-    .fill('Chief Pharmacist');
-  await editEmpDialog.getByRole('button', { name: 'Save changes' }).click();
-  await expect(emp1Row.getByText('Chief Pharmacist')).toBeVisible();
+  const emp1 = row(/EMP-001/);
+  await emp1.getByRole('button', { name: 'Edit' }).click();
+  await dlg(/Edit /).getByLabel('Job title').fill('Chief Pharmacy Director');
+  await dlg(/Edit /).getByRole('button', { name: 'Save changes' }).click();
+  await expect(emp1.getByText('Chief Pharmacy Director')).toBeVisible();
 
   await page.getByRole('link', { name: 'User Accounts' }).click();
-  const monaRow = page.getByRole('row', { name: /ph\.mona/ });
+  const adminRow = row(/admin@medcare\.test/);
+  await expect(adminRow.getByRole('switch', { name: /Toggle/ })).toBeDisabled();
+  await adminRow.getByRole('button', { name: 'Edit' }).click();
+  const selfDlg = dlg('Edit admin@medcare.test');
+  await expect(selfDlg.getByText('Self-account protection')).toBeVisible();
+  await expect(selfDlg.getByLabel('Role')).toBeDisabled();
+  await selfDlg.getByRole('button', { name: 'Cancel' }).click();
+
+  const monaRow = row(/ph\.mona@medcare\.test/);
   await expect(monaRow.getByText('Temporarily locked')).toBeVisible();
+  await monaRow.getByRole('button', { name: 'Edit' }).click();
+  await dlg(/Edit ph\.mona/)
+    .getByRole('button', { name: /MED-ALX/ })
+    .click();
+  await dlg(/Edit ph\.mona/)
+    .getByRole('button', { name: 'Save changes' })
+    .click();
+  await expect(monaRow.getByText('MED-DT, MED-ALX')).toBeVisible();
 
   await page.getByRole('button', { name: 'Add user' }).click();
-  const userDialog = page.getByRole('dialog', { name: 'Create user account' });
-  const empSelect = userDialog.getByLabel('Employee');
-  await expect(
-    empSelect.locator('option', { hasText: 'EMP-003' })
-  ).toBeAttached();
-  for (const excluded of ['EMP-001', 'EMP-004']) {
-    await expect(
-      empSelect.locator('option', { hasText: excluded })
-    ).toHaveCount(0);
-  }
-
-  await empSelect.selectOption('a1111111-1111-4111-8111-111111111103');
-  await userDialog.getByLabel('Username').fill('ph.youssef');
-  await userDialog.getByLabel('Password').fill('Str0ngPass!23');
-  await userDialog.getByLabel('Role').selectOption('Pharmacist');
-  const scopeSelect = userDialog.getByLabel('Branch scope');
-  await expect(scopeSelect.locator('option')).toHaveCount(1);
-  await expect(scopeSelect).toHaveValue('ASSIGNED');
-  await userDialog.getByRole('button', { name: /CAI-01/ }).click();
-  await userDialog.getByRole('button', { name: 'Create user' }).click();
-  await expect(page.getByRole('row', { name: /ph\.youssef/ })).toBeVisible();
+  const userDlg = dlg('Create user account');
+  const empSel = userDlg.getByLabel('Employee');
+  await expect(empSel.locator('option', { hasText: 'EMP-003' })).toBeAttached();
+  await expect(empSel.locator('option', { hasText: 'EMP-001' })).toHaveCount(0);
+  await createPharmacistUserViaDialog(userDlg, {
+    employeeId: EMP_003_ID,
+    username: 'ph.karim@medcare.test',
+    shortPassword: 'short',
+    validPassword: 'MedCarePass!12',
+    branchPattern: /MED-DT/,
+  });
+  await expect(row(/ph\.karim@medcare\.test/)).toBeVisible();
 
   await monaRow.getByRole('button', { name: 'Reset password' }).click();
-  const resetDialog = page.getByRole('dialog', { name: /Reset password/ });
-  await resetDialog.getByLabel('New password').fill('NewPass!2345');
-  await resetDialog.getByLabel('Confirm password').fill('NewPass!2345');
-  await resetDialog.getByRole('button', { name: 'Reset password' }).click();
-  await expect(resetDialog).toBeHidden();
+  await submitResetPasswordDialog(dlg(/Reset password/), 'NewMedCare!12');
+  await expect(dlg(/Reset password/)).toBeHidden();
 
   await monaRow.getByRole('button', { name: 'Revoke sessions' }).click();
-  const revokeDialog = page.getByRole('dialog', { name: /Revoke sessions/ });
-  await revokeDialog.getByRole('button', { name: 'Revoke sessions' }).click();
+  await dlg(/Revoke/)
+    .getByRole('button', { name: 'Revoke sessions' })
+    .click();
   await expect(
-    page.getByText('Active sessions revoked for ph.mona')
+    page.getByText('Active sessions revoked for ph.mona@medcare.test')
   ).toBeVisible();
   expect(errors).toEqual([]);
 });

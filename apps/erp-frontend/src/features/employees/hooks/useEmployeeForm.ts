@@ -1,9 +1,11 @@
+import type { UseFormRegister } from 'react-hook-form';
 import { useId, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { toast } from 'react-toastify';
 import type { SelectOption } from '../../../components/ui/Select';
-import type { BranchDto, EmployeeDto } from '../../../types/api';
+import type { Branch } from '../../../features/branches';
+import type { AddressDto, Employee } from '../../../types/api';
 import { applyEmployeeFormApiError } from '../schemas/employeeErrorMapper';
 import {
   DEFAULT_EMPLOYEE_FORM_VALUES,
@@ -19,48 +21,69 @@ import {
 } from './useEmployees';
 
 export function buildEmployeeBranchOptions(
-  branches: readonly BranchDto[],
+  branches: readonly Branch[],
   isBranchesLoading: boolean,
   isBranchesError: boolean,
   isEdit: boolean,
   currentBranchId: string
 ): SelectOption[] {
+  if (isEdit) {
+    if (isBranchesError) {
+      return [{ value: currentBranchId, label: 'Branch unavailable' }];
+    }
+    if (isBranchesLoading) {
+      return [{ value: currentBranchId, label: 'Loading branch...' }];
+    }
+    const matched = branches.find(
+      (branch) => branch.branch_id === currentBranchId
+    );
+    return [
+      {
+        value: currentBranchId,
+        label: matched
+          ? `${matched.branch_code} — ${matched.name}`
+          : 'Branch unavailable',
+      },
+    ];
+  }
+
   if (isBranchesError) {
-    return isEdit && currentBranchId
-      ? [{ value: currentBranchId, label: 'Branch unavailable' }]
-      : [{ value: '', label: 'Branch unavailable' }];
+    return [{ value: '', label: 'Branch unavailable' }];
   }
   if (isBranchesLoading) {
-    return isEdit && currentBranchId
-      ? [{ value: currentBranchId, label: 'Loading branch...' }]
-      : [{ value: '', label: 'Loading branches...' }];
+    return [{ value: '', label: 'Loading branches...' }];
   }
 
-  const eligibleBranches = branches.filter(
-    (branch) => branch.is_active || branch.branch_id === currentBranchId
-  );
-
-  const options: SelectOption[] = [
+  return [
     { value: '', label: 'Select home branch' },
-    ...eligibleBranches.map((branch) => ({
-      value: branch.branch_id,
-      label: `${branch.code} — ${branch.name}`,
-    })),
+    ...branches
+      .filter((branch) => branch.is_active)
+      .map((branch) => ({
+        value: branch.branch_id,
+        label: `${branch.branch_code} — ${branch.name}`,
+      })),
   ];
+}
 
-  if (
-    isEdit &&
-    currentBranchId &&
-    !eligibleBranches.some((branch) => branch.branch_id === currentBranchId)
-  ) {
-    options.push({ value: currentBranchId, label: 'Branch unavailable' });
-  }
-
-  return options;
+export function buildEmployeeAddressRegistrations(
+  register: UseFormRegister<EmployeeFormValues>
+) {
+  const fields: Record<
+    keyof AddressDto,
+    ReturnType<UseFormRegister<EmployeeFormValues>>
+  > = {
+    line1: register('address.line1'),
+    line2: register('address.line2'),
+    city: register('address.city'),
+    region: register('address.region'),
+    postal_code: register('address.postal_code'),
+    country_code: register('address.country_code'),
+  };
+  return fields;
 }
 
 export interface UseEmployeeFormOptions {
-  employee: EmployeeDto | null;
+  employee: Employee | null;
   onClose: () => void;
 }
 

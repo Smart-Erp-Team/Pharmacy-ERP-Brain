@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { toast } from 'react-toastify';
 import { useAuth } from '../../../hooks/useAuth';
 import { ApiClientError } from '../../../lib/api/client';
-import type { ProductDto, ProductUomDto } from '../../../types/api';
+import type { Product, ProductUom } from '../../../types/api';
 import { usePatchProductUomMutation } from './useCatalogMutations';
 import { useProductUomsQuery } from './useCatalogQueries';
 
@@ -18,25 +18,27 @@ export function formatCatalogApiError(
   return fallback;
 }
 
-export function useProductUomsTab(product: ProductDto) {
+export function useProductUomsTab(product: Product) {
   const { hasAnyRole, can, runtime } = useAuth();
   const canWrite =
     hasAnyRole(['Admin', 'Pharmacist']) &&
     can('inventory:write') &&
     runtime === 'Cloud';
-  const uomsQuery = useProductUomsQuery(product.product_id);
+  const uomsQuery = useProductUomsQuery(product.product_id, {
+    include_inactive: true,
+  });
   const patchMutation = usePatchProductUomMutation();
   const [togglingIds, setTogglingIds] = useState<string[]>([]);
   const [modal, setModal] = useState<{
     open: boolean;
-    uom: ProductUomDto | null;
+    uom: ProductUom | null;
   }>({ open: false, uom: null });
   const uoms = uomsQuery.data ?? [];
   const hasBaseUom = (uomsQuery.isSuccess ? uoms : product.uoms).some(
     (u) => u.is_base
   );
 
-  const toggleActive = async (uom: ProductUomDto, next: boolean) => {
+  const toggleActive = async (uom: ProductUom, next: boolean) => {
     const id = uom.product_uom_id;
     if (uom.is_base || !canWrite || togglingIds.includes(id)) return;
     setTogglingIds((p) => (p.includes(id) ? p : [...p, id]));
@@ -65,7 +67,7 @@ export function useProductUomsTab(product: ProductDto) {
     togglingIds,
     modal,
     openCreateModal: () => setModal({ open: true, uom: null }),
-    openEditModal: (uom: ProductUomDto) => setModal({ open: true, uom }),
+    openEditModal: (uom: ProductUom) => setModal({ open: true, uom }),
     closeModal: () => setModal({ open: false, uom: null }),
     toggleActive,
   };

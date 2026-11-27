@@ -1,12 +1,12 @@
 import { z } from 'zod';
 import type {
-  ProductCategoryDto,
-  ProductCategoryPatchRequest,
-  ProductCategoryRequest,
+  CreateProductCategoryRequest,
+  ProductCategory,
+  UpdateProductCategoryRequest,
 } from '../../../types/api';
 
 export interface CategoryTreeNode {
-  category: ProductCategoryDto;
+  category: ProductCategory;
   children: CategoryTreeNode[];
   depth: number;
 }
@@ -15,10 +15,7 @@ export interface BuildCategoryTreeOptions {
   includeInactive?: boolean;
 }
 
-function compareCategories(
-  a: ProductCategoryDto,
-  b: ProductCategoryDto
-): number {
+function compareCategories(a: ProductCategory, b: ProductCategory): number {
   const nameDiff = a.name.localeCompare(b.name, undefined, {
     sensitivity: 'base',
   });
@@ -44,7 +41,7 @@ function compareCategories(
  */
 export function getDescendantCategoryIds(
   categoryId: string,
-  categories: readonly ProductCategoryDto[]
+  categories: readonly ProductCategory[]
 ): Set<string> {
   const normalizedRootId = categoryId.trim();
   const descendants = new Set<string>();
@@ -98,8 +95,8 @@ export function getDescendantCategoryIds(
  */
 export function getEligibleParentCategories(
   editingCategoryId: string | null | undefined,
-  categories: readonly ProductCategoryDto[]
-): ProductCategoryDto[] {
+  categories: readonly ProductCategory[]
+): ProductCategory[] {
   const normalizedEditingId = editingCategoryId?.trim() ?? '';
   if (!normalizedEditingId) {
     return [...categories].sort(compareCategories);
@@ -119,11 +116,11 @@ export function getEligibleParentCategories(
  * `includeInactive` is false) are gracefully promoted to root nodes.
  */
 export function buildCategoryTree(
-  categories: readonly ProductCategoryDto[],
+  categories: readonly ProductCategory[],
   options: BuildCategoryTreeOptions = {}
 ): CategoryTreeNode[] {
   const includeInactive = options.includeInactive ?? false;
-  const dedupedById = new Map<string, ProductCategoryDto>();
+  const dedupedById = new Map<string, ProductCategory>();
   for (const category of categories) {
     if (!includeInactive && !category.is_active) {
       continue;
@@ -134,13 +131,13 @@ export function buildCategoryTree(
   }
   const visible = Array.from(dedupedById.values()).sort(compareCategories);
 
-  const visibleById = new Map<string, ProductCategoryDto>();
+  const visibleById = new Map<string, ProductCategory>();
   for (const category of visible) {
     visibleById.set(category.category_id, category);
   }
 
-  const childrenByParent = new Map<string, ProductCategoryDto[]>();
-  const roots: ProductCategoryDto[] = [];
+  const childrenByParent = new Map<string, ProductCategory[]>();
+  const roots: ProductCategory[] = [];
 
   for (const category of visible) {
     const parentId = category.parent_category_id;
@@ -166,7 +163,7 @@ export function buildCategoryTree(
   const visited = new Set<string>();
 
   const buildNode = (
-    category: ProductCategoryDto,
+    category: ProductCategory,
     depth: number
   ): CategoryTreeNode => {
     visited.add(category.category_id);
@@ -232,7 +229,7 @@ export type CategoryFormValues = z.infer<typeof baseCategoryFormSchema>;
 
 export function createCategoryFormSchema(
   editingCategoryId: string | null | undefined = null,
-  categories: readonly ProductCategoryDto[] = []
+  categories: readonly ProductCategory[] = []
 ) {
   const normalizedEditingId = editingCategoryId?.trim() ?? '';
 
@@ -277,7 +274,7 @@ export const DEFAULT_CATEGORY_FORM_VALUES: CategoryFormValues = {
 };
 
 export function categoryDtoToFormValues(
-  category: ProductCategoryDto
+  category: ProductCategory
 ): CategoryFormValues {
   return {
     code: category.code,
@@ -293,26 +290,36 @@ function normalizeOptionalString(value: string): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/**
+ * Maps validated `CategoryFormValues` to Stage 1 `CreateProductCategoryRequest`
+ * (omits `is_active` per `contracts/schemas/catalog.json`).
+ */
 export function toCategoryCreatePayload(
   values: CategoryFormValues
-): ProductCategoryRequest {
+): CreateProductCategoryRequest {
   return {
     parent_category_id: normalizeOptionalString(values.parent_category_id),
     code: values.code.trim(),
+    name: values.name.trim(),
+    description: normalizeOptionalString(values.description),
+  };
+}
+
+export const toCreateCategoryPayload = toCategoryCreatePayload;
+
+/**
+ * Maps validated `CategoryFormValues` to Stage 1 `UpdateProductCategoryRequest`
+ * (omits immutable `code` per `contracts/schemas/catalog.json`).
+ */
+export function toCategoryPatchPayload(
+  values: CategoryFormValues
+): UpdateProductCategoryRequest {
+  return {
+    parent_category_id: normalizeOptionalString(values.parent_category_id),
     name: values.name.trim(),
     description: normalizeOptionalString(values.description),
     is_active: values.is_active,
   };
 }
 
-export function toCategoryPatchPayload(
-  values: CategoryFormValues
-): ProductCategoryPatchRequest {
-  return {
-    parent_category_id: normalizeOptionalString(values.parent_category_id),
-    code: values.code.trim(),
-    name: values.name.trim(),
-    description: normalizeOptionalString(values.description),
-    is_active: values.is_active,
-  };
-}
+export const toPatchCategoryPayload = toCategoryPatchPayload;

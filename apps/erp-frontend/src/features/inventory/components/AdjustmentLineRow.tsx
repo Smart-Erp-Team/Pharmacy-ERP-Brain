@@ -8,16 +8,9 @@ import {
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
-import {
-  useProductUomsQuery,
-  type ProductDto,
-} from '../../../features/products';
-import type {
-  AdjustmentsTxnType,
-  InventoryBatchDto,
-  InventoryLocationDto,
-} from '../../../types/api';
-import { buildAdjustmentLineSelectConfigs } from '../hooks/useAdjustmentForm';
+import type { Product } from '../../../features/products';
+import type { AdjustmentsTxnType, InventoryLocation } from '../../../types/api';
+import { buildAdjustmentLineFieldConfigs } from '../hooks/useAdjustmentForm';
 import type {
   InventoryAdjustmentFormValues,
   InventoryAdjustmentLineFormValues,
@@ -28,9 +21,8 @@ export interface AdjustmentLineRowProps {
   totalLines: number;
   transactionType: AdjustmentsTxnType;
   disabled: boolean;
-  products: readonly ProductDto[];
-  locations: readonly InventoryLocationDto[];
-  batches: readonly InventoryBatchDto[];
+  products: readonly Product[];
+  locations: readonly InventoryLocation[];
   control: Control<InventoryAdjustmentFormValues>;
   lineErrors?: FieldErrors<InventoryAdjustmentLineFormValues>;
   onProductChange: (index: number, productId: string) => void;
@@ -44,74 +36,32 @@ export function AdjustmentLineRow({
   disabled,
   products,
   locations,
-  batches,
   control,
   lineErrors,
   onProductChange,
   onRemove,
 }: AdjustmentLineRowProps) {
-  const [productId, locationId, batchId, uomId] = useWatch({
+  const [productId, uomId, locationId] = useWatch({
     control,
     name: [
       `lines.${index}.product_id`,
-      `lines.${index}.location_id`,
-      `lines.${index}.batch_id`,
       `lines.${index}.product_uom_id`,
+      `lines.${index}.location_id`,
     ],
   });
 
-  const selectedProduct = products.find((p) => p.product_id === productId);
-  const isNonLot = selectedProduct?.lot_tracking_required === false;
-  const uomsQuery = useProductUomsQuery(productId || undefined, {
-    enabled: Boolean(productId),
-  });
-  const uoms =
-    uomsQuery.data && uomsQuery.data.length > 0
-      ? uomsQuery.data
-      : (selectedProduct?.uoms ?? []);
-
-  const selectFields = buildAdjustmentLineSelectConfigs({
+  const { selectFields, inputFields } = buildAdjustmentLineFieldConfigs({
     index,
+    transactionType,
     disabled,
     products,
     locations,
-    batches,
-    uoms,
     productId,
-    locationId,
-    batchId,
     uomId,
-    isNonLot,
+    locationId,
     lineErrors,
     onProductChange,
   });
-
-  const requiresCost =
-    transactionType === 'OPENING_BALANCE' ||
-    transactionType === 'ADJUSTMENT_IN';
-
-  const inputFields = [
-    {
-      name: `lines.${index}.entered_qty` as const,
-      label: 'Quantity',
-      placeholder: 'e.g. 10',
-      isDisabled: disabled,
-      hint: selectedProduct
-        ? `Entered in selected UOM (base: ${selectedProduct.base_uom_code})`
-        : undefined,
-      error: lineErrors?.entered_qty?.message,
-    },
-    {
-      name: `lines.${index}.unit_cost_base` as const,
-      label: 'Unit cost (base)',
-      placeholder: requiresCost ? '0.00' : 'Not used',
-      isDisabled: disabled || !requiresCost,
-      hint: requiresCost
-        ? 'Required non-negative cost per base unit'
-        : 'Cleared and disabled for outbound or reversal entries',
-      error: lineErrors?.unit_cost_base?.message,
-    },
-  ];
 
   return (
     <div
@@ -143,6 +93,7 @@ export function AdjustmentLineRow({
             render={({ field }) => (
               <Select
                 label={item.label}
+                name={field.name}
                 options={item.options}
                 value={field.value}
                 onBlur={field.onBlur}
@@ -167,8 +118,9 @@ export function AdjustmentLineRow({
               <Input
                 label={item.label}
                 name={field.name}
-                type="text"
-                inputMode="decimal"
+                type={item.type}
+                inputMode={item.inputMode}
+                maxLength={item.maxLength}
                 placeholder={item.placeholder}
                 value={field.value}
                 onBlur={field.onBlur}

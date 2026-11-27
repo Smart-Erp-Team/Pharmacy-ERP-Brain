@@ -29,7 +29,7 @@ export function BranchFormFields({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Input
           label="Branch code"
-          placeholder="CAI-01"
+          placeholder="MED-DT"
           maxLength={30}
           disabled={isEdit || disabled}
           hint={
@@ -37,12 +37,12 @@ export function BranchFormFields({
               ? 'Branch code is permanent once created.'
               : 'Unique code up to 30 characters'
           }
-          error={errors.code?.message}
-          {...register('code')}
+          error={errors.branch_code?.message}
+          {...register('branch_code')}
         />
         <Input
           label="Branch name"
-          placeholder="Cairo Main Branch"
+          placeholder="MedCare - Downtown Flagship"
           maxLength={150}
           disabled={disabled}
           error={errors.name?.message}
@@ -63,19 +63,21 @@ export function BranchFormFields({
         disabled={disabled}
       />
 
-      <Controller
-        name="is_active"
-        control={control}
-        render={({ field }) => (
-          <Toggle
-            label="Active branch"
-            description="Inactive branches remain in historical records but cannot enroll new terminals."
-            checked={field.value}
-            onChange={field.onChange}
-            disabled={disabled}
-          />
-        )}
-      />
+      {isEdit ? (
+        <Controller
+          name="is_active"
+          control={control}
+          render={({ field }) => (
+            <Toggle
+              label="Active branch"
+              description="Inactive branches remain in historical records but cannot enroll new terminals."
+              checked={field.value}
+              onChange={field.onChange}
+              disabled={disabled}
+            />
+          )}
+        />
+      ) : null}
     </>
   );
 }

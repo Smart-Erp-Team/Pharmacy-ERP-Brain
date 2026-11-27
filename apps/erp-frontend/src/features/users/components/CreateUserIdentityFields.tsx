@@ -1,13 +1,18 @@
 import type { FieldErrors, UseFormRegister } from 'react-hook-form';
-import type { EmployeeDto } from '../../../features/employees';
 import { Alert } from '../../../components/ui/Alert';
 import { Input } from '../../../components/ui/Input';
 import { Select, type SelectOption } from '../../../components/ui/Select';
+import type { Employee } from '../../../features/employees';
 import type { DirectoryQueryStatus } from '../hooks/useUsersPageState';
-import type { CreateUserFormValues } from '../schemas/userSchema';
+import {
+  MAX_PASSWORD_LENGTH,
+  MAX_USERNAME_LENGTH,
+  MIN_PASSWORD_LENGTH,
+  type CreateUserFormValues,
+} from '../schemas/userSchema';
 
 export interface CreateUserIdentityFieldsProps {
-  eligibleEmployees: readonly EmployeeDto[];
+  eligibleEmployees: readonly Employee[];
   employeesDirectory: DirectoryQueryStatus;
   hasNoEligibleEmployees: boolean;
   disabled: boolean;
@@ -16,7 +21,7 @@ export interface CreateUserIdentityFieldsProps {
 }
 
 function buildEmployeeOptions(
-  employees: readonly EmployeeDto[],
+  employees: readonly Employee[],
   isLoading: boolean,
   isError: boolean
 ): SelectOption[] {
@@ -77,8 +82,8 @@ export function CreateUserIdentityFields({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Input
           label="Username"
-          placeholder="ph.youssef"
-          maxLength={80}
+          placeholder="ph.karim@medcare.test"
+          maxLength={MAX_USERNAME_LENGTH}
           autoComplete="off"
           disabled={disabled}
           error={errors.username?.message}
@@ -87,8 +92,9 @@ export function CreateUserIdentityFields({
         <Input
           type="password"
           label="Password"
-          placeholder="Minimum 8 characters"
-          maxLength={128}
+          placeholder={`Minimum ${MIN_PASSWORD_LENGTH} characters`}
+          hint={`Must be at least ${MIN_PASSWORD_LENGTH} characters.`}
+          maxLength={MAX_PASSWORD_LENGTH}
           autoComplete="new-password"
           disabled={disabled}
           error={errors.password?.message}

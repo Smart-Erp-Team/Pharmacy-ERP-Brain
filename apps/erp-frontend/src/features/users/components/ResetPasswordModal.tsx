@@ -7,18 +7,20 @@ import { Alert } from '../../../components/ui/Alert';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
 import { Modal } from '../../../components/ui/Modal';
-import type { UserDto } from '../../../types/api';
+import type { User } from '../../../types/api';
 import { useResetUserPasswordMutation } from '../hooks/useUsers';
 import { applyPasswordResetFormApiError } from '../schemas/userErrorMapper';
 import {
   DEFAULT_PASSWORD_RESET_VALUES,
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
   passwordResetSchema,
   toPasswordResetPayload,
   type PasswordResetFormValues,
 } from '../schemas/userSchema';
 
 export interface ResetPasswordModalProps {
-  user: UserDto | null;
+  user: User | null;
   onClose: () => void;
 }
 
@@ -32,26 +34,20 @@ export function ResetPasswordModal({ user, onClose }: ResetPasswordModalProps) {
     defaultValues: DEFAULT_PASSWORD_RESET_VALUES,
   });
 
-  if (!user) {
-    return null;
-  }
+  if (!user) return null;
 
   const { errors } = form.formState;
   const isPending = resetMutation.isPending;
 
   const handleClose = () => {
-    if (isPending) {
-      return;
-    }
+    if (isPending) return;
     form.reset(DEFAULT_PASSWORD_RESET_VALUES);
     setSubmitError(null);
     onClose();
   };
 
   const onSubmit = form.handleSubmit(async (values) => {
-    if (isPending) {
-      return;
-    }
+    if (isPending) return;
     setSubmitError(null);
     try {
       await resetMutation.mutateAsync({
@@ -111,15 +107,16 @@ export function ResetPasswordModal({ user, onClose }: ResetPasswordModalProps) {
         ) : null}
 
         <Alert variant="info">
-          Set a new password (8–128 characters) for{' '}
+          Set a new password ({MIN_PASSWORD_LENGTH}–{MAX_PASSWORD_LENGTH}{' '}
+          characters) for{' '}
           <span className="font-mono font-semibold">{user.username}</span>.
         </Alert>
 
         <Input
           type="password"
           label="New password"
-          placeholder="Minimum 8 characters"
-          maxLength={128}
+          placeholder={`Minimum ${MIN_PASSWORD_LENGTH} characters`}
+          maxLength={MAX_PASSWORD_LENGTH}
           autoComplete="new-password"
           disabled={isPending}
           error={errors.new_password?.message}
@@ -130,7 +127,7 @@ export function ResetPasswordModal({ user, onClose }: ResetPasswordModalProps) {
           type="password"
           label="Confirm password"
           placeholder="Re-enter new password"
-          maxLength={128}
+          maxLength={MAX_PASSWORD_LENGTH}
           autoComplete="new-password"
           disabled={isPending}
           error={errors.confirm_password?.message}

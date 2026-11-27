@@ -2,24 +2,28 @@ import { z } from 'zod';
 import type {
   BranchScope,
   CreateUserRequest,
-  PasswordResetRequest,
-  Role,
-  UserDto,
-  UserPatchRequest,
+  ResetPasswordRequest,
+  UpdateUserRequest,
+  User,
+  UserRole,
 } from '../../../types/api';
+
+export const MIN_PASSWORD_LENGTH = 12;
+export const MAX_PASSWORD_LENGTH = 128;
+export const MAX_USERNAME_LENGTH = 80;
 
 export const USER_ROLES = [
   'Admin',
   'Pharmacist',
   'Cashier',
-] as const satisfies readonly Role[];
+] as const satisfies readonly UserRole[];
 
 export const BRANCH_SCOPES = [
   'ALL',
   'ASSIGNED',
 ] as const satisfies readonly BranchScope[];
 
-function normalizeBranchIds(branchIds: readonly string[]): string[] {
+export function normalizeBranchIds(branchIds: readonly string[]): string[] {
   const seen = new Set<string>();
   const normalized: string[] = [];
 
@@ -34,6 +38,34 @@ function normalizeBranchIds(branchIds: readonly string[]): string[] {
   return normalized;
 }
 
+function validateRoleAndBranchScope(
+  values: {
+    readonly role: UserRole;
+    readonly branch_scope: BranchScope;
+    readonly branch_ids: readonly string[];
+  },
+  ctx: z.RefinementCtx
+): void {
+  if (values.role !== 'Admin' && values.branch_scope !== 'ASSIGNED') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['branch_scope'],
+      message: 'Only Admin accounts can use ALL branch scope',
+    });
+  }
+
+  if (
+    (values.branch_scope === 'ASSIGNED' || values.role !== 'Admin') &&
+    normalizeBranchIds(values.branch_ids).length === 0
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['branch_ids'],
+      message: 'Select at least one branch for ASSIGNED scope',
+    });
+  }
+}
+
 export const createUserFormSchema = z
   .object({
     employee_id: z.string().trim().min(1, 'Employee is required'),
@@ -41,35 +73,25 @@ export const createUserFormSchema = z
       .string()
       .trim()
       .min(1, 'Username is required')
-      .max(80, 'Username must be at most 80 characters'),
+      .max(
+        MAX_USERNAME_LENGTH,
+        `Username must be at most ${MAX_USERNAME_LENGTH} characters`
+      ),
     password: z
       .string()
-      .min(8, 'Password must be at least 8 characters')
-      .max(128, 'Password must be at most 128 characters'),
+      .min(
+        MIN_PASSWORD_LENGTH,
+        `Password must be at least ${MIN_PASSWORD_LENGTH} characters`
+      )
+      .max(
+        MAX_PASSWORD_LENGTH,
+        `Password must be at most ${MAX_PASSWORD_LENGTH} characters`
+      ),
     role: z.enum(USER_ROLES),
     branch_scope: z.enum(BRANCH_SCOPES),
     branch_ids: z.array(z.string()),
   })
-  .superRefine((values, ctx) => {
-    if (values.role !== 'Admin' && values.branch_scope === 'ALL') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['branch_scope'],
-        message: 'Only Admin accounts can use ALL branch scope',
-      });
-    }
-
-    if (
-      values.branch_scope === 'ASSIGNED' &&
-      normalizeBranchIds(values.branch_ids).length === 0
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['branch_ids'],
-        message: 'Select at least one branch for ASSIGNED scope',
-      });
-    }
-  });
+  .superRefine(validateRoleAndBranchScope);
 
 export type CreateUserFormValues = z.infer<typeof createUserFormSchema>;
 
@@ -82,53 +104,33 @@ export const DEFAULT_CREATE_USER_FORM_VALUES: CreateUserFormValues = {
   branch_ids: [],
 };
 
-const editUserFormBaseSchema = z.object({
-  role: z.enum(USER_ROLES),
-  branch_scope: z.enum(BRANCH_SCOPES),
-  branch_ids: z.array(z.string()),
-  has_branch_access_edit: z.boolean(),
-  is_active: z.boolean(),
-});
+export const editUserFormSchema = z
+  .object({
+    role: z.enum(USER_ROLES),
+    branch_scope: z.enum(BRANCH_SCOPES),
+    branch_ids: z.array(z.string()),
+    is_active: z.boolean(),
+  })
+  .superRefine(validateRoleAndBranchScope);
 
-export type EditUserFormValues = z.infer<typeof editUserFormBaseSchema>;
+export type EditUserFormValues = z.infer<typeof editUserFormSchema>;
 
-export function createEditUserFormSchema(
-  initialBranchScope: BranchScope = 'ASSIGNED'
-) {
-  return editUserFormBaseSchema.superRefine((values, ctx) => {
-    if (values.role !== 'Admin' && values.branch_scope === 'ALL') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['branch_scope'],
-        message: 'Only Admin accounts can use ALL branch scope',
-      });
-    }
-
-    const requiresBranchIds =
-      values.branch_scope === 'ASSIGNED' &&
-      (initialBranchScope === 'ALL' || values.has_branch_access_edit);
-
-    if (
-      requiresBranchIds &&
-      normalizeBranchIds(values.branch_ids).length === 0
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['branch_ids'],
-        message: 'Select at least one branch for ASSIGNED scope',
-      });
-    }
-  });
+export function createEditUserFormSchema() {
+  return editUserFormSchema;
 }
-
-export const editUserFormSchema = createEditUserFormSchema('ASSIGNED');
 
 export const passwordResetSchema = z
   .object({
     new_password: z
       .string()
-      .min(8, 'Password must be at least 8 characters')
-      .max(128, 'Password must be at most 128 characters'),
+      .min(
+        MIN_PASSWORD_LENGTH,
+        `Password must be at least ${MIN_PASSWORD_LENGTH} characters`
+      )
+      .max(
+        MAX_PASSWORD_LENGTH,
+        `Password must be at most ${MAX_PASSWORD_LENGTH} characters`
+      ),
     confirm_password: z.string().min(1, 'Please confirm the new password'),
   })
   .refine((values) => values.confirm_password === values.new_password, {
@@ -146,59 +148,52 @@ export const DEFAULT_PASSWORD_RESET_VALUES: PasswordResetFormValues = {
 export function toCreateUserPayload(
   values: CreateUserFormValues
 ): CreateUserRequest {
-  const payload: CreateUserRequest = {
+  return {
     employee_id: values.employee_id.trim(),
     username: values.username.trim(),
     password: values.password,
     role: values.role,
     branch_scope: values.branch_scope,
+    branch_ids:
+      values.branch_scope === 'ALL'
+        ? []
+        : normalizeBranchIds(values.branch_ids),
   };
-
-  if (values.branch_scope === 'ASSIGNED') {
-    payload.branch_access = normalizeBranchIds(values.branch_ids).map(
-      (branch_id) => ({ branch_id })
-    );
-  }
-
-  return payload;
 }
 
-export function userDtoToEditFormValues(user: UserDto): EditUserFormValues {
+export function userDtoToEditFormValues(user: User): EditUserFormValues {
   return {
     role: user.role,
     branch_scope: user.branch_scope,
-    branch_ids: [],
-    has_branch_access_edit: false,
+    branch_ids: [...user.branch_ids],
     is_active: user.is_active,
   };
 }
 
 export function toUserPatchPayload(
+  values: EditUserFormValues
+): UpdateUserRequest;
+export function toUserPatchPayload(
   values: EditUserFormValues,
-  initialBranchScope?: BranchScope
-): UserPatchRequest {
-  const payload: UserPatchRequest = {
+  original: User
+): UpdateUserRequest;
+export function toUserPatchPayload(
+  values: EditUserFormValues
+): UpdateUserRequest {
+  return {
     role: values.role,
     branch_scope: values.branch_scope,
+    branch_ids:
+      values.branch_scope === 'ALL'
+        ? []
+        : normalizeBranchIds(values.branch_ids),
     is_active: values.is_active,
   };
-
-  const shouldSendBranchAccess =
-    values.branch_scope === 'ASSIGNED' &&
-    (values.has_branch_access_edit || initialBranchScope === 'ALL');
-
-  if (shouldSendBranchAccess) {
-    payload.branch_access = normalizeBranchIds(values.branch_ids).map(
-      (branch_id) => ({ branch_id })
-    );
-  }
-
-  return payload;
 }
 
 export function toPasswordResetPayload(
   values: PasswordResetFormValues
-): PasswordResetRequest {
+): ResetPasswordRequest {
   return {
     new_password: values.new_password,
   };

@@ -1,230 +1,564 @@
-import { http, HttpResponse, type JsonBodyType } from 'msw';
+import { http, HttpResponse } from 'msw';
 import inventoryBalanceFixture from '@contracts/fixtures/inventory-balance.json';
-import productFixture from '@contracts/fixtures/product.json';
+import {
+  isAdjustmentsTxnType,
+  isBatchQualityStatus,
+  isInventoryTransactionType,
+  isLocationType,
+  normalizeStockBalance,
+} from '../lib/api/catalogInventoryNormalizers';
+import { IDEMPOTENCY_KEY_MAX_LENGTH } from '../lib/api/idempotency';
+import { isPlainRecord } from '../lib/api/normalizers';
+import {
+  DEFAULT_PAGE,
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+} from '../lib/api/pagination';
 import type {
-  AdjustmentsTxnType,
-  BatchQualityStatus,
-  InventoryBalanceDto,
-  InventoryBatchDto,
-  InventoryLocationDto,
-  InventoryTxnDto,
-  InventoryTxnLineDto,
-  InventoryTxnType,
-  LocationType,
-  ProductDto,
-  ProductUomDto,
+  ErrorCode,
+  InventoryBatch,
+  InventoryLocation,
+  InventorySummary,
+  InventoryTxn,
+  InventoryTxnLine,
+  NormalizedApiErrorDetail,
+  NormalizedApiErrorEnvelope,
+  PagedResult,
+  Product,
+  ProductUom,
+  StockBalance,
 } from '../types/api';
-import { INITIAL_PRODUCTS } from './productHandlers';
+import { MOCK_BRANCH_IDS } from './branchHandlers';
+import { INITIAL_EMPLOYEES } from './employeeHandlers';
+import {
+  INITIAL_PRODUCTS,
+  MOCK_PRODUCT_IDS,
+  MOCK_PRODUCT_UOM_IDS,
+  ORGANIZATION_ID,
+} from './productHandlers';
 
-interface ValidationDetail {
-  field: string;
-  issue: string;
-}
+export {
+  MOCK_BRANCH_IDS,
+  MOCK_PRODUCT_IDS,
+  MOCK_PRODUCT_UOM_IDS,
+  ORGANIZATION_ID,
+};
+
+export const MOCK_EMPLOYEE_IDS = {
+  EMP_001:
+    INITIAL_EMPLOYEES[0]?.employee_id ?? '11111111-3333-4111-8111-000000000001',
+  EMP_002:
+    INITIAL_EMPLOYEES[1]?.employee_id ?? '11111111-3333-4111-8111-000000000002',
+} as const;
+
+export const MOCK_LOCATION_IDS = {
+  MAIN_SELLABLE: '694cb9a9-c19d-3c46-be41-a7fc76fcdc9f',
+  QUAR_01: '11111111-9999-4111-8111-000000000002',
+  DMG_01: '11111111-9999-4111-8111-000000000003',
+  SCRAP_01: '11111111-9999-4111-8111-000000000004',
+  OLD_BIN: '11111111-9999-4111-8111-000000000005',
+  ALX_SELL_01: '11111111-9999-4111-8111-000000000006',
+} as const;
+
+export const MOCK_BATCH_IDS = {
+  MEDCARE_LOT_2601: '7a8b9c0d-1e2f-5a3b-8c4d-5e6f7a8b9c0d',
+  MEDCARE_LOT_2602: '11111111-aaaa-4111-8111-000000000002',
+  MEDCARE_LOT_EXP: '11111111-aaaa-4111-8111-000000000003',
+  MEDCARE_PAN_01: '11111111-aaaa-4111-8111-000000000004',
+  VITAMIN_D3_NON_LOT: '11111111-aaaa-4111-8111-000000000005',
+} as const;
+
+export const MOCK_TRANSACTION_IDS = {
+  DOWNTOWN_OPENING_BALANCE: '11111111-bbbb-4111-8111-000000000001',
+  DOWNTOWN_ADJUSTMENT_IN: '11111111-bbbb-4111-8111-000000000002',
+  ALEXANDRIA_OPENING_BALANCE: '11111111-bbbb-4111-8111-000000000003',
+} as const;
+
+const NON_LOT_BATCH_NUMBER = 'NON-LOT';
+
+export const INITIAL_LOCATIONS: readonly InventoryLocation[] = [
+  {
+    location_id: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+    organization_id: ORGANIZATION_ID,
+    branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+    location_code: 'MAIN-SELLABLE',
+    name: 'Downtown Main Dispensary Shelf',
+    location_type: 'SELLABLE',
+    is_sellable: true,
+    is_active: true,
+    updated_at: '2026-11-25T10:00:00+00:00',
+  },
+  {
+    location_id: MOCK_LOCATION_IDS.QUAR_01,
+    organization_id: ORGANIZATION_ID,
+    branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+    location_code: 'QUAR-01',
+    name: 'Downtown Quarantine Cage',
+    location_type: 'QUARANTINE',
+    is_sellable: false,
+    is_active: true,
+    updated_at: '2026-11-25T10:00:00+00:00',
+  },
+  {
+    location_id: MOCK_LOCATION_IDS.DMG_01,
+    organization_id: ORGANIZATION_ID,
+    branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+    location_code: 'DMG-01',
+    name: 'Downtown Damaged Stock Bay',
+    location_type: 'DAMAGED',
+    is_sellable: false,
+    is_active: true,
+    updated_at: '2026-11-25T10:00:00+00:00',
+  },
+  {
+    location_id: MOCK_LOCATION_IDS.SCRAP_01,
+    organization_id: ORGANIZATION_ID,
+    branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+    location_code: 'SCRAP-01',
+    name: 'Downtown Disposal & Scrap Bin',
+    location_type: 'SCRAP',
+    is_sellable: false,
+    is_active: true,
+    updated_at: '2026-11-25T10:00:00+00:00',
+  },
+  {
+    location_id: MOCK_LOCATION_IDS.OLD_BIN,
+    organization_id: ORGANIZATION_ID,
+    branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+    location_code: 'OLD-BIN',
+    name: 'Downtown Legacy Overflow Bin',
+    location_type: 'SELLABLE',
+    is_sellable: false,
+    is_active: false,
+    updated_at: '2026-11-20T09:00:00+00:00',
+  },
+  {
+    location_id: MOCK_LOCATION_IDS.ALX_SELL_01,
+    organization_id: ORGANIZATION_ID,
+    branch_id: MOCK_BRANCH_IDS.ALEXANDRIA,
+    location_code: 'ALX-SELL-01',
+    name: 'Alexandria Main Dispensary Shelf',
+    location_type: 'SELLABLE',
+    is_sellable: true,
+    is_active: true,
+    updated_at: '2026-11-25T10:00:00+00:00',
+  },
+];
+
+export const INITIAL_BATCHES: readonly InventoryBatch[] = [
+  {
+    batch_id: MOCK_BATCH_IDS.MEDCARE_LOT_2601,
+    organization_id: ORGANIZATION_ID,
+    product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+    batch_number: 'MEDCARE-LOT-2601',
+    manufactured_on: '2026-01-10',
+    expires_on: '2027-07-31',
+    quality_status: 'AVAILABLE',
+    updated_at: '2026-11-25T10:15:00+00:00',
+  },
+  {
+    batch_id: MOCK_BATCH_IDS.MEDCARE_LOT_2602,
+    organization_id: ORGANIZATION_ID,
+    product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+    batch_number: 'MEDCARE-LOT-2602',
+    manufactured_on: '2025-12-15',
+    expires_on: '2026-12-15',
+    quality_status: 'AVAILABLE',
+    updated_at: '2026-11-25T10:20:00+00:00',
+  },
+  {
+    batch_id: MOCK_BATCH_IDS.MEDCARE_LOT_EXP,
+    organization_id: ORGANIZATION_ID,
+    product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+    batch_number: 'MEDCARE-LOT-EXP',
+    manufactured_on: '2023-06-01',
+    expires_on: '2025-06-01',
+    quality_status: 'EXPIRED',
+    updated_at: '2026-11-24T14:00:00+00:00',
+  },
+  {
+    batch_id: MOCK_BATCH_IDS.MEDCARE_PAN_01,
+    organization_id: ORGANIZATION_ID,
+    product_id: MOCK_PRODUCT_IDS.PANADOL_EXTRA,
+    batch_number: 'MEDCARE-PAN-01',
+    manufactured_on: '2026-03-01',
+    expires_on: '2027-03-31',
+    quality_status: 'AVAILABLE',
+    updated_at: '2026-11-25T10:30:00+00:00',
+  },
+  {
+    batch_id: MOCK_BATCH_IDS.VITAMIN_D3_NON_LOT,
+    organization_id: ORGANIZATION_ID,
+    product_id: MOCK_PRODUCT_IDS.VITAMIN_D3,
+    batch_number: NON_LOT_BATCH_NUMBER,
+    manufactured_on: null,
+    expires_on: null,
+    quality_status: 'AVAILABLE',
+    updated_at: '2026-11-25T10:45:00+00:00',
+  },
+];
+
+const VERBATIM_AUGMENTIN_BALANCE: StockBalance = normalizeStockBalance(
+  inventoryBalanceFixture,
+  '@contracts/fixtures/inventory-balance.json'
+);
+
+export const INITIAL_BALANCES: readonly StockBalance[] = [
+  VERBATIM_AUGMENTIN_BALANCE,
+  {
+    organization_id: ORGANIZATION_ID,
+    branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+    product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+    product_sku: 'MED-AUG-1000',
+    product_name: 'Augmentin 1g Film-Coated Tablets',
+    base_uom_code: 'TAB',
+    location_id: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+    location_code: 'MAIN-SELLABLE',
+    location_type: 'SELLABLE',
+    is_location_sellable: true,
+    batch_id: MOCK_BATCH_IDS.MEDCARE_LOT_2602,
+    batch_number: 'MEDCARE-LOT-2602',
+    manufactured_on: '2025-12-15',
+    expires_on: '2026-12-15',
+    quality_status: 'AVAILABLE',
+    on_hand_qty_base: 70,
+    available_qty_base: 70,
+    average_unit_cost: 7.0,
+    updated_at: '2026-11-25T10:20:00+00:00',
+    row_version: 2,
+  },
+  {
+    organization_id: ORGANIZATION_ID,
+    branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+    product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+    product_sku: 'MED-AUG-1000',
+    product_name: 'Augmentin 1g Film-Coated Tablets',
+    base_uom_code: 'TAB',
+    location_id: MOCK_LOCATION_IDS.DMG_01,
+    location_code: 'DMG-01',
+    location_type: 'DAMAGED',
+    is_location_sellable: false,
+    batch_id: MOCK_BATCH_IDS.MEDCARE_LOT_EXP,
+    batch_number: 'MEDCARE-LOT-EXP',
+    manufactured_on: '2023-06-01',
+    expires_on: '2025-06-01',
+    quality_status: 'EXPIRED',
+    on_hand_qty_base: 50,
+    available_qty_base: 0,
+    average_unit_cost: 6.92,
+    updated_at: '2026-11-24T14:00:00+00:00',
+    row_version: 1,
+  },
+  {
+    organization_id: ORGANIZATION_ID,
+    branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+    product_id: MOCK_PRODUCT_IDS.PANADOL_EXTRA,
+    product_sku: 'MED-PAN-500',
+    product_name: 'Panadol Extra 500mg',
+    base_uom_code: 'TAB',
+    location_id: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+    location_code: 'MAIN-SELLABLE',
+    location_type: 'SELLABLE',
+    is_location_sellable: true,
+    batch_id: MOCK_BATCH_IDS.MEDCARE_PAN_01,
+    batch_number: 'MEDCARE-PAN-01',
+    manufactured_on: '2026-03-01',
+    expires_on: '2027-03-31',
+    quality_status: 'AVAILABLE',
+    on_hand_qty_base: 480,
+    available_qty_base: 480,
+    average_unit_cost: 1.5,
+    updated_at: '2026-11-25T10:30:00+00:00',
+    row_version: 2,
+  },
+  {
+    organization_id: ORGANIZATION_ID,
+    branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+    product_id: MOCK_PRODUCT_IDS.VITAMIN_D3,
+    product_sku: 'MED-VIT-D3',
+    product_name: 'Vitamin D3 5000 IU',
+    base_uom_code: 'BOTTLE',
+    location_id: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+    location_code: 'MAIN-SELLABLE',
+    location_type: 'SELLABLE',
+    is_location_sellable: true,
+    batch_id: MOCK_BATCH_IDS.VITAMIN_D3_NON_LOT,
+    batch_number: NON_LOT_BATCH_NUMBER,
+    manufactured_on: null,
+    expires_on: null,
+    quality_status: 'AVAILABLE',
+    on_hand_qty_base: 60,
+    available_qty_base: 60,
+    average_unit_cost: 65.0,
+    updated_at: '2026-11-25T10:45:00+00:00',
+    row_version: 1,
+  },
+  {
+    organization_id: ORGANIZATION_ID,
+    branch_id: MOCK_BRANCH_IDS.ALEXANDRIA,
+    product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+    product_sku: 'MED-AUG-1000',
+    product_name: 'Augmentin 1g Film-Coated Tablets',
+    base_uom_code: 'TAB',
+    location_id: MOCK_LOCATION_IDS.ALX_SELL_01,
+    location_code: 'ALX-SELL-01',
+    location_type: 'SELLABLE',
+    is_location_sellable: true,
+    batch_id: MOCK_BATCH_IDS.MEDCARE_LOT_2601,
+    batch_number: 'MEDCARE-LOT-2601',
+    manufactured_on: '2026-01-10',
+    expires_on: '2027-07-31',
+    quality_status: 'AVAILABLE',
+    on_hand_qty_base: 140,
+    available_qty_base: 140,
+    average_unit_cost: 7.2,
+    updated_at: '2026-11-25T11:00:00+00:00',
+    row_version: 1,
+  },
+];
+
+export const INITIAL_TRANSACTIONS: readonly InventoryTxn[] = [
+  {
+    inventory_txn_id: MOCK_TRANSACTION_IDS.DOWNTOWN_ADJUSTMENT_IN,
+    organization_id: ORGANIZATION_ID,
+    branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+    transaction_no: 'TXN-2026-000002',
+    transaction_type: 'ADJUSTMENT_IN',
+    status: 'POSTED',
+    reason_code: 'CYCLE_COUNT_SURPLUS',
+    note: 'Cycle count surplus verified on Downtown main shelf.',
+    idempotency_key: 'seed-medcare-dt-adj-in-002',
+    created_by_employee_id: MOCK_EMPLOYEE_IDS.EMP_002,
+    reverses_inventory_txn_id: null,
+    posted_at: '2026-11-25T10:30:00+00:00',
+    lines: [
+      {
+        inventory_txn_line_id: '11111111-cccc-4111-8111-000000000201',
+        product_id: MOCK_PRODUCT_IDS.PANADOL_EXTRA,
+        location_id: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+        batch_id: MOCK_BATCH_IDS.MEDCARE_PAN_01,
+        batch_number: 'MEDCARE-PAN-01',
+        product_uom_id: MOCK_PRODUCT_UOM_IDS.PANADOL_TAB,
+        entered_qty: 48,
+        conversion_snapshot: 1,
+        quantity_delta_base: 48,
+        unit_cost_base: 1.5,
+      },
+      {
+        inventory_txn_line_id: '11111111-cccc-4111-8111-000000000202',
+        product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+        location_id: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+        batch_id: MOCK_BATCH_IDS.MEDCARE_LOT_2602,
+        batch_number: 'MEDCARE-LOT-2602',
+        product_uom_id: MOCK_PRODUCT_UOM_IDS.AUGMENTIN_TAB,
+        entered_qty: 70,
+        conversion_snapshot: 1,
+        quantity_delta_base: 70,
+        unit_cost_base: 7.0,
+      },
+    ],
+  },
+  {
+    inventory_txn_id: MOCK_TRANSACTION_IDS.DOWNTOWN_OPENING_BALANCE,
+    organization_id: ORGANIZATION_ID,
+    branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+    transaction_no: 'TXN-2026-000001',
+    transaction_type: 'OPENING_BALANCE',
+    status: 'POSTED',
+    reason_code: 'INITIAL_STOCK_LOAD',
+    note: 'Opening stock balance posted locally at Downtown Cairo launch.',
+    idempotency_key: 'seed-medcare-dt-opening-001',
+    created_by_employee_id: MOCK_EMPLOYEE_IDS.EMP_001,
+    reverses_inventory_txn_id: null,
+    posted_at: '2026-11-20T08:00:00+00:00',
+    lines: [
+      {
+        inventory_txn_line_id: '11111111-cccc-4111-8111-000000000101',
+        product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+        location_id: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+        batch_id: MOCK_BATCH_IDS.MEDCARE_LOT_2601,
+        batch_number: 'MEDCARE-LOT-2601',
+        product_uom_id: MOCK_PRODUCT_UOM_IDS.AUGMENTIN_TAB,
+        entered_qty: 280,
+        conversion_snapshot: 1,
+        quantity_delta_base: 280,
+        unit_cost_base: 7.2,
+      },
+      {
+        inventory_txn_line_id: '11111111-cccc-4111-8111-000000000102',
+        product_id: MOCK_PRODUCT_IDS.VITAMIN_D3,
+        location_id: MOCK_LOCATION_IDS.MAIN_SELLABLE,
+        batch_id: MOCK_BATCH_IDS.VITAMIN_D3_NON_LOT,
+        batch_number: NON_LOT_BATCH_NUMBER,
+        product_uom_id: MOCK_PRODUCT_UOM_IDS.VITAMIN_D3_BOTTLE,
+        entered_qty: 60,
+        conversion_snapshot: 1,
+        quantity_delta_base: 60,
+        unit_cost_base: 65.0,
+      },
+    ],
+  },
+  {
+    inventory_txn_id: MOCK_TRANSACTION_IDS.ALEXANDRIA_OPENING_BALANCE,
+    organization_id: ORGANIZATION_ID,
+    branch_id: MOCK_BRANCH_IDS.ALEXANDRIA,
+    transaction_no: 'TXN-2026-000003',
+    transaction_type: 'OPENING_BALANCE',
+    status: 'POSTED',
+    reason_code: 'INITIAL_STOCK_LOAD',
+    note: 'Opening stock balance posted locally at Alexandria Corniche launch.',
+    idempotency_key: 'seed-medcare-alx-opening-003',
+    created_by_employee_id: MOCK_EMPLOYEE_IDS.EMP_002,
+    reverses_inventory_txn_id: null,
+    posted_at: '2026-11-21T09:00:00+00:00',
+    lines: [
+      {
+        inventory_txn_line_id: '11111111-cccc-4111-8111-000000000301',
+        product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
+        location_id: MOCK_LOCATION_IDS.ALX_SELL_01,
+        batch_id: MOCK_BATCH_IDS.MEDCARE_LOT_2601,
+        batch_number: 'MEDCARE-LOT-2601',
+        product_uom_id: MOCK_PRODUCT_UOM_IDS.AUGMENTIN_TAB,
+        entered_qty: 140,
+        conversion_snapshot: 1,
+        quantity_delta_base: 140,
+        unit_cost_base: 7.2,
+      },
+    ],
+  },
+];
 
 interface IdempotencyEntry {
-  bodyText: string;
+  payloadSignature: string;
   status: number;
-  responseBody: JsonBodyType;
+  kind: 'location' | 'txn';
+  locationBody?: InventoryLocation;
+  txnBody?: InventoryTxn;
+  locationHeader?: string;
 }
 
-const CAIRO_BRANCH_ID = 'd4e5f6a7-3333-4c44-9d55-bbccddeeffaa';
-const ALEX_BRANCH_ID = 'e5f6a7b8-4444-4d55-9e66-ccddeeff0011';
+function cloneLocation(location: InventoryLocation): InventoryLocation {
+  return { ...location };
+}
 
-const OMAR_EMPLOYEE_ID = 'a1111111-1111-4111-8111-111111111101';
-const MONA_EMPLOYEE_ID = 'a1111111-1111-4111-8111-111111111102';
-const YOUSSEF_EMPLOYEE_ID = 'a1111111-1111-4111-8111-111111111103';
+function cloneBatch(batch: InventoryBatch): InventoryBatch {
+  return { ...batch };
+}
 
-const AUGMENTIN_PRODUCT_ID = inventoryBalanceFixture.product_id;
-const AUGMENTIN_BASE_UOM_ID = 'c1d2e3f4-1111-4aaa-8a1b-111111110001';
-const PANADOL_PRODUCT_ID = productFixture.product_id;
-const PANADOL_BASE_UOM_ID = 'f1a2b3c4-0101-4fff-8a1b-56789012abcd';
-const CETAL_PRODUCT_ID = 'd7e8f9a0-5555-4fff-9d4e-567890123bcd';
-const CENTRUM_PRODUCT_ID = 'f9a0b1c2-7777-4bbb-9f6a-789012345def';
+function cloneBalance(balance: StockBalance): StockBalance {
+  return { ...balance };
+}
 
-const CAIRO_SELL_LOCATION_ID = inventoryBalanceFixture.location_id;
-const CAIRO_QUAR_LOCATION_ID = '2f31c9d4-7070-4a10-8b2d-ce0f1a2b3c15';
-const CAIRO_SCRAP_LOCATION_ID = '2f31c9d4-7070-4a10-8b2d-ce0f1a2b3c16';
-const CAIRO_INACTIVE_LOCATION_ID = '2f31c9d4-7070-4a10-8b2d-ce0f1a2b3c17';
-const ALEX_SELL_LOCATION_ID = '3a41d0e5-7070-4a10-8b2d-ce0f1a2b3c21';
-const ALEX_QUAR_LOCATION_ID = '3a41d0e5-7070-4a10-8b2d-ce0f1a2b3c22';
-const ALEX_SCRAP_LOCATION_ID = '3a41d0e5-7070-4a10-8b2d-ce0f1a2b3c23';
+function cloneTxnLine(line: InventoryTxnLine): InventoryTxnLine {
+  return { ...line };
+}
 
-const AUGMENTIN_BATCH_A_ID = inventoryBalanceFixture.batch_id;
-const AUGMENTIN_BATCH_B_ID = '3a42d0e5-8080-4b2f-8d4a-3c4d5e6f8a17';
-const AUGMENTIN_BATCH_Q_ID = '3a42d0e5-8080-4b2f-8d4a-3c4d5e6f8a18';
-const AUGMENTIN_BATCH_E_ID = '3a42d0e5-8080-4b2f-8d4a-3c4d5e6f8a19';
-const PANADOL_NON_LOT_BATCH_ID = '4b53e1f6-9090-4c3f-9e5b-4d5e6f7a8b01';
-const CETAL_BATCH_A_ID = '5c64f2a7-9090-4c3f-9e5b-4d5e6f7a8b02';
-const CENTRUM_NON_LOT_BATCH_ID = '6d7503b8-9090-4c3f-9e5b-4d5e6f7a8b03';
+function cloneTxn(txn: InventoryTxn): InventoryTxn {
+  return {
+    ...txn,
+    lines: txn.lines.map(cloneTxnLine),
+  };
+}
 
-const VALID_LOCATION_TYPES: ReadonlySet<string> = new Set<LocationType>([
-  'SELLABLE',
-  'QUARANTINE',
-  'SCRAP',
-]);
+let mockLocations: InventoryLocation[] = INITIAL_LOCATIONS.map(cloneLocation);
+let mockBatches: InventoryBatch[] = INITIAL_BATCHES.map(cloneBatch);
+let mockBalances: StockBalance[] = INITIAL_BALANCES.map(cloneBalance);
+let mockTransactions: InventoryTxn[] = INITIAL_TRANSACTIONS.map(cloneTxn);
+let idempotencyStore = new Map<string, IdempotencyEntry>();
+let idCounter = 100;
+let txnCounter = 3;
 
-const VALID_QUALITY_STATUSES: ReadonlySet<string> = new Set<BatchQualityStatus>(
-  ['AVAILABLE', 'QUARANTINED', 'EXPIRED', 'RECALLED']
-);
+export function resetMockInventory(): void {
+  mockLocations = INITIAL_LOCATIONS.map(cloneLocation);
+  mockBatches = INITIAL_BATCHES.map(cloneBatch);
+  mockBalances = INITIAL_BALANCES.map(cloneBalance);
+  mockTransactions = INITIAL_TRANSACTIONS.map(cloneTxn);
+  idempotencyStore = new Map<string, IdempotencyEntry>();
+  idCounter = 100;
+  txnCounter = 3;
+}
 
-const VALID_ADJUSTMENT_TYPES: ReadonlySet<string> = new Set<AdjustmentsTxnType>(
-  ['OPENING_BALANCE', 'ADJUSTMENT_IN', 'ADJUSTMENT_OUT', 'REVERSAL']
-);
+function createMockUuid(segment: string): string {
+  idCounter += 1;
+  return `11111111-${segment}-4111-8111-${String(idCounter).padStart(12, '0')}`;
+}
 
-const VALID_TXN_TYPES: ReadonlySet<string> = new Set<InventoryTxnType>([
-  'OPENING_BALANCE',
-  'ADJUSTMENT_IN',
-  'ADJUSTMENT_OUT',
-  'SALE_ISSUE',
-  'SALES_RETURN_IN',
-  'PURCHASE_RECEIPT',
-  'VENDOR_RETURN_OUT',
-  'SCRAP_OUT',
-  'REVERSAL',
-]);
-
-const DECIMAL_INPUT_PATTERN = /^(-)?(?:\d+(?:\.\d+)?|\.\d+)$/;
-const NON_NEGATIVE_NUMERIC_4_PATTERN = /^\d{1,14}(\.\d{1,4})?$/;
-const POSITIVE_NUMERIC_4_PATTERN = /^(?!0+(\.0{1,4})?$)\d{1,14}(\.\d{1,4})?$/;
+function nextTransactionNo(): string {
+  txnCounter += 1;
+  return `TXN-2026-${String(txnCounter).padStart(6, '0')}`;
+}
 
 function todayUtcDateString(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function addUtcDays(daysOffset: number): string {
-  const now = new Date();
-  const utc = Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate() + daysOffset
+function round4(value: number): number {
+  if (value === 0 || !Number.isFinite(value)) {
+    return 0;
+  }
+  const sign = value < 0 ? -1 : 1;
+  const rounded =
+    sign * (Math.round((Math.abs(value) + Number.EPSILON) * 10_000) / 10_000);
+  return Object.is(rounded, -0) ? 0 : rounded;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function readTrimmedString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function isValidIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+  const [yearStr, monthStr, dayStr] = value.split('-');
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day
   );
-  return new Date(utc).toISOString().slice(0, 10);
 }
 
-function parseScaled4(raw: string): bigint | null {
-  const trimmed = raw.trim();
-  const match = DECIMAL_INPUT_PATTERN.exec(trimmed);
-  if (!match) {
-    return null;
+function compareFefoBatches(
+  left: { expires_on: string | null; batch_number: string },
+  right: { expires_on: string | null; batch_number: string }
+): number {
+  if (left.expires_on !== right.expires_on) {
+    if (left.expires_on === null) {
+      return 1;
+    }
+    if (right.expires_on === null) {
+      return -1;
+    }
+    return left.expires_on.localeCompare(right.expires_on);
   }
-  const isNegative = Boolean(match[1]);
-  const unsigned = isNegative ? trimmed.slice(1) : trimmed;
-  const [rawInt = '', rawFrac = ''] = unsigned.split('.');
-  if (rawFrac.length > 4) {
-    return null;
-  }
-  const normInt = rawInt.replace(/^0+(?=\d)/, '') || '0';
-  const isZero = /^0+$/.test(normInt) && /^0*$/.test(rawFrac);
-  if (isNegative && isZero) {
-    return null;
-  }
-  if (isZero) {
-    return 0n;
-  }
-  const mag = BigInt(`${normInt}${rawFrac.padEnd(4, '0')}`);
-  return isNegative ? -mag : mag;
-}
-
-function parseScaled6(raw: string): bigint | null {
-  const trimmed = raw.trim();
-  const match = DECIMAL_INPUT_PATTERN.exec(trimmed);
-  if (!match) {
-    return null;
-  }
-  const isNegative = Boolean(match[1]);
-  const unsigned = isNegative ? trimmed.slice(1) : trimmed;
-  const [rawInt = '', rawFrac = ''] = unsigned.split('.');
-  if (rawFrac.length > 6) {
-    return null;
-  }
-  const normInt = rawInt.replace(/^0+(?=\d)/, '') || '0';
-  const isZero = /^0+$/.test(normInt) && /^0*$/.test(rawFrac);
-  if (isNegative && isZero) {
-    return null;
-  }
-  if (isZero) {
-    return 0n;
-  }
-  const mag = BigInt(`${normInt}${rawFrac.padEnd(6, '0')}`);
-  return isNegative ? -mag : mag;
-}
-
-function formatScaled4(scaled: bigint): string {
-  if (scaled === 0n) {
-    return '0.0000';
-  }
-  const isNegative = scaled < 0n;
-  const abs = isNegative ? -scaled : scaled;
-  const digits = abs.toString().padStart(5, '0');
-  const splitIndex = digits.length - 4;
-  const formatted = `${digits.slice(0, splitIndex)}.${digits.slice(splitIndex)}`;
-  return isNegative ? `-${formatted}` : formatted;
-}
-
-function divideHalfUpUnsigned(numerator: bigint, denominator: bigint): bigint {
-  const quotient = numerator / denominator;
-  const remainder = numerator % denominator;
-  return remainder * 2n >= denominator ? quotient + 1n : quotient;
-}
-
-function multiplyQty4ByConversion6(
-  qtyScaled4: bigint,
-  conversionScaled6: bigint
-): bigint {
-  const product = qtyScaled4 * conversionScaled6;
-  return divideHalfUpUnsigned(product, 1_000_000n);
-}
-
-function computeWeightedAvgCost4(
-  oldQty4: bigint,
-  oldCost4: bigint,
-  addedQty4: bigint,
-  addedCost4: bigint
-): bigint {
-  if (oldQty4 === 0n) {
-    return addedCost4;
-  }
-  const newQty4 = oldQty4 + addedQty4;
-  if (newQty4 <= 0n) {
-    return oldCost4;
-  }
-  const numerator = oldQty4 * oldCost4 + addedQty4 * addedCost4;
-  return divideHalfUpUnsigned(numerator, newQty4);
-}
-
-function normalizePositiveNumeric4(raw: string): string | null {
-  const scaled = parseScaled4(raw);
-  if (scaled === null || scaled <= 0n) {
-    return null;
-  }
-  const formatted = formatScaled4(scaled);
-  return POSITIVE_NUMERIC_4_PATTERN.test(formatted) ? formatted : null;
-}
-
-function normalizeNonNegativeNumeric4(raw: string): string | null {
-  const scaled = parseScaled4(raw);
-  if (scaled === null || scaled < 0n) {
-    return null;
-  }
-  const formatted = formatScaled4(scaled);
-  return NON_NEGATIVE_NUMERIC_4_PATTERN.test(formatted) ? formatted : null;
+  return left.batch_number.localeCompare(right.batch_number);
 }
 
 function isBatchEligibleForSale(
-  batch: InventoryBatchDto | undefined,
-  referenceDate: string
+  batch: Pick<InventoryBatch, 'quality_status' | 'expires_on'> | undefined,
+  businessDate: string
 ): boolean {
   if (!batch || batch.quality_status !== 'AVAILABLE') {
     return false;
   }
-  if (batch.expires_on && batch.expires_on < referenceDate) {
+  if (batch.expires_on !== null && batch.expires_on <= businessDate) {
     return false;
   }
   return true;
 }
 
 function isLocationEligibleForSale(
-  location: InventoryLocationDto | undefined
+  location:
+    | Pick<InventoryLocation, 'location_type' | 'is_sellable' | 'is_active'>
+    | undefined
 ): boolean {
   return Boolean(
     location &&
@@ -235,673 +569,343 @@ function isLocationEligibleForSale(
 }
 
 function deriveAvailableQtyBase(
-  onHandQtyBase: string,
-  location: InventoryLocationDto | undefined,
-  batch: InventoryBatchDto | undefined
-): string {
+  onHandQtyBase: number,
+  location: InventoryLocation | undefined,
+  batch: InventoryBatch | undefined,
+  businessDate: string
+): number {
+  if (onHandQtyBase <= 0) {
+    return 0;
+  }
   if (
     isLocationEligibleForSale(location) &&
-    isBatchEligibleForSale(batch, todayUtcDateString())
+    isBatchEligibleForSale(batch, businessDate)
   ) {
-    return onHandQtyBase;
+    return round4(onHandQtyBase);
   }
-  return '0.0000';
+  return 0;
 }
 
-export const INITIAL_INVENTORY_LOCATIONS: readonly InventoryLocationDto[] = [
-  {
-    location_id: CAIRO_SELL_LOCATION_ID,
-    branch_id: CAIRO_BRANCH_ID,
-    location_code: 'MAIN-SELL',
-    name: 'Main Pharmacy Shelf',
-    location_type: 'SELLABLE',
-    is_sellable: true,
-    is_active: true,
-  },
-  {
-    location_id: CAIRO_QUAR_LOCATION_ID,
-    branch_id: CAIRO_BRANCH_ID,
-    location_code: 'CAI-QUAR',
-    name: 'Cairo Quarantine Cage',
-    location_type: 'QUARANTINE',
-    is_sellable: false,
-    is_active: true,
-  },
-  {
-    location_id: CAIRO_SCRAP_LOCATION_ID,
-    branch_id: CAIRO_BRANCH_ID,
-    location_code: 'CAI-SCRAP',
-    name: 'Cairo Disposal & Scrap Bin',
-    location_type: 'SCRAP',
-    is_sellable: false,
-    is_active: true,
-  },
-  {
-    location_id: CAIRO_INACTIVE_LOCATION_ID,
-    branch_id: CAIRO_BRANCH_ID,
-    location_code: 'CAI-SELL-OLD',
-    name: 'Cairo Legacy Overflow Shelf',
-    location_type: 'SELLABLE',
-    is_sellable: true,
-    is_active: false,
-  },
-  {
-    location_id: ALEX_SELL_LOCATION_ID,
-    branch_id: ALEX_BRANCH_ID,
-    location_code: 'ALX-SELL',
-    name: 'Alexandria Main Shelf',
-    location_type: 'SELLABLE',
-    is_sellable: true,
-    is_active: true,
-  },
-  {
-    location_id: ALEX_QUAR_LOCATION_ID,
-    branch_id: ALEX_BRANCH_ID,
-    location_code: 'ALX-QUAR',
-    name: 'Alexandria Quarantine Area',
-    location_type: 'QUARANTINE',
-    is_sellable: false,
-    is_active: true,
-  },
-  {
-    location_id: ALEX_SCRAP_LOCATION_ID,
-    branch_id: ALEX_BRANCH_ID,
-    location_code: 'ALX-SCRAP',
-    name: 'Alexandria Scrap Bin',
-    location_type: 'SCRAP',
-    is_sellable: false,
-    is_active: true,
-  },
-];
-
-export const INITIAL_INVENTORY_BATCHES: readonly InventoryBatchDto[] = [
-  {
-    batch_id: AUGMENTIN_BATCH_A_ID,
-    product_id: AUGMENTIN_PRODUCT_ID,
-    batch_number: 'AUG-2026-A',
-    manufactured_on: addUtcDays(-300),
-    expires_on: addUtcDays(25),
-    quality_status: 'AVAILABLE',
-    is_non_lot: false,
-  },
-  {
-    batch_id: AUGMENTIN_BATCH_B_ID,
-    product_id: AUGMENTIN_PRODUCT_ID,
-    batch_number: 'AUG-2027-B',
-    manufactured_on: addUtcDays(-60),
-    expires_on: addUtcDays(365),
-    quality_status: 'AVAILABLE',
-    is_non_lot: false,
-  },
-  {
-    batch_id: AUGMENTIN_BATCH_Q_ID,
-    product_id: AUGMENTIN_PRODUCT_ID,
-    batch_number: 'AUG-2026-Q',
-    manufactured_on: addUtcDays(-120),
-    expires_on: addUtcDays(180),
-    quality_status: 'QUARANTINED',
-    is_non_lot: false,
-  },
-  {
-    batch_id: AUGMENTIN_BATCH_E_ID,
-    product_id: AUGMENTIN_PRODUCT_ID,
-    batch_number: 'AUG-2020-E',
-    manufactured_on: '2018-05-01',
-    expires_on: '2020-05-01',
-    quality_status: 'EXPIRED',
-    is_non_lot: false,
-  },
-  {
-    batch_id: PANADOL_NON_LOT_BATCH_ID,
-    product_id: PANADOL_PRODUCT_ID,
-    batch_number: 'NON-LOT',
-    manufactured_on: null,
-    expires_on: null,
-    quality_status: 'AVAILABLE',
-    is_non_lot: true,
-  },
-  {
-    batch_id: CETAL_BATCH_A_ID,
-    product_id: CETAL_PRODUCT_ID,
-    batch_number: 'CET-2027-A',
-    manufactured_on: addUtcDays(-45),
-    expires_on: addUtcDays(240),
-    quality_status: 'AVAILABLE',
-    is_non_lot: false,
-  },
-  {
-    batch_id: CENTRUM_NON_LOT_BATCH_ID,
-    product_id: CENTRUM_PRODUCT_ID,
-    batch_number: 'NON-LOT',
-    manufactured_on: null,
-    expires_on: null,
-    quality_status: 'AVAILABLE',
-    is_non_lot: true,
-  },
-];
-
-function buildInitialBalance(
-  seed: Omit<InventoryBalanceDto, 'available_qty_base'>
-): InventoryBalanceDto {
-  const location = INITIAL_INVENTORY_LOCATIONS.find(
-    (loc) => loc.location_id === seed.location_id
-  );
-  const batch = INITIAL_INVENTORY_BATCHES.find(
-    (item) => item.batch_id === seed.batch_id
-  );
+function createMockErrorEnvelope(
+  code: ErrorCode,
+  message: string,
+  traceId: string,
+  details: NormalizedApiErrorDetail[] = []
+): NormalizedApiErrorEnvelope {
   return {
-    ...seed,
-    available_qty_base: deriveAvailableQtyBase(
-      seed.on_hand_qty_base,
-      location,
-      batch
-    ),
-  };
-}
-
-export const INITIAL_INVENTORY_BALANCES: readonly InventoryBalanceDto[] = [
-  {
-    ...inventoryBalanceFixture,
-    available_qty_base: deriveAvailableQtyBase(
-      inventoryBalanceFixture.on_hand_qty_base,
-      INITIAL_INVENTORY_LOCATIONS.find(
-        (loc) => loc.location_id === inventoryBalanceFixture.location_id
-      ),
-      INITIAL_INVENTORY_BATCHES.find(
-        (batch) => batch.batch_id === inventoryBalanceFixture.batch_id
-      )
-    ),
-  },
-  buildInitialBalance({
-    product_id: AUGMENTIN_PRODUCT_ID,
-    branch_id: CAIRO_BRANCH_ID,
-    location_id: CAIRO_SELL_LOCATION_ID,
-    batch_id: AUGMENTIN_BATCH_B_ID,
-    on_hand_qty_base: '1400.0000',
-    average_unit_cost: '1.2500',
-    row_version: 102,
-    updated_at: '2026-10-15T09:40:12Z',
-  }),
-  buildInitialBalance({
-    product_id: AUGMENTIN_PRODUCT_ID,
-    branch_id: CAIRO_BRANCH_ID,
-    location_id: CAIRO_QUAR_LOCATION_ID,
-    batch_id: AUGMENTIN_BATCH_Q_ID,
-    on_hand_qty_base: '280.0000',
-    average_unit_cost: '1.2052',
-    row_version: 103,
-    updated_at: '2026-10-14T11:20:00Z',
-  }),
-  buildInitialBalance({
-    product_id: AUGMENTIN_PRODUCT_ID,
-    branch_id: CAIRO_BRANCH_ID,
-    location_id: CAIRO_SCRAP_LOCATION_ID,
-    batch_id: AUGMENTIN_BATCH_E_ID,
-    on_hand_qty_base: '140.0000',
-    average_unit_cost: '1.1500',
-    row_version: 104,
-    updated_at: '2026-10-12T15:05:00Z',
-  }),
-  buildInitialBalance({
-    product_id: PANADOL_PRODUCT_ID,
-    branch_id: CAIRO_BRANCH_ID,
-    location_id: CAIRO_SELL_LOCATION_ID,
-    batch_id: PANADOL_NON_LOT_BATCH_ID,
-    on_hand_qty_base: '1200.0000',
-    average_unit_cost: '0.8500',
-    row_version: 105,
-    updated_at: '2026-10-15T09:40:12Z',
-  }),
-  buildInitialBalance({
-    product_id: AUGMENTIN_PRODUCT_ID,
-    branch_id: ALEX_BRANCH_ID,
-    location_id: ALEX_SELL_LOCATION_ID,
-    batch_id: AUGMENTIN_BATCH_B_ID,
-    on_hand_qty_base: '700.0000',
-    average_unit_cost: '1.2500',
-    row_version: 201,
-    updated_at: '2026-10-10T10:00:00Z',
-  }),
-  buildInitialBalance({
-    product_id: PANADOL_PRODUCT_ID,
-    branch_id: ALEX_BRANCH_ID,
-    location_id: ALEX_SELL_LOCATION_ID,
-    batch_id: PANADOL_NON_LOT_BATCH_ID,
-    on_hand_qty_base: '500.0000',
-    average_unit_cost: '0.8500',
-    row_version: 202,
-    updated_at: '2026-10-10T10:00:00Z',
-  }),
-];
-
-export const INITIAL_INVENTORY_TXNS: readonly InventoryTxnDto[] = [
-  {
-    inventory_txn_id: '7d9503b8-1001-4ca5-8a0b-cd4040620003',
-    branch_id: CAIRO_BRANCH_ID,
-    transaction_no: 'TXN-2026-000003',
-    transaction_type: 'ADJUSTMENT_IN',
-    status: 'DRAFT',
-    reason_code: 'PENDING_RECOUNT',
-    note: 'Pending recount verification for back-shelf box stock.',
-    posted_at: null,
-    created_by_employee_id: YOUSSEF_EMPLOYEE_ID,
-    reverses_inventory_txn_id: null,
-    sales_order_id: null,
-    sales_return_id: null,
-    purchase_order_id: null,
-    vendor_return_id: null,
-    lines: [
-      {
-        inventory_txn_line_id: '7d9503b8-2001-4ca5-8a0b-cd4040620301',
-        product_id: AUGMENTIN_PRODUCT_ID,
-        location_id: CAIRO_SELL_LOCATION_ID,
-        batch_id: AUGMENTIN_BATCH_B_ID,
-        product_uom_id: AUGMENTIN_BASE_UOM_ID,
-        entered_qty: '70.0000',
-        conversion_snapshot: '1.000000',
-        quantity_delta_base: '70.0000',
-        unit_cost_base: '1.2500',
-        sales_order_line_id: null,
-        sales_return_line_id: null,
-        purchase_order_line_id: null,
-        vendor_return_line_id: null,
-      },
-    ],
-  },
-  {
-    inventory_txn_id: '7d9503b8-1001-4ca5-8a0b-cd4040620002',
-    branch_id: CAIRO_BRANCH_ID,
-    transaction_no: 'TXN-2026-000002',
-    transaction_type: 'ADJUSTMENT_IN',
-    status: 'POSTED',
-    reason_code: 'CYCLE_COUNT_SURPLUS',
-    note: 'Cycle count surplus verified on Cairo main shelf.',
-    posted_at: '2026-10-15T09:40:12Z',
-    created_by_employee_id: OMAR_EMPLOYEE_ID,
-    reverses_inventory_txn_id: null,
-    sales_order_id: null,
-    sales_return_id: null,
-    purchase_order_id: null,
-    vendor_return_id: null,
-    lines: [
-      {
-        inventory_txn_line_id: '7d9503b8-2001-4ca5-8a0b-cd4040620201',
-        product_id: PANADOL_PRODUCT_ID,
-        location_id: CAIRO_SELL_LOCATION_ID,
-        batch_id: PANADOL_NON_LOT_BATCH_ID,
-        product_uom_id: PANADOL_BASE_UOM_ID,
-        entered_qty: '200.0000',
-        conversion_snapshot: '1.000000',
-        quantity_delta_base: '200.0000',
-        unit_cost_base: '0.8500',
-        sales_order_line_id: null,
-        sales_return_line_id: null,
-        purchase_order_line_id: null,
-        vendor_return_line_id: null,
-      },
-      {
-        inventory_txn_line_id: '7d9503b8-2001-4ca5-8a0b-cd4040620202',
-        product_id: AUGMENTIN_PRODUCT_ID,
-        location_id: CAIRO_SELL_LOCATION_ID,
-        batch_id: AUGMENTIN_BATCH_B_ID,
-        product_uom_id: AUGMENTIN_BASE_UOM_ID,
-        entered_qty: '1400.0000',
-        conversion_snapshot: '1.000000',
-        quantity_delta_base: '1400.0000',
-        unit_cost_base: '1.2500',
-        sales_order_line_id: null,
-        sales_return_line_id: null,
-        purchase_order_line_id: null,
-        vendor_return_line_id: null,
-      },
-    ],
-  },
-  {
-    inventory_txn_id: '7d9503b8-1001-4ca5-8a0b-cd4040620001',
-    branch_id: CAIRO_BRANCH_ID,
-    transaction_no: 'TXN-2026-000001',
-    transaction_type: 'OPENING_BALANCE',
-    status: 'POSTED',
-    reason_code: 'INITIAL_COUNT',
-    note: 'Opening stock balance posted locally at Cairo branch launch.',
-    posted_at: '2026-10-01T08:00:00Z',
-    created_by_employee_id: YOUSSEF_EMPLOYEE_ID,
-    reverses_inventory_txn_id: null,
-    sales_order_id: null,
-    sales_return_id: null,
-    purchase_order_id: null,
-    vendor_return_id: null,
-    lines: [
-      {
-        inventory_txn_line_id: '7d9503b8-2001-4ca5-8a0b-cd4040620101',
-        product_id: AUGMENTIN_PRODUCT_ID,
-        location_id: CAIRO_SELL_LOCATION_ID,
-        batch_id: AUGMENTIN_BATCH_A_ID,
-        product_uom_id: AUGMENTIN_BASE_UOM_ID,
-        entered_qty: '5000.0000',
-        conversion_snapshot: '1.000000',
-        quantity_delta_base: '5000.0000',
-        unit_cost_base: '1.2052',
-        sales_order_line_id: null,
-        sales_return_line_id: null,
-        purchase_order_line_id: null,
-        vendor_return_line_id: null,
-      },
-      {
-        inventory_txn_line_id: '7d9503b8-2001-4ca5-8a0b-cd4040620102',
-        product_id: PANADOL_PRODUCT_ID,
-        location_id: CAIRO_SELL_LOCATION_ID,
-        batch_id: PANADOL_NON_LOT_BATCH_ID,
-        product_uom_id: PANADOL_BASE_UOM_ID,
-        entered_qty: '1000.0000',
-        conversion_snapshot: '1.000000',
-        quantity_delta_base: '1000.0000',
-        unit_cost_base: '0.8500',
-        sales_order_line_id: null,
-        sales_return_line_id: null,
-        purchase_order_line_id: null,
-        vendor_return_line_id: null,
-      },
-    ],
-  },
-  {
-    inventory_txn_id: '7d9503b8-1001-4ca5-8a0b-cd4040620004',
-    branch_id: ALEX_BRANCH_ID,
-    transaction_no: 'TXN-2026-000004',
-    transaction_type: 'OPENING_BALANCE',
-    status: 'POSTED',
-    reason_code: 'INITIAL_COUNT',
-    note: 'Opening stock balance posted locally at Alexandria branch launch.',
-    posted_at: '2026-10-02T09:00:00Z',
-    created_by_employee_id: MONA_EMPLOYEE_ID,
-    reverses_inventory_txn_id: null,
-    sales_order_id: null,
-    sales_return_id: null,
-    purchase_order_id: null,
-    vendor_return_id: null,
-    lines: [
-      {
-        inventory_txn_line_id: '7d9503b8-2001-4ca5-8a0b-cd4040620401',
-        product_id: AUGMENTIN_PRODUCT_ID,
-        location_id: ALEX_SELL_LOCATION_ID,
-        batch_id: AUGMENTIN_BATCH_B_ID,
-        product_uom_id: AUGMENTIN_BASE_UOM_ID,
-        entered_qty: '700.0000',
-        conversion_snapshot: '1.000000',
-        quantity_delta_base: '700.0000',
-        unit_cost_base: '1.2500',
-        sales_order_line_id: null,
-        sales_return_line_id: null,
-        purchase_order_line_id: null,
-        vendor_return_line_id: null,
-      },
-      {
-        inventory_txn_line_id: '7d9503b8-2001-4ca5-8a0b-cd4040620402',
-        product_id: PANADOL_PRODUCT_ID,
-        location_id: ALEX_SELL_LOCATION_ID,
-        batch_id: PANADOL_NON_LOT_BATCH_ID,
-        product_uom_id: PANADOL_BASE_UOM_ID,
-        entered_qty: '500.0000',
-        conversion_snapshot: '1.000000',
-        quantity_delta_base: '500.0000',
-        unit_cost_base: '0.8500',
-        sales_order_line_id: null,
-        sales_return_line_id: null,
-        purchase_order_line_id: null,
-        vendor_return_line_id: null,
-      },
-    ],
-  },
-];
-
-function cloneLocation(location: InventoryLocationDto): InventoryLocationDto {
-  return { ...location };
-}
-
-function cloneBatch(batch: InventoryBatchDto): InventoryBatchDto {
-  return { ...batch };
-}
-
-function cloneBalance(balance: InventoryBalanceDto): InventoryBalanceDto {
-  return { ...balance };
-}
-
-function cloneTxnLine(line: InventoryTxnLineDto): InventoryTxnLineDto {
-  return { ...line };
-}
-
-function cloneTxn(txn: InventoryTxnDto): InventoryTxnDto {
-  return {
-    ...txn,
-    lines: txn.lines.map(cloneTxnLine),
-  };
-}
-
-let mockLocations: InventoryLocationDto[] =
-  INITIAL_INVENTORY_LOCATIONS.map(cloneLocation);
-let mockBatches: InventoryBatchDto[] =
-  INITIAL_INVENTORY_BATCHES.map(cloneBatch);
-let mockBalances: InventoryBalanceDto[] =
-  INITIAL_INVENTORY_BALANCES.map(cloneBalance);
-let mockTxns: InventoryTxnDto[] = INITIAL_INVENTORY_TXNS.map(cloneTxn);
-let idempotencyStore = new Map<string, IdempotencyEntry>();
-let idCounter = 0;
-let txnCounter = 4;
-
-export function resetMockInventory(): void {
-  mockLocations = INITIAL_INVENTORY_LOCATIONS.map(cloneLocation);
-  mockBatches = INITIAL_INVENTORY_BATCHES.map(cloneBatch);
-  mockBalances = INITIAL_INVENTORY_BALANCES.map(cloneBalance);
-  mockTxns = INITIAL_INVENTORY_TXNS.map(cloneTxn);
-  idempotencyStore = new Map<string, IdempotencyEntry>();
-  idCounter = 0;
-  txnCounter = 4;
-}
-
-function createMockUuid(): string {
-  idCounter += 1;
-  if (
-    typeof globalThis.crypto !== 'undefined' &&
-    typeof globalThis.crypto.randomUUID === 'function'
-  ) {
-    return globalThis.crypto.randomUUID();
-  }
-  return `10000000-0000-4000-8000-${String(idCounter).padStart(12, '0')}`;
-}
-
-function nextTransactionNo(): string {
-  txnCounter += 1;
-  return `TXN-2026-${String(txnCounter).padStart(6, '0')}`;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function readTrimmedString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function isLocationType(value: string): value is LocationType {
-  return VALID_LOCATION_TYPES.has(value);
-}
-
-function isBatchQualityStatus(value: string): value is BatchQualityStatus {
-  return VALID_QUALITY_STATUSES.has(value);
-}
-
-function isAdjustmentsTxnType(value: string): value is AdjustmentsTxnType {
-  return VALID_ADJUSTMENT_TYPES.has(value);
-}
-
-function isInventoryTxnType(value: string): value is InventoryTxnType {
-  return VALID_TXN_TYPES.has(value);
-}
-
-function malformedRequestResponse(message: string) {
-  return HttpResponse.json(
-    {
-      error: {
-        code: 'MALFORMED_REQUEST',
-        message,
-        trace_id: 'mock-trace-inventory-malformed',
-      },
+    error: {
+      code,
+      message,
+      details,
+      trace_id: traceId,
     },
+  };
+}
+
+function malformedRequestResponse(
+  message: string,
+  details: NormalizedApiErrorDetail[] = []
+) {
+  return HttpResponse.json(
+    createMockErrorEnvelope(
+      'MALFORMED_REQUEST',
+      message,
+      'mock-trace-inventory-malformed',
+      details
+    ),
     { status: 400 }
   );
 }
 
 function notFoundResponse(message: string) {
   return HttpResponse.json(
-    {
-      error: {
-        code: 'NOT_FOUND',
-        message,
-        trace_id: 'mock-trace-inventory-not-found',
-      },
-    },
+    createMockErrorEnvelope(
+      'NOT_FOUND',
+      message,
+      'mock-trace-inventory-not-found'
+    ),
     { status: 404 }
   );
 }
 
-function validationErrorResponse(message: string, details: ValidationDetail[]) {
+function validationErrorResponse(
+  message: string,
+  details: NormalizedApiErrorDetail[]
+) {
   return HttpResponse.json(
-    {
-      error: {
-        code: 'VALIDATION_ERROR',
-        message,
-        trace_id: 'mock-trace-inventory-validation',
-        details,
-      },
-    },
+    createMockErrorEnvelope(
+      'VALIDATION_ERROR',
+      message,
+      'mock-trace-inventory-validation',
+      details
+    ),
     { status: 422 }
   );
 }
 
-function conflictResponse(message: string, details: ValidationDetail[] = []) {
+function expiryPolicyViolationResponse(
+  message: string,
+  details: NormalizedApiErrorDetail[]
+) {
   return HttpResponse.json(
-    {
-      error: {
-        code: 'CONFLICT',
-        message,
-        trace_id: 'mock-trace-inventory-conflict',
-        ...(details.length > 0 ? { details } : {}),
-      },
-    },
+    createMockErrorEnvelope(
+      'EXPIRY_POLICY_VIOLATION',
+      message,
+      'mock-trace-inventory-expiry-policy',
+      details
+    ),
+    { status: 422 }
+  );
+}
+
+function conflictResponse(
+  message: string,
+  details: NormalizedApiErrorDetail[] = []
+) {
+  return HttpResponse.json(
+    createMockErrorEnvelope(
+      'CONFLICT',
+      message,
+      'mock-trace-inventory-conflict',
+      details
+    ),
     { status: 409 }
   );
 }
 
-function outOfStockResponse(message: string, details: ValidationDetail[]) {
+function invalidStateTransitionResponse(
+  message: string,
+  details: NormalizedApiErrorDetail[] = []
+) {
   return HttpResponse.json(
-    {
-      error: {
-        code: 'OUT_OF_STOCK',
-        message,
-        trace_id: 'mock-trace-inventory-out-of-stock',
-        details,
-      },
-    },
+    createMockErrorEnvelope(
+      'INVALID_STATE_TRANSITION',
+      message,
+      'mock-trace-inventory-invalid-state',
+      details
+    ),
+    { status: 409 }
+  );
+}
+
+function outOfStockResponse(
+  message: string,
+  details: NormalizedApiErrorDetail[]
+) {
+  return HttpResponse.json(
+    createMockErrorEnvelope(
+      'OUT_OF_STOCK',
+      message,
+      'mock-trace-inventory-out-of-stock',
+      details
+    ),
     { status: 409 }
   );
 }
 
 function idempotencyMismatchResponse() {
   return HttpResponse.json(
-    {
-      error: {
-        code: 'IDEMPOTENCY_MISMATCH',
-        message:
-          'Idempotency-Key was already used with a different request payload.',
-        trace_id: 'mock-trace-inventory-idempotency-mismatch',
-      },
-    },
+    createMockErrorEnvelope(
+      'IDEMPOTENCY_MISMATCH',
+      'Idempotency-Key was already used with a different request payload.',
+      'mock-trace-inventory-idempotency-mismatch'
+    ),
     { status: 409 }
   );
 }
 
-function parsePaginationParams(url: URL): { start: number; limit: number } {
-  const rawLimit = Number(url.searchParams.get('limit') ?? '50');
-  const parsedLimit = Math.floor(rawLimit);
-  const limit =
-    Number.isFinite(rawLimit) && parsedLimit > 0
-      ? Math.min(parsedLimit, 200)
-      : 50;
-  const rawCursor = Number(url.searchParams.get('cursor') ?? '0');
-  const parsedCursor = Math.floor(rawCursor);
-  const start =
-    Number.isFinite(rawCursor) && parsedCursor >= 0 ? parsedCursor : 0;
-
-  return { start, limit };
+function parsePositiveIntegerParam(raw: string | null, fallback: number) {
+  if (raw === null) {
+    return { valid: true as const, value: fallback };
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return { valid: false as const, value: fallback };
+  }
+  const parsed = Number(trimmed);
+  if (!Number.isInteger(parsed)) {
+    return { valid: false as const, value: fallback };
+  }
+  return { valid: true as const, value: parsed };
 }
 
-function checkIdempotency(
-  request: Request,
-  bodyText: string
-): {
-  key: string | null;
-  replayResponse: Response | null;
-} {
-  const rawKey = request.headers.get('Idempotency-Key')?.trim() ?? '';
-  if (!rawKey) {
-    return { key: null, replayResponse: null };
+function validatePaginationParams(
+  url: URL,
+  details: NormalizedApiErrorDetail[]
+): { page: number; pageSize: number } {
+  const pageResult = parsePositiveIntegerParam(
+    url.searchParams.get('page'),
+    DEFAULT_PAGE
+  );
+  const pageSizeResult = parsePositiveIntegerParam(
+    url.searchParams.get('page_size'),
+    DEFAULT_PAGE_SIZE
+  );
+
+  if (!pageResult.valid || pageResult.value < 1) {
+    details.push({
+      field: 'page',
+      issue: 'Page must be an integer greater than or equal to 1.',
+    });
   }
-  const url = new URL(request.url);
-  const compositeKey = `${request.method.toUpperCase()}:${url.pathname}:${rawKey}`;
-  const existing = idempotencyStore.get(compositeKey);
-  if (!existing) {
-    return { key: compositeKey, replayResponse: null };
+  if (
+    !pageSizeResult.valid ||
+    pageSizeResult.value < 1 ||
+    pageSizeResult.value > MAX_PAGE_SIZE
+  ) {
+    details.push({
+      field: 'page_size',
+      issue: `Page size must be an integer between 1 and ${MAX_PAGE_SIZE}.`,
+    });
   }
-  if (existing.bodyText !== bodyText) {
-    return { key: compositeKey, replayResponse: idempotencyMismatchResponse() };
-  }
-  if (existing.status === 204) {
-    return {
-      key: compositeKey,
-      replayResponse: new HttpResponse(null, { status: 204 }),
-    };
-  }
+
   return {
-    key: compositeKey,
-    replayResponse: HttpResponse.json(existing.responseBody, {
-      status: existing.status,
-    }),
+    page: pageResult.value,
+    pageSize: pageSizeResult.value,
   };
 }
 
-function storeIdempotencySuccess(
-  compositeKey: string | null,
-  bodyText: string,
-  status: number,
-  responseBody: JsonBodyType
-): void {
-  if (!compositeKey) {
-    return;
-  }
-  idempotencyStore.set(compositeKey, {
-    bodyText,
-    status,
-    responseBody,
-  });
+function buildPagedPayload<TItem>(
+  filtered: readonly TItem[],
+  page: number,
+  pageSize: number,
+  cloneItem: (item: TItem) => TItem
+): PagedResult<TItem> {
+  const totalCount = filtered.length;
+  const start = (page - 1) * pageSize;
+  const items = filtered.slice(start, start + pageSize).map(cloneItem);
+  const nextCursor = page * pageSize < totalCount ? String(page + 1) : null;
+
+  return {
+    items,
+    page,
+    page_size: pageSize,
+    total_count: totalCount,
+    next_cursor: nextCursor,
+  };
 }
 
-function parseJsonBody(bodyText: string): unknown {
-  if (!bodyText) {
-    return null;
-  }
-  try {
-    return JSON.parse(bodyText);
-  } catch {
-    return null;
-  }
+function computePayloadSignature(body: Record<string, unknown>): string {
+  const entries = Object.entries(body)
+    .filter(([key]) => key !== 'idempotency_key')
+    .sort(([left], [right]) => left.localeCompare(right));
+  return JSON.stringify(Object.fromEntries(entries));
 }
 
-function validateNullableString(
+function resolveIdempotency(
+  request: Request,
+  body: Record<string, unknown>
+):
+  | {
+      ok: true;
+      effectiveKey: string;
+      compositeKey: string;
+      payloadSignature: string;
+      replayResponse: Response | null;
+    }
+  | {
+      ok: false;
+      errorResponse: Response;
+    } {
+  const headerKey = request.headers.get('Idempotency-Key')?.trim() ?? '';
+  const bodyKey =
+    typeof body.idempotency_key === 'string' ? body.idempotency_key.trim() : '';
+  const effectiveKey = headerKey || bodyKey;
+
+  if (!effectiveKey) {
+    return {
+      ok: false,
+      errorResponse: malformedRequestResponse(
+        'The idempotency key is required.',
+        [
+          {
+            field: 'Idempotency-Key',
+            issue: 'The idempotency key is required.',
+          },
+        ]
+      ),
+    };
+  }
+
+  if (effectiveKey.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
+    return {
+      ok: false,
+      errorResponse: validationErrorResponse('Invalid idempotency key.', [
+        {
+          field: 'idempotency_key',
+          issue: `IdempotencyKey cannot exceed ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`,
+        },
+      ]),
+    };
+  }
+
+  const url = new URL(request.url);
+  const compositeKey = `${request.method.toUpperCase()}:${url.pathname}:${effectiveKey}`;
+  const payloadSignature = computePayloadSignature(body);
+  const existing = idempotencyStore.get(compositeKey);
+
+  if (!existing) {
+    return {
+      ok: true,
+      effectiveKey,
+      compositeKey,
+      payloadSignature,
+      replayResponse: null,
+    };
+  }
+
+  if (existing.payloadSignature !== payloadSignature) {
+    return {
+      ok: false,
+      errorResponse: idempotencyMismatchResponse(),
+    };
+  }
+
+  const headers = existing.locationHeader
+    ? { Location: existing.locationHeader }
+    : undefined;
+
+  if (existing.kind === 'location' && existing.locationBody) {
+    return {
+      ok: true,
+      effectiveKey,
+      compositeKey,
+      payloadSignature,
+      replayResponse: HttpResponse.json(cloneLocation(existing.locationBody), {
+        status: existing.status,
+        headers,
+      }),
+    };
+  }
+
+  if (existing.kind === 'txn' && existing.txnBody) {
+    return {
+      ok: true,
+      effectiveKey,
+      compositeKey,
+      payloadSignature,
+      replayResponse: HttpResponse.json(cloneTxn(existing.txnBody), {
+        status: existing.status,
+        headers,
+      }),
+    };
+  }
+
+  return {
+    ok: true,
+    effectiveKey,
+    compositeKey,
+    payloadSignature,
+    replayResponse: null,
+  };
+}
+
+function validateNullableOptionalString(
   rawValue: unknown,
   field: string,
   maxLength: number,
   label: string,
-  details: ValidationDetail[]
+  details: NormalizedApiErrorDetail[]
 ): string | null {
   if (rawValue === null || rawValue === undefined) {
     return null;
@@ -917,420 +921,11 @@ function validateNullableString(
   if (trimmed.length > maxLength) {
     details.push({
       field,
-      issue: `${label} must be at most ${maxLength} characters.`,
+      issue: `${label} cannot exceed ${maxLength} characters.`,
     });
     return null;
   }
   return trimmed;
-}
-
-function findProductAndUom(
-  productId: string,
-  uomId: string
-): { product: ProductDto; uom: ProductUomDto; baseUom: ProductUomDto } | null {
-  const product = INITIAL_PRODUCTS.find(
-    (item) => item.product_id === productId
-  );
-  if (!product) {
-    return null;
-  }
-  const uom = product.uoms.find((item) => item.product_uom_id === uomId);
-  const baseUom = product.uoms.find((item) => item.is_base) ?? product.uoms[0];
-  if (!uom || !baseUom) {
-    return null;
-  }
-  return { product, uom, baseUom };
-}
-
-function balanceMapKey(
-  branchId: string,
-  locationId: string,
-  batchId: string
-): string {
-  return `${branchId}:${locationId}:${batchId}`;
-}
-
-function findOriginalLineForReversal(
-  originalTxn: InventoryTxnDto,
-  productId: string,
-  locationId: string,
-  batchId: string,
-  lineIndex: number
-): InventoryTxnLineDto | undefined {
-  return (
-    originalTxn.lines.find(
-      (line) =>
-        line.product_id === productId &&
-        line.location_id === locationId &&
-        line.batch_id === batchId
-    ) ??
-    originalTxn.lines[lineIndex] ??
-    originalTxn.lines[0]
-  );
-}
-
-interface ResolvedLineBuildResult {
-  lines: InventoryTxnLineDto[] | null;
-  validationDetails: ValidationDetail[];
-}
-
-function buildTxnLinesFromRequest(
-  rawLines: unknown,
-  branchId: string,
-  transactionType: AdjustmentsTxnType,
-  originalTxn: InventoryTxnDto | null
-): ResolvedLineBuildResult {
-  const details: ValidationDetail[] = [];
-
-  if (!Array.isArray(rawLines) || rawLines.length === 0) {
-    details.push({
-      field: 'lines',
-      issue: 'At least one adjustment line is required.',
-    });
-    return { lines: null, validationDetails: details };
-  }
-
-  const requiresUnitCost =
-    transactionType === 'OPENING_BALANCE' ||
-    transactionType === 'ADJUSTMENT_IN';
-
-  const builtLines: InventoryTxnLineDto[] = [];
-
-  for (let i = 0; i < rawLines.length; i += 1) {
-    const lineDetailsStart = details.length;
-    const rawLine: unknown = rawLines[i];
-    if (!isRecord(rawLine)) {
-      details.push({
-        field: `lines[${i}].product_id`,
-        issue: 'Adjustment line must be a JSON object.',
-      });
-      continue;
-    }
-
-    const productId = readTrimmedString(rawLine.product_id);
-    const locationId = readTrimmedString(rawLine.location_id);
-    const batchId = readTrimmedString(rawLine.batch_id);
-    const productUomId = readTrimmedString(rawLine.product_uom_id);
-    const enteredQtyRaw = readTrimmedString(rawLine.entered_qty);
-
-    if (!productId) {
-      details.push({
-        field: `lines[${i}].product_id`,
-        issue: 'Product is required.',
-      });
-    }
-    if (!locationId) {
-      details.push({
-        field: `lines[${i}].location_id`,
-        issue: 'Location is required.',
-      });
-    }
-    if (!batchId) {
-      details.push({
-        field: `lines[${i}].batch_id`,
-        issue: 'Batch is required.',
-      });
-    }
-    if (!productUomId) {
-      details.push({
-        field: `lines[${i}].product_uom_id`,
-        issue: 'Unit of measure is required.',
-      });
-    }
-
-    const normalizedQty = enteredQtyRaw
-      ? normalizePositiveNumeric4(enteredQtyRaw)
-      : null;
-    if (!normalizedQty) {
-      details.push({
-        field: `lines[${i}].entered_qty`,
-        issue: 'Entered quantity must be a positive 4-decimal number.',
-      });
-    }
-
-    const product = productId
-      ? INITIAL_PRODUCTS.find((item) => item.product_id === productId)
-      : undefined;
-    if (productId && !product) {
-      details.push({
-        field: `lines[${i}].product_id`,
-        issue: 'Referenced product was not found.',
-      });
-    }
-
-    const location = locationId
-      ? mockLocations.find((loc) => loc.location_id === locationId)
-      : undefined;
-    if (locationId && (!location || location.branch_id !== branchId)) {
-      details.push({
-        field: `lines[${i}].location_id`,
-        issue: 'Location does not exist in this branch.',
-      });
-    }
-
-    const batch = batchId
-      ? mockBatches.find((item) => item.batch_id === batchId)
-      : undefined;
-    if (batchId && !batch) {
-      details.push({
-        field: `lines[${i}].batch_id`,
-        issue: 'Referenced batch was not found.',
-      });
-    } else if (batch && productId && batch.product_id !== productId) {
-      details.push({
-        field: `lines[${i}].batch_id`,
-        issue: 'Batch does not belong to the selected product.',
-      });
-    }
-
-    const resolvedProductUom =
-      product && productUomId
-        ? findProductAndUom(product.product_id, productUomId)
-        : null;
-    if (product && productUomId && !resolvedProductUom) {
-      details.push({
-        field: `lines[${i}].product_uom_id`,
-        issue: 'Unit of measure does not belong to the selected product.',
-      });
-    }
-
-    let unitCostBase: string | null = null;
-    if (requiresUnitCost) {
-      if (typeof rawLine.unit_cost_base !== 'string') {
-        details.push({
-          field: `lines[${i}].unit_cost_base`,
-          issue: 'Unit cost is required for stock-in adjustments.',
-        });
-      } else {
-        const normalizedCost = normalizeNonNegativeNumeric4(
-          rawLine.unit_cost_base
-        );
-        if (!normalizedCost) {
-          details.push({
-            field: `lines[${i}].unit_cost_base`,
-            issue: 'Unit cost must be a non-negative 4-decimal number.',
-          });
-        } else {
-          unitCostBase = normalizedCost;
-        }
-      }
-    }
-
-    if (
-      details.length > lineDetailsStart ||
-      !normalizedQty ||
-      !resolvedProductUom ||
-      !product ||
-      !location ||
-      !batch
-    ) {
-      continue;
-    }
-
-    const qtyScaled4 = parseScaled4(normalizedQty);
-    const conversionScaled6 = parseScaled6(
-      resolvedProductUom.uom.conversion_to_base
-    );
-    if (
-      qtyScaled4 === null ||
-      conversionScaled6 === null ||
-      conversionScaled6 <= 0n
-    ) {
-      details.push({
-        field: `lines[${i}].product_uom_id`,
-        issue: 'UOM conversion factor must be greater than 0.',
-      });
-      continue;
-    }
-
-    const baseQtyScaled4 = multiplyQty4ByConversion6(
-      qtyScaled4,
-      conversionScaled6
-    );
-    if (baseQtyScaled4 <= 0n) {
-      details.push({
-        field: `lines[${i}].entered_qty`,
-        issue: 'Converted base quantity must be greater than 0.',
-      });
-      continue;
-    }
-
-    const baseQtyStr = formatScaled4(baseQtyScaled4);
-    let isNegativeDelta = transactionType === 'ADJUSTMENT_OUT';
-
-    if (transactionType === 'REVERSAL' && originalTxn) {
-      const originalLine = findOriginalLineForReversal(
-        originalTxn,
-        product.product_id,
-        location.location_id,
-        batch.batch_id,
-        i
-      );
-      if (originalLine) {
-        const origDelta = parseScaled4(originalLine.quantity_delta_base) ?? 0n;
-        isNegativeDelta = origDelta > 0n;
-        unitCostBase = originalLine.unit_cost_base ?? null;
-      }
-    }
-
-    const quantityDeltaBase = isNegativeDelta ? `-${baseQtyStr}` : baseQtyStr;
-
-    builtLines.push({
-      inventory_txn_line_id: createMockUuid(),
-      product_id: product.product_id,
-      location_id: location.location_id,
-      batch_id: batch.batch_id,
-      product_uom_id: resolvedProductUom.baseUom.product_uom_id,
-      entered_qty: baseQtyStr,
-      conversion_snapshot: '1.000000',
-      quantity_delta_base: quantityDeltaBase,
-      unit_cost_base: unitCostBase,
-      sales_order_line_id: null,
-      sales_return_line_id: null,
-      purchase_order_line_id: null,
-      vendor_return_line_id: null,
-    });
-  }
-
-  if (details.length > 0) {
-    return { lines: null, validationDetails: details };
-  }
-
-  return { lines: builtLines, validationDetails: [] };
-}
-
-interface BalanceApplicationResult {
-  errorResponse: Response | null;
-  postedLines: InventoryTxnLineDto[];
-  nextBalances: InventoryBalanceDto[];
-}
-
-function applyLinesToBalances(
-  branchId: string,
-  lines: readonly InventoryTxnLineDto[],
-  timestamp: string
-): BalanceApplicationResult {
-  const workingMap = new Map<string, InventoryBalanceDto>(
-    mockBalances.map((balance) => [
-      balanceMapKey(balance.branch_id, balance.location_id, balance.batch_id),
-      cloneBalance(balance),
-    ])
-  );
-
-  const postedLines: InventoryTxnLineDto[] = [];
-
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    if (!line) {
-      continue;
-    }
-
-    const deltaScaled4 = parseScaled4(line.quantity_delta_base);
-    if (deltaScaled4 === null || deltaScaled4 === 0n) {
-      return {
-        errorResponse: validationErrorResponse('Invalid line quantity delta.', [
-          { field: `lines[${i}].entered_qty`, issue: 'Delta cannot be zero.' },
-        ]),
-        postedLines: [],
-        nextBalances: [],
-      };
-    }
-
-    const key = balanceMapKey(branchId, line.location_id, line.batch_id);
-    const existing = workingMap.get(key);
-    const oldQty4 = existing
-      ? (parseScaled4(existing.on_hand_qty_base) ?? 0n)
-      : 0n;
-    const oldCost4 = existing
-      ? (parseScaled4(existing.average_unit_cost) ?? 0n)
-      : 0n;
-
-    const newQty4 = oldQty4 + deltaScaled4;
-    if (newQty4 < 0n) {
-      return {
-        errorResponse: outOfStockResponse(
-          'The requested quantity exceeds available on-hand stock.',
-          [
-            {
-              field: `lines[${i}].entered_qty`,
-              issue: `Available on-hand quantity is ${formatScaled4(oldQty4)}.`,
-            },
-          ]
-        ),
-        postedLines: [],
-        nextBalances: [],
-      };
-    }
-
-    let nextCost4 = oldCost4;
-    let resolvedLineCost = line.unit_cost_base ?? null;
-
-    if (deltaScaled4 > 0n) {
-      const incomingCost4 =
-        resolvedLineCost !== null
-          ? (parseScaled4(resolvedLineCost) ?? oldCost4)
-          : oldCost4;
-      nextCost4 = computeWeightedAvgCost4(
-        oldQty4,
-        oldCost4,
-        deltaScaled4,
-        incomingCost4
-      );
-      resolvedLineCost = formatScaled4(incomingCost4);
-    } else if (resolvedLineCost === null) {
-      resolvedLineCost = formatScaled4(oldCost4);
-    }
-
-    const onHandStr = formatScaled4(newQty4);
-    const location = mockLocations.find(
-      (loc) => loc.location_id === line.location_id
-    );
-    const batch = mockBatches.find((item) => item.batch_id === line.batch_id);
-
-    const updatedBalance: InventoryBalanceDto = {
-      product_id: line.product_id,
-      branch_id: branchId,
-      location_id: line.location_id,
-      batch_id: line.batch_id,
-      on_hand_qty_base: onHandStr,
-      average_unit_cost: formatScaled4(nextCost4),
-      available_qty_base: deriveAvailableQtyBase(onHandStr, location, batch),
-      row_version: (existing?.row_version ?? 0) + 1,
-      updated_at: timestamp,
-    };
-
-    workingMap.set(key, updatedBalance);
-    postedLines.push({
-      ...line,
-      unit_cost_base: resolvedLineCost,
-    });
-  }
-
-  return {
-    errorResponse: null,
-    postedLines,
-    nextBalances: Array.from(workingMap.values()),
-  };
-}
-
-function recomputeBalanceAvailabilityForLocation(locationId: string): void {
-  const location = mockLocations.find((loc) => loc.location_id === locationId);
-  mockBalances = mockBalances.map((balance) => {
-    if (balance.location_id !== locationId) {
-      return balance;
-    }
-    const batch = mockBatches.find(
-      (item) => item.batch_id === balance.batch_id
-    );
-    return {
-      ...balance,
-      available_qty_base: deriveAvailableQtyBase(
-        balance.on_hand_qty_base,
-        location,
-        batch
-      ),
-    };
-  });
 }
 
 function parseTimestampBoundary(
@@ -1341,12 +936,79 @@ function parseTimestampBoundary(
   if (!trimmed) {
     return null;
   }
-  const normalized =
-    isEndBound && /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    if (!isValidIsoDate(trimmed)) {
+      return null;
+    }
+    const iso = isEndBound
       ? `${trimmed}T23:59:59.999Z`
-      : trimmed;
-  const ms = Date.parse(normalized);
+      : `${trimmed}T00:00:00.000Z`;
+    return Date.parse(iso);
+  }
+  const ms = Date.parse(trimmed);
   return Number.isNaN(ms) ? null : ms;
+}
+
+function balanceMapKey(
+  branchId: string,
+  locationId: string,
+  batchId: string
+): string {
+  return `${branchId}:${locationId}:${batchId}`;
+}
+
+function recomputeBalanceAvailabilityForLocation(
+  location: InventoryLocation
+): void {
+  const businessDate = todayUtcDateString();
+  mockBalances = mockBalances.map((balance) => {
+    if (balance.location_id !== location.location_id) {
+      return balance;
+    }
+    const batch = mockBatches.find(
+      (item) => item.batch_id === balance.batch_id
+    );
+    return {
+      ...balance,
+      location_code: location.location_code,
+      location_type: location.location_type,
+      is_location_sellable: location.is_sellable,
+      available_qty_base: deriveAvailableQtyBase(
+        balance.on_hand_qty_base,
+        location,
+        batch,
+        businessDate
+      ),
+    };
+  });
+}
+
+function findCatalogProduct(productId: string): Product | undefined {
+  return INITIAL_PRODUCTS.find((item) => item.product_id === productId);
+}
+
+function findActiveProductUoms(
+  product: Product,
+  productUomId: string
+): { enteredUom: ProductUom | undefined; baseUom: ProductUom | undefined } {
+  const enteredUom = product.uoms.find(
+    (uom) => uom.product_uom_id === productUomId && uom.is_active
+  );
+  const baseUom = product.uoms.find((uom) => uom.is_base && uom.is_active);
+  return { enteredUom, baseUom };
+}
+
+interface ValidatedStandardLine {
+  lineIndex: number;
+  product: Product;
+  location: InventoryLocation;
+  enteredUom: ProductUom;
+  baseUom: ProductUom;
+  batchNumberInput: string | null;
+  manufacturedOn: string | null;
+  expiresOn: string | null;
+  enteredQty: number;
+  unitCostEntered: number | null;
 }
 
 export const inventoryHandlers = [
@@ -1355,19 +1017,53 @@ export const inventoryHandlers = [
   // =========================================================================
   http.get('*/api/v1/inventory/locations', ({ request }) => {
     const url = new URL(request.url);
-    const branchId = url.searchParams.get('branchId')?.trim() ?? '';
+    const details: NormalizedApiErrorDetail[] = [];
+
+    const branchId = url.searchParams.get('branch_id')?.trim() ?? '';
     if (!branchId) {
-      return malformedRequestResponse('Query parameter branchId is required.');
+      details.push({ field: 'branch_id', issue: 'BranchId is required.' });
     }
 
-    const locationTypeParam =
-      url.searchParams.get('locationType')?.trim() ?? '';
-    if (locationTypeParam && !isLocationType(locationTypeParam)) {
-      return malformedRequestResponse('Invalid locationType query parameter.');
+    const rawIsSellable = url.searchParams.get('is_sellable');
+    let isSellableFilter: boolean | undefined;
+    if (rawIsSellable !== null && rawIsSellable.trim() !== '') {
+      const normalized = rawIsSellable.trim().toLowerCase();
+      if (normalized === 'true') {
+        isSellableFilter = true;
+      } else if (normalized === 'false') {
+        isSellableFilter = false;
+      } else {
+        details.push({
+          field: 'is_sellable',
+          issue: 'is_sellable must be true or false.',
+        });
+      }
     }
 
-    const includeInactive = url.searchParams.get('includeInactive') === 'true';
-    const { start, limit } = parsePaginationParams(url);
+    const rawIncludeInactive = url.searchParams.get('include_inactive');
+    let includeInactive = false;
+    if (rawIncludeInactive !== null && rawIncludeInactive.trim() !== '') {
+      const normalized = rawIncludeInactive.trim().toLowerCase();
+      if (normalized === 'true') {
+        includeInactive = true;
+      } else if (normalized === 'false') {
+        includeInactive = false;
+      } else {
+        details.push({
+          field: 'include_inactive',
+          issue: 'include_inactive must be true or false.',
+        });
+      }
+    }
+
+    const { page, pageSize } = validatePaginationParams(url, details);
+
+    if (details.length > 0) {
+      return validationErrorResponse(
+        'Invalid location query parameters.',
+        details
+      );
+    }
 
     const filtered = mockLocations.filter((location) => {
       if (location.branch_id !== branchId) {
@@ -1376,88 +1072,96 @@ export const inventoryHandlers = [
       if (!includeInactive && !location.is_active) {
         return false;
       }
-      if (locationTypeParam && location.location_type !== locationTypeParam) {
+      if (
+        isSellableFilter !== undefined &&
+        location.is_sellable !== isSellableFilter
+      ) {
         return false;
       }
       return true;
     });
 
-    const items = filtered.slice(start, start + limit).map(cloneLocation);
-    const nextOffset = start + limit;
-    const nextCursor = nextOffset < filtered.length ? String(nextOffset) : null;
-
-    return HttpResponse.json({ items, nextCursor }, { status: 200 });
-  }),
-
-  http.get('*/api/v1/inventory/locations/:locationId', ({ params }) => {
-    const location = mockLocations.find(
-      (item) => item.location_id === params.locationId
+    return HttpResponse.json(
+      buildPagedPayload(filtered, page, pageSize, cloneLocation),
+      { status: 200 }
     );
-    if (!location) {
-      return notFoundResponse('Inventory location was not found.');
-    }
-    return HttpResponse.json(cloneLocation(location), { status: 200 });
   }),
 
   http.post('*/api/v1/inventory/locations', async ({ request }) => {
-    const bodyText = await request.text();
-    const { key: idempKey, replayResponse } = checkIdempotency(
-      request,
-      bodyText
-    );
-    if (replayResponse) {
-      return replayResponse;
-    }
-
-    const body: unknown = parseJsonBody(bodyText);
-    if (!isRecord(body)) {
+    const body: unknown = await request.json().catch(() => null);
+    if (!isPlainRecord(body)) {
       return malformedRequestResponse(
         'Request body must be a valid JSON object.'
       );
     }
 
-    const details: ValidationDetail[] = [];
+    const idempotency = resolveIdempotency(request, body);
+    if (!idempotency.ok) {
+      return idempotency.errorResponse;
+    }
+    if (idempotency.replayResponse) {
+      return idempotency.replayResponse;
+    }
+
+    const details: NormalizedApiErrorDetail[] = [];
     const branchId = readTrimmedString(body.branch_id);
     const locationCode = readTrimmedString(body.location_code);
     const name = readTrimmedString(body.name);
-    const rawLocationType = readTrimmedString(body.location_type);
+    const rawLocationType = body.location_type;
 
     if (!branchId) {
-      details.push({ field: 'branch_id', issue: 'Branch ID is required.' });
+      details.push({ field: 'branch_id', issue: 'BranchId is required.' });
     }
     if (!locationCode) {
       details.push({
         field: 'location_code',
-        issue: 'Location code is required.',
+        issue: 'LocationCode is required.',
       });
     } else if (locationCode.length > 30) {
       details.push({
         field: 'location_code',
-        issue: 'Location code must be at most 30 characters.',
+        issue: 'LocationCode cannot exceed 30 characters.',
       });
     }
     if (!name) {
-      details.push({ field: 'name', issue: 'Location name is required.' });
+      details.push({ field: 'name', issue: 'Name is required.' });
     } else if (name.length > 100) {
       details.push({
         field: 'name',
-        issue: 'Location name must be at most 100 characters.',
-      });
-    }
-    if (!rawLocationType || !isLocationType(rawLocationType)) {
-      details.push({
-        field: 'location_type',
-        issue: 'Location type must be SELLABLE, QUARANTINE, or SCRAP.',
-      });
-    }
-    if (body.is_active !== undefined && typeof body.is_active !== 'boolean') {
-      details.push({
-        field: 'is_active',
-        issue: 'Active status must be a boolean.',
+        issue: 'Name cannot exceed 100 characters.',
       });
     }
 
-    if (details.length > 0 || !isLocationType(rawLocationType)) {
+    const validLocationType = isLocationType(rawLocationType)
+      ? rawLocationType
+      : null;
+    if (!validLocationType) {
+      details.push({
+        field: 'location_type',
+        issue: 'LocationType must be SELLABLE, QUARANTINE, DAMAGED, or SCRAP.',
+      });
+    }
+
+    let isSellable = validLocationType === 'SELLABLE';
+    if (body.is_sellable !== undefined) {
+      if (typeof body.is_sellable !== 'boolean') {
+        details.push({
+          field: 'is_sellable',
+          issue: 'is_sellable must be a boolean.',
+        });
+      } else {
+        isSellable = body.is_sellable;
+      }
+    }
+
+    if (validLocationType && validLocationType !== 'SELLABLE' && isSellable) {
+      details.push({
+        field: 'is_sellable',
+        issue: 'Only SELLABLE location type can have IsSellable set to true.',
+      });
+    }
+
+    if (details.length > 0 || !validLocationType) {
       return validationErrorResponse('Invalid location details.', details);
     }
 
@@ -1479,91 +1183,110 @@ export const inventoryHandlers = [
       );
     }
 
-    const created: InventoryLocationDto = {
-      location_id: createMockUuid(),
+    const now = new Date().toISOString();
+    const created: InventoryLocation = {
+      location_id: createMockUuid('9999'),
+      organization_id: ORGANIZATION_ID,
       branch_id: branchId,
       location_code: locationCode,
       name,
-      location_type: rawLocationType,
-      is_sellable: rawLocationType === 'SELLABLE',
-      is_active: typeof body.is_active === 'boolean' ? body.is_active : true,
+      location_type: validLocationType,
+      is_sellable: validLocationType === 'SELLABLE' ? isSellable : false,
+      is_active: true,
+      updated_at: now,
     };
 
     mockLocations = [created, ...mockLocations];
-    const responsePayload = cloneLocation(created);
-    storeIdempotencySuccess(idempKey, bodyText, 201, responsePayload);
-    return HttpResponse.json(responsePayload, { status: 201 });
+    const locationHeader = `/api/v1/inventory/locations/${created.location_id}`;
+    idempotencyStore.set(idempotency.compositeKey, {
+      payloadSignature: idempotency.payloadSignature,
+      status: 201,
+      kind: 'location',
+      locationBody: cloneLocation(created),
+      locationHeader,
+    });
+
+    return HttpResponse.json(cloneLocation(created), {
+      status: 201,
+      headers: { Location: locationHeader },
+    });
   }),
 
   http.patch(
-    '*/api/v1/inventory/locations/:locationId',
+    '*/api/v1/inventory/locations/:id',
     async ({ params, request }) => {
-      const bodyText = await request.text();
-      const { key: idempKey, replayResponse } = checkIdempotency(
-        request,
-        bodyText
-      );
-      if (replayResponse) {
-        return replayResponse;
+      const body: unknown = await request.json().catch(() => null);
+      if (!isPlainRecord(body)) {
+        return malformedRequestResponse('Malformed location patch payload.');
       }
 
+      const idempotency = resolveIdempotency(request, body);
+      if (!idempotency.ok) {
+        return idempotency.errorResponse;
+      }
+      if (idempotency.replayResponse) {
+        return idempotency.replayResponse;
+      }
+
+      const locationId = typeof params.id === 'string' ? params.id.trim() : '';
       const index = mockLocations.findIndex(
-        (item) => item.location_id === params.locationId
+        (item) => item.location_id === locationId
       );
-      if (index === -1) {
-        return notFoundResponse('Inventory location was not found.');
-      }
-
-      const current = mockLocations[index];
+      const current = index >= 0 ? mockLocations[index] : undefined;
       if (!current) {
         return notFoundResponse('Inventory location was not found.');
       }
 
-      const body: unknown = parseJsonBody(bodyText);
-      if (!isRecord(body)) {
-        return malformedRequestResponse('Malformed location patch payload.');
-      }
-
-      const details: ValidationDetail[] = [];
+      const details: NormalizedApiErrorDetail[] = [];
 
       let nextName = current.name;
-      if ('name' in body) {
-        const candidate = readTrimmedString(body.name);
-        if (!candidate) {
-          details.push({ field: 'name', issue: 'Location name is required.' });
-        } else if (candidate.length > 100) {
-          details.push({
-            field: 'name',
-            issue: 'Location name must be at most 100 characters.',
-          });
+      if (body.name !== undefined && body.name !== null) {
+        if (typeof body.name !== 'string') {
+          details.push({ field: 'name', issue: 'Name must be a string.' });
         } else {
-          nextName = candidate;
+          const trimmedName = body.name.trim();
+          if (!trimmedName) {
+            details.push({ field: 'name', issue: 'Name cannot be empty.' });
+          } else if (trimmedName.length > 100) {
+            details.push({
+              field: 'name',
+              issue: 'Name cannot exceed 100 characters.',
+            });
+          } else {
+            nextName = trimmedName;
+          }
         }
       }
 
-      let nextLocationType = current.location_type;
-      if ('location_type' in body) {
-        const candidate = readTrimmedString(body.location_type);
-        if (!candidate || !isLocationType(candidate)) {
+      let nextIsSellable = current.is_sellable;
+      if (body.is_sellable !== undefined && body.is_sellable !== null) {
+        if (typeof body.is_sellable !== 'boolean') {
           details.push({
-            field: 'location_type',
-            issue: 'Location type must be SELLABLE, QUARANTINE, or SCRAP.',
+            field: 'is_sellable',
+            issue: 'is_sellable must be a boolean.',
           });
         } else {
-          nextLocationType = candidate;
+          nextIsSellable = body.is_sellable;
         }
       }
 
       let nextIsActive = current.is_active;
-      if ('is_active' in body) {
+      if (body.is_active !== undefined && body.is_active !== null) {
         if (typeof body.is_active !== 'boolean') {
           details.push({
             field: 'is_active',
-            issue: 'Active status must be a boolean.',
+            issue: 'is_active must be a boolean.',
           });
         } else {
           nextIsActive = body.is_active;
         }
+      }
+
+      if (current.location_type !== 'SELLABLE' && nextIsSellable) {
+        details.push({
+          field: 'is_sellable',
+          issue: 'Only SELLABLE location type can have IsSellable set to true.',
+        });
       }
 
       if (details.length > 0) {
@@ -1573,58 +1296,88 @@ export const inventoryHandlers = [
         );
       }
 
-      const updated: InventoryLocationDto = {
+      const updated: InventoryLocation = {
         ...current,
         name: nextName,
-        location_type: nextLocationType,
-        is_sellable: nextLocationType === 'SELLABLE',
+        is_sellable:
+          current.location_type === 'SELLABLE' ? nextIsSellable : false,
         is_active: nextIsActive,
+        updated_at: new Date().toISOString(),
       };
 
       mockLocations = mockLocations.map((item, idx) =>
         idx === index ? updated : item
       );
-      recomputeBalanceAvailabilityForLocation(updated.location_id);
+      recomputeBalanceAvailabilityForLocation(updated);
 
-      const responsePayload = cloneLocation(updated);
-      storeIdempotencySuccess(idempKey, bodyText, 200, responsePayload);
-      return HttpResponse.json(responsePayload, { status: 200 });
+      idempotencyStore.set(idempotency.compositeKey, {
+        payloadSignature: idempotency.payloadSignature,
+        status: 200,
+        kind: 'location',
+        locationBody: cloneLocation(updated),
+      });
+
+      return HttpResponse.json(cloneLocation(updated), { status: 200 });
     }
   ),
 
   // =========================================================================
-  // INVENTORY BATCHES
+  // INVENTORY BATCHES (ORG-SCOPED)
   // =========================================================================
   http.get('*/api/v1/inventory/batches', ({ request }) => {
     const url = new URL(request.url);
-    const branchId = url.searchParams.get('branchId')?.trim() ?? '';
-    if (!branchId) {
-      return malformedRequestResponse('Query parameter branchId is required.');
+    const details: NormalizedApiErrorDetail[] = [];
+
+    const productId = url.searchParams.get('product_id')?.trim() ?? '';
+    const statusParam = url.searchParams.get('status')?.trim() ?? '';
+    const expiringBefore =
+      url.searchParams.get('expiring_before')?.trim() ?? '';
+
+    if (statusParam && !isBatchQualityStatus(statusParam)) {
+      details.push({
+        field: 'status',
+        issue: 'status must be AVAILABLE, QUARANTINED, EXPIRED, or RECALLED.',
+      });
     }
 
-    const productId = url.searchParams.get('productId')?.trim() ?? '';
-    const qualityStatus = url.searchParams.get('qualityStatus')?.trim() ?? '';
-    if (qualityStatus && !isBatchQualityStatus(qualityStatus)) {
-      return malformedRequestResponse('Invalid qualityStatus query parameter.');
+    if (expiringBefore && !isValidIsoDate(expiringBefore)) {
+      details.push({
+        field: 'expiring_before',
+        issue: 'expiring_before must be a valid YYYY-MM-DD date.',
+      });
     }
 
-    const { start, limit } = parsePaginationParams(url);
+    const { page, pageSize } = validatePaginationParams(url, details);
 
-    const filtered = mockBatches.filter((batch) => {
-      if (productId && batch.product_id !== productId) {
-        return false;
-      }
-      if (qualityStatus && batch.quality_status !== qualityStatus) {
-        return false;
-      }
-      return true;
-    });
+    if (details.length > 0) {
+      return validationErrorResponse(
+        'Invalid batch query parameters.',
+        details
+      );
+    }
 
-    const items = filtered.slice(start, start + limit).map(cloneBatch);
-    const nextOffset = start + limit;
-    const nextCursor = nextOffset < filtered.length ? String(nextOffset) : null;
+    const filtered = mockBatches
+      .filter((batch) => {
+        if (productId && batch.product_id !== productId) {
+          return false;
+        }
+        if (statusParam && batch.quality_status !== statusParam) {
+          return false;
+        }
+        if (
+          expiringBefore &&
+          (batch.expires_on === null || batch.expires_on > expiringBefore)
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .sort(compareFefoBatches);
 
-    return HttpResponse.json({ items, nextCursor }, { status: 200 });
+    return HttpResponse.json(
+      buildPagedPayload(filtered, page, pageSize, cloneBatch),
+      { status: 200 }
+    );
   }),
 
   // =========================================================================
@@ -1632,15 +1385,25 @@ export const inventoryHandlers = [
   // =========================================================================
   http.get('*/api/v1/inventory/balances', ({ request }) => {
     const url = new URL(request.url);
-    const branchId = url.searchParams.get('branchId')?.trim() ?? '';
+    const details: NormalizedApiErrorDetail[] = [];
+
+    const branchId = url.searchParams.get('branch_id')?.trim() ?? '';
     if (!branchId) {
-      return malformedRequestResponse('Query parameter branchId is required.');
+      details.push({ field: 'branch_id', issue: 'BranchId is required.' });
     }
 
-    const productId = url.searchParams.get('productId')?.trim() ?? '';
-    const locationId = url.searchParams.get('locationId')?.trim() ?? '';
-    const batchId = url.searchParams.get('batchId')?.trim() ?? '';
-    const { start, limit } = parsePaginationParams(url);
+    const productId = url.searchParams.get('product_id')?.trim() ?? '';
+    const locationId = url.searchParams.get('location_id')?.trim() ?? '';
+    const batchId = url.searchParams.get('batch_id')?.trim() ?? '';
+
+    const { page, pageSize } = validatePaginationParams(url, details);
+
+    if (details.length > 0) {
+      return validationErrorResponse(
+        'Invalid balance query parameters.',
+        details
+      );
+    }
 
     const filtered = mockBalances.filter((balance) => {
       if (balance.branch_id !== branchId) {
@@ -1658,46 +1421,132 @@ export const inventoryHandlers = [
       return true;
     });
 
-    const items = filtered.slice(start, start + limit).map(cloneBalance);
-    const nextOffset = start + limit;
-    const nextCursor = nextOffset < filtered.length ? String(nextOffset) : null;
-
-    return HttpResponse.json({ items, nextCursor }, { status: 200 });
+    return HttpResponse.json(
+      buildPagedPayload(filtered, page, pageSize, cloneBalance),
+      { status: 200 }
+    );
   }),
 
   // =========================================================================
-  // INVENTORY TRANSACTIONS (LEDGER)
+  // INVENTORY SUMMARY
   // =========================================================================
-  http.get('*/api/v1/inventory/transactions', ({ request }) => {
+  http.get('*/api/v1/inventory/summary', ({ request }) => {
     const url = new URL(request.url);
-    const branchId = url.searchParams.get('branchId')?.trim() ?? '';
+    const details: NormalizedApiErrorDetail[] = [];
+
+    const branchId = url.searchParams.get('branch_id')?.trim() ?? '';
+    const productId = url.searchParams.get('product_id')?.trim() ?? '';
+
     if (!branchId) {
-      return malformedRequestResponse('Query parameter branchId is required.');
+      details.push({ field: 'branch_id', issue: 'BranchId is required.' });
+    }
+    if (!productId) {
+      details.push({ field: 'product_id', issue: 'ProductId is required.' });
     }
 
-    const txnTypeParam = url.searchParams.get('transactionType')?.trim() ?? '';
-    if (txnTypeParam && !isInventoryTxnType(txnTypeParam)) {
-      return malformedRequestResponse(
-        'Invalid transactionType query parameter.'
+    if (details.length > 0) {
+      return validationErrorResponse(
+        'Branch ID and Product ID are required.',
+        details
       );
     }
 
-    const productId = url.searchParams.get('productId')?.trim() ?? '';
-    const fromRaw = url.searchParams.get('from')?.trim() ?? '';
-    const toRaw = url.searchParams.get('to')?.trim() ?? '';
-    const fromMs = fromRaw ? parseTimestampBoundary(fromRaw, false) : null;
-    const toMs = toRaw ? parseTimestampBoundary(toRaw, true) : null;
-    if ((fromRaw && fromMs === null) || (toRaw && toMs === null)) {
-      return malformedRequestResponse('Invalid from/to timestamp filter.');
+    const product = findCatalogProduct(productId);
+    if (!product) {
+      return notFoundResponse('Product was not found.');
     }
 
-    const { start, limit } = parsePaginationParams(url);
+    const matchingLots = mockBalances
+      .filter(
+        (balance) =>
+          balance.branch_id === branchId && balance.product_id === productId
+      )
+      .map(cloneBalance)
+      .sort(compareFefoBatches);
 
-    const filtered = mockTxns.filter((txn) => {
+    const totalOnHand = round4(
+      matchingLots.reduce((acc, item) => acc + item.on_hand_qty_base, 0)
+    );
+    const totalAvailable = round4(
+      matchingLots.reduce((acc, item) => acc + item.available_qty_base, 0)
+    );
+    const totalInventoryValue = matchingLots.reduce(
+      (acc, item) => acc + item.on_hand_qty_base * item.average_unit_cost,
+      0
+    );
+    const weightedAverageUnitCost =
+      totalOnHand > 0 ? round4(totalInventoryValue / totalOnHand) : 0;
+
+    const summary: InventorySummary = {
+      organization_id: ORGANIZATION_ID,
+      branch_id: branchId,
+      product_id: productId,
+      base_uom_code: product.base_uom_code,
+      total_on_hand_qty_base: totalOnHand,
+      total_available_qty_base: totalAvailable,
+      weighted_average_unit_cost_base: weightedAverageUnitCost,
+      locations_and_lots: matchingLots,
+    };
+
+    return HttpResponse.json(summary, { status: 200 });
+  }),
+
+  // =========================================================================
+  // INVENTORY TRANSACTIONS (APPEND-ONLY LEDGER)
+  // =========================================================================
+  http.get('*/api/v1/inventory/transactions', ({ request }) => {
+    const url = new URL(request.url);
+    const details: NormalizedApiErrorDetail[] = [];
+
+    const branchId = url.searchParams.get('branch_id')?.trim() ?? '';
+    if (!branchId) {
+      details.push({ field: 'branch_id', issue: 'BranchId is required.' });
+    }
+
+    const typeParam = url.searchParams.get('type')?.trim() ?? '';
+    if (typeParam && !isInventoryTransactionType(typeParam)) {
+      details.push({
+        field: 'type',
+        issue: 'Invalid inventory transaction type.',
+      });
+    }
+
+    const productId = url.searchParams.get('product_id')?.trim() ?? '';
+    const fromDateRaw = url.searchParams.get('from_date')?.trim() ?? '';
+    const toDateRaw = url.searchParams.get('to_date')?.trim() ?? '';
+
+    const fromMs = fromDateRaw
+      ? parseTimestampBoundary(fromDateRaw, false)
+      : null;
+    const toMs = toDateRaw ? parseTimestampBoundary(toDateRaw, true) : null;
+
+    if (fromDateRaw && fromMs === null) {
+      details.push({
+        field: 'from_date',
+        issue: 'from_date must be a valid ISO date or timestamp.',
+      });
+    }
+    if (toDateRaw && toMs === null) {
+      details.push({
+        field: 'to_date',
+        issue: 'to_date must be a valid ISO date or timestamp.',
+      });
+    }
+
+    const { page, pageSize } = validatePaginationParams(url, details);
+
+    if (details.length > 0) {
+      return validationErrorResponse(
+        'Invalid transaction query parameters.',
+        details
+      );
+    }
+
+    const filtered = mockTransactions.filter((txn) => {
       if (txn.branch_id !== branchId) {
         return false;
       }
-      if (txnTypeParam && txn.transaction_type !== txnTypeParam) {
+      if (typeParam && txn.transaction_type !== typeParam) {
         return false;
       }
       if (
@@ -1724,46 +1573,47 @@ export const inventoryHandlers = [
       return true;
     });
 
-    const items = filtered.slice(start, start + limit).map(cloneTxn);
-    const nextOffset = start + limit;
-    const nextCursor = nextOffset < filtered.length ? String(nextOffset) : null;
-
-    return HttpResponse.json({ items, nextCursor }, { status: 200 });
-  }),
-
-  http.get('*/api/v1/inventory/transactions/:txnId', ({ params }) => {
-    const txn = mockTxns.find((item) => item.inventory_txn_id === params.txnId);
-    if (!txn) {
-      return notFoundResponse('Inventory transaction was not found.');
-    }
-    return HttpResponse.json(cloneTxn(txn), { status: 200 });
+    return HttpResponse.json(
+      buildPagedPayload(filtered, page, pageSize, cloneTxn),
+      { status: 200 }
+    );
   }),
 
   // =========================================================================
-  // INVENTORY ADJUSTMENTS
+  // INVENTORY ADJUSTMENTS & REVERSALS (ATOMIC IMMEDIATE POSTED)
   // =========================================================================
   http.post('*/api/v1/inventory/adjustments', async ({ request }) => {
-    const bodyText = await request.text();
-    const { key: idempKey, replayResponse } = checkIdempotency(
-      request,
-      bodyText
-    );
-    if (replayResponse) {
-      return replayResponse;
-    }
-
-    const body: unknown = parseJsonBody(bodyText);
-    if (!isRecord(body)) {
+    const body: unknown = await request.json().catch(() => null);
+    if (!isPlainRecord(body)) {
       return malformedRequestResponse(
         'Request body must be a valid JSON object.'
       );
     }
 
-    const details: ValidationDetail[] = [];
-    const rawTxnType = readTrimmedString(body.transaction_type);
+    const idempotency = resolveIdempotency(request, body);
+    if (!idempotency.ok) {
+      return idempotency.errorResponse;
+    }
+    if (idempotency.replayResponse) {
+      return idempotency.replayResponse;
+    }
+
+    const details: NormalizedApiErrorDetail[] = [];
     const branchId = readTrimmedString(body.branch_id);
-    const reasonCode = readTrimmedString(body.reason_code);
-    const note = validateNullableString(
+    const rawTxnType = body.transaction_type;
+
+    if (!branchId) {
+      details.push({ field: 'branch_id', issue: 'BranchId is required.' });
+    }
+
+    const reasonCode = validateNullableOptionalString(
+      body.reason_code,
+      'reason_code',
+      40,
+      'ReasonCode',
+      details
+    );
+    const note = validateNullableOptionalString(
       body.note,
       'note',
       500,
@@ -1771,349 +1621,802 @@ export const inventoryHandlers = [
       details
     );
 
-    if (!rawTxnType || !isAdjustmentsTxnType(rawTxnType)) {
+    if (!isAdjustmentsTxnType(rawTxnType)) {
       details.push({
         field: 'transaction_type',
         issue:
-          'Transaction type must be OPENING_BALANCE, ADJUSTMENT_IN, ADJUSTMENT_OUT, or REVERSAL.',
+          'TransactionType must be OPENING_BALANCE, ADJUSTMENT_IN, ADJUSTMENT_OUT, or REVERSAL.',
       });
-    }
-    if (!branchId) {
-      details.push({ field: 'branch_id', issue: 'Branch ID is required.' });
-    }
-    if (!reasonCode) {
-      details.push({
-        field: 'reason_code',
-        issue: 'Reason code is required.',
-      });
-    } else if (reasonCode.length > 40) {
-      details.push({
-        field: 'reason_code',
-        issue: 'Reason code must be at most 40 characters.',
-      });
-    }
-
-    let reversesTxnId: string | null = null;
-    let originalTxn: InventoryTxnDto | null = null;
-    if (rawTxnType === 'REVERSAL') {
-      const candidateReverseId = readTrimmedString(
-        body.reverses_inventory_txn_id
-      );
-      if (!candidateReverseId) {
-        details.push({
-          field: 'reverses_inventory_txn_id',
-          issue: 'Original transaction ID is required for a reversal.',
-        });
-      } else {
-        reversesTxnId = candidateReverseId;
-        const foundOriginal = mockTxns.find(
-          (item) => item.inventory_txn_id === candidateReverseId
-        );
-        if (!foundOriginal) {
-          details.push({
-            field: 'reverses_inventory_txn_id',
-            issue: 'Target transaction to reverse was not found.',
-          });
-        } else if (branchId && foundOriginal.branch_id !== branchId) {
-          details.push({
-            field: 'reverses_inventory_txn_id',
-            issue: 'Target transaction belongs to a different branch.',
-          });
-        } else {
-          originalTxn = foundOriginal;
-        }
-      }
-    }
-
-    if (details.length > 0 || !isAdjustmentsTxnType(rawTxnType)) {
       return validationErrorResponse('Invalid inventory adjustment.', details);
     }
 
-    if (rawTxnType === 'REVERSAL' && originalTxn) {
-      if (originalTxn.status !== 'POSTED') {
-        return conflictResponse(
-          'Only POSTED inventory transactions can be reversed.',
+    const now = new Date().toISOString();
+    const businessDate = todayUtcDateString();
+    const workingBatches = mockBatches.map(cloneBatch);
+    const workingBalances = new Map<string, StockBalance>(
+      mockBalances.map((balance) => [
+        balanceMapKey(balance.branch_id, balance.location_id, balance.batch_id),
+        cloneBalance(balance),
+      ])
+    );
+
+    if (rawTxnType === 'REVERSAL') {
+      const reversesTxnId = readTrimmedString(body.reverses_inventory_txn_id);
+      if (!reversesTxnId) {
+        details.push({
+          field: 'reverses_inventory_txn_id',
+          issue:
+            'ReversesInventoryTxnId is required for REVERSAL transactions.',
+        });
+      }
+      if (details.length > 0) {
+        return validationErrorResponse('Invalid reversal request.', details);
+      }
+
+      const originalTxn = mockTransactions.find(
+        (txn) =>
+          txn.inventory_txn_id === reversesTxnId && txn.branch_id === branchId
+      );
+      if (!originalTxn) {
+        return notFoundResponse(
+          'Inventory transaction to reverse was not found.'
+        );
+      }
+
+      if (
+        originalTxn.status !== 'POSTED' ||
+        originalTxn.transaction_type === 'REVERSAL'
+      ) {
+        return invalidStateTransitionResponse(
+          'Only POSTED non-reversal inventory transactions can be reversed.',
           [
             {
               field: 'reverses_inventory_txn_id',
-              issue: 'Target transaction is not POSTED.',
+              issue:
+                'Target transaction must be POSTED and cannot itself be a REVERSAL.',
             },
           ]
         );
       }
 
-      const alreadyReversed = mockTxns.some(
-        (item) =>
-          item.status === 'POSTED' &&
-          item.transaction_type === 'REVERSAL' &&
-          item.reverses_inventory_txn_id === originalTxn.inventory_txn_id
+      const alreadyReversed = mockTransactions.some(
+        (txn) =>
+          txn.branch_id === branchId &&
+          txn.status === 'POSTED' &&
+          txn.transaction_type === 'REVERSAL' &&
+          txn.reverses_inventory_txn_id === originalTxn.inventory_txn_id
       );
       if (alreadyReversed) {
-        return conflictResponse('This transaction has already been reversed.', [
+        return invalidStateTransitionResponse(
+          'This inventory transaction has already been reversed.',
+          [
+            {
+              field: 'reverses_inventory_txn_id',
+              issue: 'Target transaction was already reversed.',
+            },
+          ]
+        );
+      }
+
+      const reversalLines: InventoryTxnLine[] = [];
+
+      for (const originalLine of originalTxn.lines) {
+        const invertedDelta = round4(-originalLine.quantity_delta_base);
+        const key = balanceMapKey(
+          branchId,
+          originalLine.location_id,
+          originalLine.batch_id
+        );
+        const existingBalance = workingBalances.get(key);
+        const location = mockLocations.find(
+          (loc) => loc.location_id === originalLine.location_id
+        );
+        const batch = workingBatches.find(
+          (item) => item.batch_id === originalLine.batch_id
+        );
+        const product = findCatalogProduct(originalLine.product_id);
+
+        if (invertedDelta < 0) {
+          const outboundQty = Math.abs(invertedDelta);
+          const currentOnHand = existingBalance?.on_hand_qty_base ?? 0;
+          if (currentOnHand < outboundQty) {
+            return outOfStockResponse(
+              'Insufficient stock available to reverse this transaction.',
+              [
+                {
+                  field: 'reverses_inventory_txn_id',
+                  issue: `Available on-hand quantity (${currentOnHand}) is lower than required reversal quantity (${outboundQty}).`,
+                },
+              ]
+            );
+          }
+
+          const outgoingCost =
+            existingBalance?.average_unit_cost ?? originalLine.unit_cost_base;
+          const nextOnHand = round4(currentOnHand - outboundQty);
+
+          if (existingBalance) {
+            workingBalances.set(key, {
+              ...existingBalance,
+              on_hand_qty_base: nextOnHand,
+              available_qty_base: deriveAvailableQtyBase(
+                nextOnHand,
+                location,
+                batch,
+                businessDate
+              ),
+              updated_at: now,
+              row_version: existingBalance.row_version + 1,
+            });
+          }
+
+          reversalLines.push({
+            inventory_txn_line_id: createMockUuid('cccc'),
+            product_id: originalLine.product_id,
+            location_id: originalLine.location_id,
+            batch_id: originalLine.batch_id,
+            batch_number: originalLine.batch_number,
+            product_uom_id: originalLine.product_uom_id,
+            entered_qty: originalLine.entered_qty,
+            conversion_snapshot: originalLine.conversion_snapshot,
+            quantity_delta_base: invertedDelta,
+            unit_cost_base: outgoingCost,
+          });
+        } else {
+          const incomingQty = invertedDelta;
+          const incomingCost = originalLine.unit_cost_base;
+          const oldQty = existingBalance?.on_hand_qty_base ?? 0;
+          const oldCost = existingBalance?.average_unit_cost ?? 0;
+          const nextOnHand = round4(oldQty + incomingQty);
+          const nextCost =
+            nextOnHand > 0
+              ? round4(
+                  (oldQty * oldCost + incomingQty * incomingCost) / nextOnHand
+                )
+              : incomingCost;
+
+          workingBalances.set(key, {
+            organization_id: ORGANIZATION_ID,
+            branch_id: branchId,
+            product_id: originalLine.product_id,
+            product_sku:
+              existingBalance?.product_sku ?? product?.sku ?? 'UNKNOWN',
+            product_name:
+              existingBalance?.product_name ?? product?.name ?? 'Unknown',
+            base_uom_code:
+              existingBalance?.base_uom_code ?? product?.base_uom_code ?? 'PCS',
+            location_id: originalLine.location_id,
+            location_code:
+              existingBalance?.location_code ??
+              location?.location_code ??
+              'UNKNOWN',
+            location_type:
+              existingBalance?.location_type ??
+              location?.location_type ??
+              'SELLABLE',
+            is_location_sellable:
+              location?.is_sellable ??
+              existingBalance?.is_location_sellable ??
+              false,
+            batch_id: originalLine.batch_id,
+            batch_number: originalLine.batch_number,
+            manufactured_on:
+              batch?.manufactured_on ??
+              existingBalance?.manufactured_on ??
+              null,
+            expires_on:
+              batch?.expires_on ?? existingBalance?.expires_on ?? null,
+            quality_status:
+              batch?.quality_status ??
+              existingBalance?.quality_status ??
+              'AVAILABLE',
+            on_hand_qty_base: nextOnHand,
+            available_qty_base: deriveAvailableQtyBase(
+              nextOnHand,
+              location,
+              batch,
+              businessDate
+            ),
+            average_unit_cost: nextCost,
+            updated_at: now,
+            row_version: (existingBalance?.row_version ?? 0) + 1,
+          });
+
+          reversalLines.push({
+            inventory_txn_line_id: createMockUuid('cccc'),
+            product_id: originalLine.product_id,
+            location_id: originalLine.location_id,
+            batch_id: originalLine.batch_id,
+            batch_number: originalLine.batch_number,
+            product_uom_id: originalLine.product_uom_id,
+            entered_qty: originalLine.entered_qty,
+            conversion_snapshot: originalLine.conversion_snapshot,
+            quantity_delta_base: invertedDelta,
+            unit_cost_base: incomingCost,
+          });
+        }
+      }
+
+      const createdReversal: InventoryTxn = {
+        inventory_txn_id: createMockUuid('bbbb'),
+        organization_id: ORGANIZATION_ID,
+        branch_id: branchId,
+        transaction_no: nextTransactionNo(),
+        transaction_type: 'REVERSAL',
+        status: 'POSTED',
+        reason_code: reasonCode,
+        note,
+        idempotency_key: idempotency.effectiveKey,
+        created_by_employee_id: MOCK_EMPLOYEE_IDS.EMP_001,
+        reverses_inventory_txn_id: originalTxn.inventory_txn_id,
+        posted_at: now,
+        lines: reversalLines,
+      };
+
+      mockBalances = Array.from(workingBalances.values());
+      mockTransactions = [createdReversal, ...mockTransactions];
+
+      const locationHeader = `/api/v1/inventory/transactions/${createdReversal.inventory_txn_id}`;
+      idempotencyStore.set(idempotency.compositeKey, {
+        payloadSignature: idempotency.payloadSignature,
+        status: 201,
+        kind: 'txn',
+        txnBody: cloneTxn(createdReversal),
+        locationHeader,
+      });
+
+      return HttpResponse.json(cloneTxn(createdReversal), {
+        status: 201,
+        headers: { Location: locationHeader },
+      });
+    }
+
+    // Standard Adjustment: OPENING_BALANCE | ADJUSTMENT_IN | ADJUSTMENT_OUT
+    if (!Array.isArray(body.lines) || body.lines.length === 0) {
+      details.push({
+        field: 'lines',
+        issue: 'Adjustment must contain at least one line.',
+      });
+      return validationErrorResponse('Invalid inventory adjustment.', details);
+    }
+
+    const requiresUnitCost =
+      rawTxnType === 'OPENING_BALANCE' || rawTxnType === 'ADJUSTMENT_IN';
+
+    const parsedLines: Array<{
+      lineIndex: number;
+      productId: string;
+      productUomId: string;
+      locationId: string;
+      batchNumberInput: string | null;
+      manufacturedOn: string | null;
+      expiresOn: string | null;
+      enteredQty: number;
+      unitCostEntered: number | null;
+    }> = [];
+
+    for (let index = 0; index < body.lines.length; index += 1) {
+      const rawLine: unknown = body.lines[index];
+      const prefix = `lines[${index}]`;
+
+      if (!isPlainRecord(rawLine)) {
+        details.push({
+          field: prefix,
+          issue: 'Adjustment line must be a JSON object.',
+        });
+        continue;
+      }
+
+      const productId = readTrimmedString(rawLine.product_id);
+      const productUomId = readTrimmedString(rawLine.product_uom_id);
+      const locationId = readTrimmedString(rawLine.location_id);
+
+      if (!productId) {
+        details.push({
+          field: `${prefix}.product_id`,
+          issue: 'ProductId is required.',
+        });
+      }
+      if (!productUomId) {
+        details.push({
+          field: `${prefix}.product_uom_id`,
+          issue: 'ProductUomId is required.',
+        });
+      }
+      if (!locationId) {
+        details.push({
+          field: `${prefix}.location_id`,
+          issue: 'LocationId is required.',
+        });
+      }
+
+      const batchNumberInput = validateNullableOptionalString(
+        rawLine.batch_number,
+        `${prefix}.batch_number`,
+        80,
+        'BatchNumber',
+        details
+      );
+
+      let manufacturedOn: string | null = null;
+      if (
+        rawLine.manufactured_on !== null &&
+        rawLine.manufactured_on !== undefined
+      ) {
+        if (typeof rawLine.manufactured_on !== 'string') {
+          details.push({
+            field: `${prefix}.manufactured_on`,
+            issue: 'manufactured_on must be a YYYY-MM-DD date string or null.',
+          });
+        } else {
+          const trimmedMfg = rawLine.manufactured_on.trim();
+          if (trimmedMfg.length > 0) {
+            if (!isValidIsoDate(trimmedMfg)) {
+              details.push({
+                field: `${prefix}.manufactured_on`,
+                issue: 'manufactured_on must be a valid YYYY-MM-DD date.',
+              });
+            } else {
+              manufacturedOn = trimmedMfg;
+            }
+          }
+        }
+      }
+
+      let expiresOn: string | null = null;
+      if (rawLine.expires_on !== null && rawLine.expires_on !== undefined) {
+        if (typeof rawLine.expires_on !== 'string') {
+          details.push({
+            field: `${prefix}.expires_on`,
+            issue: 'expires_on must be a YYYY-MM-DD date string or null.',
+          });
+        } else {
+          const trimmedExp = rawLine.expires_on.trim();
+          if (trimmedExp.length > 0) {
+            if (!isValidIsoDate(trimmedExp)) {
+              details.push({
+                field: `${prefix}.expires_on`,
+                issue: 'expires_on must be a valid YYYY-MM-DD date.',
+              });
+            } else {
+              expiresOn = trimmedExp;
+            }
+          }
+        }
+      }
+
+      if (manufacturedOn && expiresOn && manufacturedOn > expiresOn) {
+        details.push({
+          field: `${prefix}.expires_on`,
+          issue: 'Manufacturing date cannot be after expiry date.',
+        });
+      }
+
+      let enteredQty = 0;
+      if (!isFiniteNumber(rawLine.entered_qty) || rawLine.entered_qty <= 0) {
+        details.push({
+          field: `${prefix}.entered_qty`,
+          issue: 'EnteredQty must be a finite number greater than zero.',
+        });
+      } else {
+        enteredQty = rawLine.entered_qty;
+      }
+
+      let unitCostEntered: number | null = null;
+      if (requiresUnitCost) {
+        if (
+          !isFiniteNumber(rawLine.unit_cost_entered) ||
+          rawLine.unit_cost_entered < 0
+        ) {
+          details.push({
+            field: `${prefix}.unit_cost_entered`,
+            issue:
+              'Incoming transactions require valid non-negative UnitCostEntered.',
+          });
+        } else {
+          unitCostEntered = rawLine.unit_cost_entered;
+        }
+      } else if (
+        rawLine.unit_cost_entered !== null &&
+        rawLine.unit_cost_entered !== undefined
+      ) {
+        if (
+          !isFiniteNumber(rawLine.unit_cost_entered) ||
+          rawLine.unit_cost_entered < 0
+        ) {
+          details.push({
+            field: `${prefix}.unit_cost_entered`,
+            issue: 'UnitCostEntered must be a non-negative number or null.',
+          });
+        } else {
+          unitCostEntered = rawLine.unit_cost_entered;
+        }
+      }
+
+      parsedLines.push({
+        lineIndex: index,
+        productId,
+        productUomId,
+        locationId,
+        batchNumberInput,
+        manufacturedOn,
+        expiresOn,
+        enteredQty,
+        unitCostEntered,
+      });
+    }
+
+    if (details.length > 0) {
+      return validationErrorResponse(
+        'Invalid inventory adjustment lines.',
+        details
+      );
+    }
+
+    const validatedLines: ValidatedStandardLine[] = [];
+
+    for (const parsed of parsedLines) {
+      const location = mockLocations.find(
+        (loc) =>
+          loc.location_id === parsed.locationId &&
+          loc.branch_id === branchId &&
+          loc.is_active
+      );
+      if (!location) {
+        return notFoundResponse('Inventory location was not found.');
+      }
+
+      const product = findCatalogProduct(parsed.productId);
+      if (!product) {
+        return notFoundResponse('Product was not found.');
+      }
+
+      const { enteredUom, baseUom } = findActiveProductUoms(
+        product,
+        parsed.productUomId
+      );
+      if (!enteredUom) {
+        return notFoundResponse('Product UOM was not found.');
+      }
+      if (!baseUom) {
+        return conflictResponse('Product has no active base UOM.');
+      }
+
+      validatedLines.push({
+        lineIndex: parsed.lineIndex,
+        product,
+        location,
+        enteredUom,
+        baseUom,
+        batchNumberInput: parsed.batchNumberInput,
+        manufacturedOn: parsed.manufacturedOn,
+        expiresOn: parsed.expiresOn,
+        enteredQty: parsed.enteredQty,
+        unitCostEntered: parsed.unitCostEntered,
+      });
+    }
+
+    const resolvedLinesWithBatches: Array<{
+      validated: ValidatedStandardLine;
+      batch: InventoryBatch;
+    }> = [];
+
+    for (const validated of validatedLines) {
+      const prefix = `lines[${validated.lineIndex}]`;
+      const isNonLotInput =
+        validated.batchNumberInput === null ||
+        validated.batchNumberInput.toUpperCase() === NON_LOT_BATCH_NUMBER;
+
+      if (!validated.product.lot_tracking_required) {
+        if (!isNonLotInput || validated.expiresOn !== null) {
+          return validationErrorResponse('Invalid non-lot batch input.', [
+            {
+              field: `${prefix}.batch_number`,
+              issue:
+                'Non-lot-tracked products must omit batch_number (or use NON-LOT) and omit expires_on.',
+            },
+          ]);
+        }
+
+        let nonLotBatch = workingBatches.find(
+          (item) =>
+            item.product_id === validated.product.product_id &&
+            item.batch_number.toUpperCase() === NON_LOT_BATCH_NUMBER
+        );
+        if (!nonLotBatch) {
+          nonLotBatch = {
+            batch_id: createMockUuid('aaaa'),
+            organization_id: ORGANIZATION_ID,
+            product_id: validated.product.product_id,
+            batch_number: NON_LOT_BATCH_NUMBER,
+            manufactured_on: null,
+            expires_on: null,
+            quality_status: 'AVAILABLE',
+            updated_at: now,
+          };
+          workingBatches.push(nonLotBatch);
+        }
+
+        resolvedLinesWithBatches.push({ validated, batch: nonLotBatch });
+        continue;
+      }
+
+      // Lot-tracked product
+      if (isNonLotInput || !validated.batchNumberInput) {
+        return validationErrorResponse('Batch number is required.', [
           {
-            field: 'reverses_inventory_txn_id',
-            issue: 'Target transaction was already reversed.',
+            field: `${prefix}.batch_number`,
+            issue:
+              'Cannot use empty or NON-LOT batch for a lot-tracked product.',
           },
         ]);
       }
-    }
 
-    const built = buildTxnLinesFromRequest(
-      body.lines,
-      branchId,
-      rawTxnType,
-      originalTxn
-    );
-    if (built.validationDetails.length > 0 || !built.lines) {
-      return validationErrorResponse(
-        'Invalid inventory adjustment lines.',
-        built.validationDetails
+      const normalizedBatchNumber = validated.batchNumberInput;
+      let resolvedBatch = workingBatches.find(
+        (item) =>
+          item.product_id === validated.product.product_id &&
+          item.batch_number.toUpperCase() ===
+            normalizedBatchNumber.toUpperCase()
       );
+
+      if (!resolvedBatch) {
+        if (rawTxnType === 'ADJUSTMENT_OUT') {
+          return outOfStockResponse(
+            'Insufficient stock available to complete this adjustment.',
+            [
+              {
+                field: `${prefix}.entered_qty`,
+                issue: `Batch "${normalizedBatchNumber}" has 0 available on-hand stock.`,
+              },
+            ]
+          );
+        }
+
+        if (!validated.expiresOn) {
+          return validationErrorResponse('Expiry date is required.', [
+            {
+              field: `${prefix}.expires_on`,
+              issue: 'Expiry date is required for lot-tracked products.',
+            },
+          ]);
+        }
+
+        const isAlreadyExpired = validated.expiresOn <= businessDate;
+        resolvedBatch = {
+          batch_id: createMockUuid('aaaa'),
+          organization_id: ORGANIZATION_ID,
+          product_id: validated.product.product_id,
+          batch_number: normalizedBatchNumber,
+          manufactured_on: validated.manufacturedOn,
+          expires_on: validated.expiresOn,
+          quality_status: isAlreadyExpired ? 'EXPIRED' : 'AVAILABLE',
+          updated_at: now,
+        };
+        workingBatches.push(resolvedBatch);
+      }
+
+      if (
+        requiresUnitCost &&
+        validated.location.is_sellable &&
+        (resolvedBatch.quality_status === 'EXPIRED' ||
+          (resolvedBatch.expires_on !== null &&
+            resolvedBatch.expires_on <= businessDate))
+      ) {
+        return expiryPolicyViolationResponse(
+          'Cannot place expired stock into a sellable location.',
+          [
+            {
+              field: `${prefix}.expires_on`,
+              issue: `Batch "${resolvedBatch.batch_number}" is expired and cannot enter a sellable location.`,
+            },
+          ]
+        );
+      }
+
+      resolvedLinesWithBatches.push({ validated, batch: resolvedBatch });
     }
 
-    const now = new Date().toISOString();
-    const balanceResult = applyLinesToBalances(branchId, built.lines, now);
-    if (balanceResult.errorResponse) {
-      return balanceResult.errorResponse;
+    if (rawTxnType === 'OPENING_BALANCE') {
+      const seenKeys = new Set<string>();
+      for (const { validated, batch } of resolvedLinesWithBatches) {
+        const prefix = `lines[${validated.lineIndex}]`;
+        const key = balanceMapKey(
+          branchId,
+          validated.location.location_id,
+          batch.batch_id
+        );
+        if (seenKeys.has(key)) {
+          return invalidStateTransitionResponse(
+            'Duplicate location and batch in OPENING_BALANCE request.',
+            [
+              {
+                field: 'lines',
+                issue:
+                  'Each (location_id, batch) pair may appear at most once in an opening balance.',
+              },
+            ]
+          );
+        }
+        seenKeys.add(key);
+
+        const existingBalance = workingBalances.get(key);
+        const hasLedgerHistory = mockTransactions.some(
+          (txn) =>
+            txn.branch_id === branchId &&
+            txn.lines.some(
+              (line) =>
+                line.location_id === validated.location.location_id &&
+                line.batch_id === batch.batch_id
+            )
+        );
+        if (
+          (existingBalance && existingBalance.on_hand_qty_base !== 0) ||
+          hasLedgerHistory
+        ) {
+          return invalidStateTransitionResponse(
+            'OPENING_BALANCE is not allowed when stock or ledger history already exists for this location and batch.',
+            [
+              {
+                field: `${prefix}.batch_number`,
+                issue:
+                  'Stock or ledger history already exists for this location and batch.',
+              },
+            ]
+          );
+        }
+      }
     }
 
-    mockBalances = balanceResult.nextBalances;
+    const postedLines: InventoryTxnLine[] = [];
 
-    const created: InventoryTxnDto = {
-      inventory_txn_id: createMockUuid(),
+    for (const { validated, batch } of resolvedLinesWithBatches) {
+      const prefix = `lines[${validated.lineIndex}]`;
+      const conversionFactor = validated.enteredUom.conversion_to_base;
+      const quantityBase = round4(validated.enteredQty * conversionFactor);
+      const key = balanceMapKey(
+        branchId,
+        validated.location.location_id,
+        batch.batch_id
+      );
+      const existingBalance = workingBalances.get(key);
+
+      if (rawTxnType === 'OPENING_BALANCE' || rawTxnType === 'ADJUSTMENT_IN') {
+        const incomingCostBase =
+          validated.unitCostEntered !== null
+            ? round4(validated.unitCostEntered / conversionFactor)
+            : (existingBalance?.average_unit_cost ?? 0);
+        const oldQty = existingBalance?.on_hand_qty_base ?? 0;
+        const oldCost = existingBalance?.average_unit_cost ?? 0;
+        const nextOnHand = round4(oldQty + quantityBase);
+        const nextCost =
+          nextOnHand > 0
+            ? round4(
+                (oldQty * oldCost + quantityBase * incomingCostBase) /
+                  nextOnHand
+              )
+            : incomingCostBase;
+
+        workingBalances.set(key, {
+          organization_id: ORGANIZATION_ID,
+          branch_id: branchId,
+          product_id: validated.product.product_id,
+          product_sku: validated.product.sku,
+          product_name: validated.product.name,
+          base_uom_code: validated.product.base_uom_code,
+          location_id: validated.location.location_id,
+          location_code: validated.location.location_code,
+          location_type: validated.location.location_type,
+          is_location_sellable: validated.location.is_sellable,
+          batch_id: batch.batch_id,
+          batch_number: batch.batch_number,
+          manufactured_on: batch.manufactured_on,
+          expires_on: batch.expires_on,
+          quality_status: batch.quality_status,
+          on_hand_qty_base: nextOnHand,
+          available_qty_base: deriveAvailableQtyBase(
+            nextOnHand,
+            validated.location,
+            batch,
+            businessDate
+          ),
+          average_unit_cost: nextCost,
+          updated_at: now,
+          row_version: (existingBalance?.row_version ?? 0) + 1,
+        });
+
+        postedLines.push({
+          inventory_txn_line_id: createMockUuid('cccc'),
+          product_id: validated.product.product_id,
+          location_id: validated.location.location_id,
+          batch_id: batch.batch_id,
+          batch_number: batch.batch_number,
+          product_uom_id: validated.baseUom.product_uom_id,
+          entered_qty: quantityBase,
+          conversion_snapshot: 1,
+          quantity_delta_base: quantityBase,
+          unit_cost_base: incomingCostBase,
+        });
+      } else {
+        // ADJUSTMENT_OUT
+        const oldQty = existingBalance?.on_hand_qty_base ?? 0;
+        if (oldQty < quantityBase) {
+          return outOfStockResponse(
+            'Insufficient stock available to complete this adjustment.',
+            [
+              {
+                field: `${prefix}.entered_qty`,
+                issue: `Available on-hand quantity is ${oldQty}.`,
+              },
+            ]
+          );
+        }
+
+        const outgoingCostBase = existingBalance?.average_unit_cost ?? 0;
+        const nextOnHand = round4(oldQty - quantityBase);
+
+        if (existingBalance) {
+          workingBalances.set(key, {
+            ...existingBalance,
+            on_hand_qty_base: nextOnHand,
+            available_qty_base: deriveAvailableQtyBase(
+              nextOnHand,
+              validated.location,
+              batch,
+              businessDate
+            ),
+            updated_at: now,
+            row_version: existingBalance.row_version + 1,
+          });
+        }
+
+        postedLines.push({
+          inventory_txn_line_id: createMockUuid('cccc'),
+          product_id: validated.product.product_id,
+          location_id: validated.location.location_id,
+          batch_id: batch.batch_id,
+          batch_number: batch.batch_number,
+          product_uom_id: validated.baseUom.product_uom_id,
+          entered_qty: quantityBase,
+          conversion_snapshot: 1,
+          quantity_delta_base: round4(-quantityBase),
+          unit_cost_base: outgoingCostBase,
+        });
+      }
+    }
+
+    const createdTxn: InventoryTxn = {
+      inventory_txn_id: createMockUuid('bbbb'),
+      organization_id: ORGANIZATION_ID,
       branch_id: branchId,
       transaction_no: nextTransactionNo(),
       transaction_type: rawTxnType,
       status: 'POSTED',
       reason_code: reasonCode,
       note,
+      idempotency_key: idempotency.effectiveKey,
+      created_by_employee_id: MOCK_EMPLOYEE_IDS.EMP_001,
+      reverses_inventory_txn_id: null,
       posted_at: now,
-      created_by_employee_id: YOUSSEF_EMPLOYEE_ID,
-      reverses_inventory_txn_id: reversesTxnId,
-      sales_order_id: null,
-      sales_return_id: null,
-      purchase_order_id: null,
-      vendor_return_id: null,
-      lines: balanceResult.postedLines,
+      lines: postedLines,
     };
 
-    mockTxns = [created, ...mockTxns];
-    const responsePayload = cloneTxn(created);
-    storeIdempotencySuccess(idempKey, bodyText, 201, responsePayload);
-    return HttpResponse.json(responsePayload, { status: 201 });
+    mockBatches = workingBatches;
+    mockBalances = Array.from(workingBalances.values());
+    mockTransactions = [createdTxn, ...mockTransactions];
+
+    const locationHeader = `/api/v1/inventory/transactions/${createdTxn.inventory_txn_id}`;
+    idempotencyStore.set(idempotency.compositeKey, {
+      payloadSignature: idempotency.payloadSignature,
+      status: 201,
+      kind: 'txn',
+      txnBody: cloneTxn(createdTxn),
+      locationHeader,
+    });
+
+    return HttpResponse.json(cloneTxn(createdTxn), {
+      status: 201,
+      headers: { Location: locationHeader },
+    });
   }),
-
-  http.patch(
-    '*/api/v1/inventory/adjustments/:txnId',
-    async ({ params, request }) => {
-      const bodyText = await request.text();
-      const { key: idempKey, replayResponse } = checkIdempotency(
-        request,
-        bodyText
-      );
-      if (replayResponse) {
-        return replayResponse;
-      }
-
-      const txnIndex = mockTxns.findIndex(
-        (item) => item.inventory_txn_id === params.txnId
-      );
-      if (txnIndex === -1) {
-        return notFoundResponse('Inventory adjustment was not found.');
-      }
-
-      const current = mockTxns[txnIndex];
-      if (!current) {
-        return notFoundResponse('Inventory adjustment was not found.');
-      }
-
-      if (current.status !== 'DRAFT') {
-        return conflictResponse(
-          'Only DRAFT adjustments can be modified. POSTED and CANCELLED transactions are immutable.'
-        );
-      }
-
-      const body: unknown = parseJsonBody(bodyText);
-      if (!isRecord(body)) {
-        return malformedRequestResponse('Malformed adjustment patch payload.');
-      }
-
-      const details: ValidationDetail[] = [];
-
-      let nextReasonCode = current.reason_code ?? '';
-      if ('reason_code' in body) {
-        const candidate = readTrimmedString(body.reason_code);
-        if (!candidate) {
-          details.push({
-            field: 'reason_code',
-            issue: 'Reason code is required.',
-          });
-        } else if (candidate.length > 40) {
-          details.push({
-            field: 'reason_code',
-            issue: 'Reason code must be at most 40 characters.',
-          });
-        } else {
-          nextReasonCode = candidate;
-        }
-      }
-
-      const nextNote =
-        'note' in body
-          ? validateNullableString(body.note, 'note', 500, 'Note', details)
-          : (current.note ?? null);
-
-      let nextLines = current.lines;
-      if ('lines' in body) {
-        const txnTypeForDraft: AdjustmentsTxnType = isAdjustmentsTxnType(
-          current.transaction_type
-        )
-          ? current.transaction_type
-          : 'ADJUSTMENT_IN';
-        const originalTxn =
-          txnTypeForDraft === 'REVERSAL' && current.reverses_inventory_txn_id
-            ? (mockTxns.find(
-                (item) =>
-                  item.inventory_txn_id === current.reverses_inventory_txn_id
-              ) ?? null)
-            : null;
-        const built = buildTxnLinesFromRequest(
-          body.lines,
-          current.branch_id,
-          txnTypeForDraft,
-          originalTxn
-        );
-        if (built.validationDetails.length > 0 || !built.lines) {
-          details.push(...built.validationDetails);
-        } else {
-          nextLines = built.lines;
-        }
-      }
-
-      if (details.length > 0) {
-        return validationErrorResponse(
-          'Invalid draft adjustment update.',
-          details
-        );
-      }
-
-      const updated: InventoryTxnDto = {
-        ...current,
-        reason_code: nextReasonCode,
-        note: nextNote,
-        lines: nextLines,
-      };
-
-      mockTxns = mockTxns.map((item, idx) =>
-        idx === txnIndex ? updated : item
-      );
-
-      const responsePayload = cloneTxn(updated);
-      storeIdempotencySuccess(idempKey, bodyText, 200, responsePayload);
-      return HttpResponse.json(responsePayload, { status: 200 });
-    }
-  ),
-
-  http.post(
-    '*/api/v1/inventory/adjustments/:txnId',
-    async ({ params, request }) => {
-      const bodyText = await request.text();
-      const { key: idempKey, replayResponse } = checkIdempotency(
-        request,
-        bodyText
-      );
-      if (replayResponse) {
-        return replayResponse;
-      }
-
-      const txnIndex = mockTxns.findIndex(
-        (item) => item.inventory_txn_id === params.txnId
-      );
-      if (txnIndex === -1) {
-        return notFoundResponse('Inventory adjustment was not found.');
-      }
-
-      const current = mockTxns[txnIndex];
-      if (!current) {
-        return notFoundResponse('Inventory adjustment was not found.');
-      }
-
-      if (current.status !== 'DRAFT') {
-        return conflictResponse(
-          'Only DRAFT adjustments can be posted. POSTED and CANCELLED transactions are immutable.'
-        );
-      }
-
-      const now = new Date().toISOString();
-      const balanceResult = applyLinesToBalances(
-        current.branch_id,
-        current.lines,
-        now
-      );
-      if (balanceResult.errorResponse) {
-        return balanceResult.errorResponse;
-      }
-
-      mockBalances = balanceResult.nextBalances;
-
-      const posted: InventoryTxnDto = {
-        ...current,
-        status: 'POSTED',
-        posted_at: now,
-        lines: balanceResult.postedLines,
-      };
-
-      mockTxns = mockTxns.map((item, idx) =>
-        idx === txnIndex ? posted : item
-      );
-
-      const responsePayload = cloneTxn(posted);
-      storeIdempotencySuccess(idempKey, bodyText, 201, responsePayload);
-      return HttpResponse.json(responsePayload, { status: 201 });
-    }
-  ),
-
-  http.post(
-    '*/api/v1/inventory/adjustments/:txnId/cancel',
-    async ({ params, request }) => {
-      const bodyText = await request.text();
-      const { key: idempKey, replayResponse } = checkIdempotency(
-        request,
-        bodyText
-      );
-      if (replayResponse) {
-        return replayResponse;
-      }
-
-      const txnIndex = mockTxns.findIndex(
-        (item) => item.inventory_txn_id === params.txnId
-      );
-      if (txnIndex === -1) {
-        return notFoundResponse('Inventory adjustment was not found.');
-      }
-
-      const current = mockTxns[txnIndex];
-      if (!current) {
-        return notFoundResponse('Inventory adjustment was not found.');
-      }
-
-      if (current.status !== 'DRAFT') {
-        return conflictResponse(
-          'Only DRAFT adjustments can be cancelled. POSTED transactions are immutable.'
-        );
-      }
-
-      const cancelled: InventoryTxnDto = {
-        ...current,
-        status: 'CANCELLED',
-      };
-
-      mockTxns = mockTxns.map((item, idx) =>
-        idx === txnIndex ? cancelled : item
-      );
-
-      storeIdempotencySuccess(idempKey, bodyText, 204, null);
-      return new HttpResponse(null, { status: 204 });
-    }
-  ),
 ];

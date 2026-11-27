@@ -1,5 +1,6 @@
 import type { FieldErrors } from 'react-hook-form';
-import type { BranchDto, BranchScope, Role } from '../../../types/api';
+import { Alert } from '../../../components/ui/Alert';
+import type { Branch } from '../../../features/branches';
 import type {
   DirectoryQueryStatus,
   EmployeeDisplay,
@@ -12,12 +13,9 @@ import { UserFormFields, type UserAccessPatch } from './UserFormFields';
 export interface EditUserFormFieldsProps {
   employeeDisplay: EmployeeDisplay;
   username: string;
-  role: Role;
-  branchScope: BranchScope;
-  branchIds: readonly string[];
-  isActive: boolean;
-  showPreservedGrantsNotice: boolean;
-  branches: readonly BranchDto[];
+  values: EditUserFormValues;
+  isSelf: boolean;
+  branches: readonly Branch[];
   branchesDirectory: DirectoryQueryStatus;
   disabled: boolean;
   errors: FieldErrors<EditUserFormValues>;
@@ -28,11 +26,8 @@ export interface EditUserFormFieldsProps {
 export function EditUserFormFields({
   employeeDisplay,
   username,
-  role,
-  branchScope,
-  branchIds,
-  isActive,
-  showPreservedGrantsNotice,
+  values,
+  isSelf,
   branches,
   branchesDirectory,
   disabled,
@@ -42,26 +37,31 @@ export function EditUserFormFields({
 }: EditUserFormFieldsProps) {
   return (
     <>
+      {isSelf ? (
+        <Alert variant="info" title="Self-account protection">
+          You cannot change your own role, branch scope, or active status.
+        </Alert>
+      ) : null}
       <EditUserIdentityFields
         employeeDisplay={employeeDisplay}
         username={username}
       />
       <UserFormFields
-        role={role}
-        branchScope={branchScope}
-        branchIds={branchIds}
+        role={values.role}
+        branchScope={values.branch_scope}
+        branchIds={values.branch_ids}
         branches={branches}
         branchesDirectory={branchesDirectory}
         disabled={disabled}
+        lockRoleAndScope={isSelf}
         roleError={errors.role?.message}
         branchScopeError={errors.branch_scope?.message}
         branchIdsError={errors.branch_ids?.message}
-        showPreservedGrantsNotice={showPreservedGrantsNotice}
         onAccessChange={onAccessChange}
       />
       <EditUserStatusField
-        isActive={isActive}
-        disabled={disabled}
+        isActive={values.is_active}
+        disabled={disabled || isSelf}
         error={errors.is_active?.message}
         onChange={onStatusChange}
       />

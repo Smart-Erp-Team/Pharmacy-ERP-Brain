@@ -2,8 +2,8 @@ import { useId, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'react-toastify';
-import type { EmployeeDto } from '../../../features/employees';
-import type { BranchDto } from '../../../types/api';
+import type { Branch } from '../../../features/branches';
+import type { Employee } from '../../../features/employees';
 import { useCreateUserMutation } from '../hooks/useUsers';
 import type { DirectoryQueryStatus } from '../hooks/useUsersPageState';
 import { applyCreateUserFormApiError } from '../schemas/userErrorMapper';
@@ -18,9 +18,9 @@ import { UserFormFields, type UserAccessPatch } from './UserFormFields';
 import { UserFormModalShell } from './UserFormModalShell';
 
 export interface CreateUserFormModalProps {
-  eligibleEmployees: readonly EmployeeDto[];
+  eligibleEmployees: readonly Employee[];
   employeesDirectory: DirectoryQueryStatus;
-  branches: readonly BranchDto[];
+  branches: readonly Branch[];
   branchesDirectory: DirectoryQueryStatus;
   onClose: () => void;
 }

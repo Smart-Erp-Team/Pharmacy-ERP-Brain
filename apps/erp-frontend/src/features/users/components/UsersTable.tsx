@@ -9,35 +9,38 @@ import {
   TableHeader,
   TableRow,
 } from '../../../components/ui/Table';
-import type { UserDto } from '../../../types/api';
-import type { EmployeeDisplay } from '../hooks/useUsersPageState';
+import type { User } from '../../../types/api';
+import type {
+  BranchAccessDisplay,
+  EmployeeDisplay,
+} from '../hooks/useUsersPageState';
 import { UserTableRow } from './UserTableRow';
 import { UsersTableEmptyState } from './UsersTableEmptyState';
 
 export interface UsersTableProps {
-  users: readonly UserDto[];
+  users: readonly User[];
+  currentUserId: string | null;
   getEmployeeDisplay: (employeeId: string) => EmployeeDisplay;
+  getBranchAccessDisplay: (user: User) => BranchAccessDisplay;
   referenceNowMs: number;
   isLoading: boolean;
   errorMessage: string | null;
   togglingUserIds: readonly string[];
   hasActiveFilters: boolean;
-  hasHiddenInactive?: boolean;
   onRetry: () => void;
   onResetFilters: () => void;
-  onShowAllUsers?: () => void;
   onAddUser: () => void;
-  onEdit: (user: UserDto) => void;
-  onResetPassword: (user: UserDto) => void;
-  onRevokeSessions: (user: UserDto) => void;
-  onToggleActive: (user: UserDto, nextActive: boolean) => void;
+  onEdit: (user: User) => void;
+  onResetPassword: (user: User) => void;
+  onRevokeSessions: (user: User) => void;
+  onToggleActive: (user: User, nextActive: boolean) => void;
 }
 
 const COLUMNS = [
   { label: 'Employee', skeleton: 'h-4 w-36' },
   { label: 'Username', skeleton: 'h-4 w-28' },
   { label: 'Role', skeleton: 'h-5 w-20' },
-  { label: 'Branch Scope', skeleton: 'h-5 w-20' },
+  { label: 'Branch Scope', skeleton: 'h-5 w-24' },
   { label: 'Account Status', skeleton: 'h-5 w-32' },
   { label: 'Actions', skeleton: 'h-8 w-56' },
 ] as const;
@@ -54,16 +57,16 @@ const HEADERS = (
 
 export function UsersTable({
   users,
+  currentUserId,
   getEmployeeDisplay,
+  getBranchAccessDisplay,
   referenceNowMs,
   isLoading,
   errorMessage,
   togglingUserIds,
   hasActiveFilters,
-  hasHiddenInactive = false,
   onRetry,
   onResetFilters,
-  onShowAllUsers,
   onAddUser,
   onEdit,
   onResetPassword,
@@ -110,9 +113,7 @@ export function UsersTable({
     return (
       <UsersTableEmptyState
         hasActiveFilters={hasActiveFilters}
-        hasHiddenInactive={hasHiddenInactive}
         onResetFilters={onResetFilters}
-        onShowAllUsers={onShowAllUsers}
         onAddUser={onAddUser}
       />
     );
@@ -127,7 +128,9 @@ export function UsersTable({
             key={user.user_id}
             user={user}
             employeeDisplay={getEmployeeDisplay(user.employee_id)}
+            branchAccessDisplay={getBranchAccessDisplay(user)}
             referenceNowMs={referenceNowMs}
+            isSelf={currentUserId === user.user_id}
             isToggling={togglingUserIds.includes(user.user_id)}
             onEdit={onEdit}
             onResetPassword={onResetPassword}

@@ -2,6 +2,7 @@ import process from 'node:process';
 import { expect, type Page } from '@playwright/test';
 import {
   currentUserFixture,
+  MEDCARE_ORG_CODE,
   mockAuthMe,
   type UserContextOverrides,
 } from './authContext.ts';
@@ -19,15 +20,13 @@ export function getMockCredentials(
     organizationCode:
       overrides.organizationCode ??
       process.env.E2E_ORG_CODE ??
-      currentUserFixture.organization_code,
+      MEDCARE_ORG_CODE,
     username:
       overrides.username ??
       process.env.E2E_USERNAME ??
       currentUserFixture.username,
     password:
-      overrides.password ??
-      process.env.E2E_PASSWORD ??
-      'mock-dev-session-secret',
+      overrides.password ?? process.env.E2E_PASSWORD ?? 'MedCareAdmin!2026',
   };
 }
 
@@ -63,27 +62,36 @@ export async function submitLoginForm(
 
 export async function loginAsWorkspaceUser(
   page: Page,
-  startPath = '/login'
+  startPath = '/login',
+  overrides: Partial<LoginCredentials> = {}
 ): Promise<void> {
   await page.goto(startPath);
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
   await waitForMswReady(page);
-  await submitLoginForm(page);
+  await submitLoginForm(page, overrides);
   await expect(page.getByRole('button', { name: 'Logout' })).toBeVisible();
 }
 
-export async function openPanadolReorderTab(page: Page): Promise<void> {
+export async function openProductReorderTab(
+  page: Page,
+  productName = 'Augmentin 1g Film-Coated Tablets'
+): Promise<void> {
   await page.getByRole('link', { name: 'Products' }).click();
-  await page.getByRole('button', { name: 'Panadol 500mg Tablets' }).click();
+  await page.getByRole('button', { name: productName }).click();
   await page.getByRole('tab', { name: 'Branch Reorder Settings' }).click();
 }
 
 export async function loginWithUserContext(
   page: Page,
-  overrides: UserContextOverrides
+  overrides: UserContextOverrides,
+  startPath = '/login'
 ): Promise<string[]> {
   const errors = trackUncaughtErrors(page);
   await mockAuthMe(page, overrides);
-  await loginAsWorkspaceUser(page);
+  await loginAsWorkspaceUser(
+    page,
+    startPath,
+    overrides.username ? { username: overrides.username } : {}
+  );
   return errors;
 }

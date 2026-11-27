@@ -4,17 +4,13 @@ import { EmptyState } from '../../../components/ui/EmptyState';
 
 export interface UsersTableEmptyStateProps {
   hasActiveFilters: boolean;
-  hasHiddenInactive: boolean;
   onResetFilters: () => void;
-  onShowAllUsers?: () => void;
   onAddUser: () => void;
 }
 
 export function UsersTableEmptyState({
   hasActiveFilters,
-  hasHiddenInactive,
   onResetFilters,
-  onShowAllUsers,
   onAddUser,
 }: UsersTableEmptyStateProps) {
   if (hasActiveFilters) {
@@ -22,25 +18,10 @@ export function UsersTableEmptyState({
       <EmptyState
         icon={<Shield className="h-5 w-5" />}
         title="No user accounts match your filters"
-        description="Try clearing your search term, changing the role filter, or including inactive accounts."
+        description="Try clearing your search term, changing the branch or role filter, or including inactive accounts."
         action={
           <Button variant="secondary" onClick={onResetFilters}>
             Clear filters
-          </Button>
-        }
-      />
-    );
-  }
-
-  if (hasHiddenInactive && onShowAllUsers) {
-    return (
-      <EmptyState
-        icon={<Shield className="h-5 w-5" />}
-        title="No active user accounts"
-        description="All accounts on this page are inactive. Switch status filter to view inactive accounts."
-        action={
-          <Button variant="secondary" onClick={onShowAllUsers}>
-            Show all accounts
           </Button>
         }
       />

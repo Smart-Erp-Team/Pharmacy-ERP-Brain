@@ -13,52 +13,60 @@ import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Plus } from 'lucide-react';
 import { toast } from 'react-toastify';
 import currentUserContextFixture from '@contracts/fixtures/current-user-context.json';
 import inventoryBalanceFixture from '@contracts/fixtures/inventory-balance.json';
 import productFixture from '@contracts/fixtures/product.json';
-import { Button } from '../../../components/ui/Button';
-import { Card, CardHeader } from '../../../components/ui/Card';
-import { PageHeading } from '../../../components/ui/PageHeading';
-import { ApiClientError } from '../../../lib/api/client';
 import {
   INITIAL_PRODUCTS,
+  MOCK_BRANCH_IDS,
+  MOCK_CATEGORY_IDS,
+  MOCK_PRODUCT_IDS,
+  ORGANIZATION_ID,
   productHandlers,
   resetMockCatalog,
 } from '../../../mocks/productHandlers';
 import { useAuthStore } from '../../../stores/authStore';
 import { renderWithProviders } from '../../../test/renderWithProviders';
 import type {
-  CurrentUserContext,
-  ProductCategoryDto,
+  CurrentUser,
+  PagedResult,
+  ProductCategory,
 } from '../../../types/api';
 import { useProductsPageState } from '../hooks/useProductsPageState';
 import { CategoryFormModal } from './CategoryFormModal';
-import { CategoryTreePanel } from './CategoryTreePanel';
 import { CreateProductModal } from './CreateProductModal';
 import { EditProductModal } from './EditProductModal';
-import { ProductsFilterBar } from './ProductsFilterBar';
-import { ProductsTable } from './ProductsTable';
+import { ProductsCatalogView } from './ProductsCatalogView';
 
 const server = setupServer(...productHandlers);
 
-function buildSessionUser(
-  overrides: Partial<CurrentUserContext> = {}
-): CurrentUserContext {
+function buildSessionUser(overrides: Partial<CurrentUser> = {}): CurrentUser {
   return {
-    ...(currentUserContextFixture as CurrentUserContext),
-    roles: ['Admin'],
-    scopes: ['inventory:read', 'inventory:write'],
-    runtime: 'Cloud',
+    user_id: currentUserContextFixture.user_id,
+    employee_id: currentUserContextFixture.employee_id,
+    organization_id: currentUserContextFixture.organization_id,
+    username: currentUserContextFixture.username,
+    role: 'Admin',
+    branch_scope: 'ALL',
+    branch_ids: [],
+    scopes: [
+      'user:admin',
+      'inventory:read',
+      'inventory:write',
+      'sales:read',
+      'sales:write',
+    ],
+    runtime_mode: 'Cloud',
     ...overrides,
   };
 }
 
-function seedAuthSession(overrides: Partial<CurrentUserContext> = {}) {
+function seedAuthSession(overrides: Partial<CurrentUser> = {}) {
   useAuthStore.setState({
     currentUser: buildSessionUser(overrides),
-    activeBranchId: 'd4e5f6a7-3333-4c44-9d55-bbccddeeffaa',
+    organizationCode: 'MEDCARE',
+    activeBranchId: MOCK_BRANCH_IDS.DOWNTOWN,
     isAuthenticated: true,
     isInitializing: false,
   });
@@ -68,102 +76,68 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function expectSelectElement(element: HTMLElement): HTMLSelectElement {
+  if (!(element instanceof HTMLSelectElement)) {
+    throw new Error('Expected an HTMLSelectElement');
+  }
+  return element;
+}
+
+function expectInputElement(element: HTMLElement): HTMLInputElement {
+  if (!(element instanceof HTMLInputElement)) {
+    throw new Error('Expected an HTMLInputElement');
+  }
+  return element;
+}
+
+function expectButtonElement(element: HTMLElement): HTMLButtonElement {
+  if (!(element instanceof HTMLButtonElement)) {
+    throw new Error('Expected an HTMLButtonElement');
+  }
+  return element;
+}
+
+function makePagedResponse<T>(
+  items: T[],
+  page = 1,
+  pageSize = 25,
+  totalCount = items.length,
+  nextCursor: string | null = null
+): PagedResult<T> {
+  return {
+    items,
+    page,
+    page_size: pageSize,
+    total_count: totalCount,
+    next_cursor: nextCursor,
+  };
+}
+
+function makeCategoryFixture(
+  overrides: Partial<ProductCategory> &
+    Pick<ProductCategory, 'category_id' | 'code' | 'name'>
+): ProductCategory {
+  return {
+    organization_id: ORGANIZATION_ID,
+    parent_category_id: null,
+    description: null,
+    is_active: true,
+    created_at: '2026-01-15T08:00:00+00:00',
+    updated_at: '2026-11-25T10:00:00+00:00',
+    ...overrides,
+  };
+}
+
 function CatalogWorkbenchHarness({ pageSize }: { pageSize?: number }) {
   const state = useProductsPageState({ pageSize });
 
-  const productsError = state.productsQuery.isError
-    ? state.productsQuery.error instanceof ApiClientError
-      ? state.productsQuery.error.message
-      : 'Unable to load products.'
-    : null;
-
-  const categoriesError = state.categoriesQuery.isError
-    ? state.categoriesQuery.error instanceof ApiClientError
-      ? state.categoriesQuery.error.message
-      : 'Unable to load categories.'
-    : null;
-
   return (
-    <div className="flex flex-col gap-6">
-      <PageHeading
-        eyebrow="Operations"
-        title="Products"
-        description="Product catalog, units of measure, prices and the category tree."
-        actions={
-          state.canWriteCatalog ? (
-            <Button
-              variant="primary"
-              leadingIcon={<Plus className="h-4 w-4" aria-hidden="true" />}
-              onClick={state.openCreateProductModal}
-            >
-              Add product
-            </Button>
-          ) : undefined
-        }
-      />
-
+    <>
       {state.selectedProductId ? (
         <div data-testid="selected-product-id">{state.selectedProductId}</div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(350px,1fr)]">
-        <Card>
-          <CardHeader title="Product list" />
-          <ProductsFilterBar
-            searchTerm={state.searchTerm}
-            selectedCategoryId={state.selectedCategoryId}
-            includeInactive={state.includeInactive}
-            categories={state.categories}
-            hasActiveFilters={state.hasActiveFilters}
-            isBranchLocal={state.isBranchLocal}
-            onSearchChange={state.handleSearchChange}
-            onCategoryChange={state.handleCategoryChange}
-            onIncludeInactiveChange={state.handleIncludeInactiveChange}
-            onResetFilters={state.resetFilters}
-          />
-          <ProductsTable
-            products={state.products}
-            categoryNameById={state.categoryNameById}
-            getCategoryName={state.getCategoryName}
-            canWriteCatalog={state.canWriteCatalog}
-            isLoading={state.productsQuery.isPending}
-            errorMessage={productsError}
-            togglingProductIds={state.togglingProductIds}
-            hasActiveFilters={state.hasActiveFilters}
-            pageIndex={state.pageIndex}
-            pageSize={state.pageSize}
-            nextCursor={state.productsQuery.data?.nextCursor}
-            onPageChange={state.handlePageChange}
-            onRetry={() => {
-              void state.productsQuery.refetch();
-            }}
-            onResetFilters={state.resetFilters}
-            onAddProduct={state.openCreateProductModal}
-            onViewProduct={(product) =>
-              state.setSelectedProductId(product.product_id)
-            }
-            onEditProduct={state.openEditProductModal}
-            onToggleActive={(product, nextActive) => {
-              void state.handleToggleActive(product, nextActive);
-            }}
-          />
-        </Card>
-
-        <CategoryTreePanel
-          nodes={state.categoryTree}
-          selectedCategoryId={state.selectedCategoryId}
-          includeInactive={state.includeInactive}
-          canWriteCatalog={state.canWriteCatalog}
-          isLoading={state.categoriesQuery.isPending}
-          errorMessage={categoriesError}
-          onRetry={() => {
-            void state.categoriesQuery.refetch();
-          }}
-          onSelectCategory={state.handleCategorySelect}
-          onAddCategory={state.openCreateCategoryModal}
-          onEditCategory={state.openEditCategoryModal}
-        />
-      </div>
+      <ProductsCatalogView state={state} />
 
       <CategoryFormModal
         open={state.categoryModalState.open}
@@ -194,7 +168,7 @@ function CatalogWorkbenchHarness({ pageSize }: { pageSize?: number }) {
         }}
         onClose={state.closeProductModal}
       />
-    </div>
+    </>
   );
 }
 
@@ -209,6 +183,7 @@ afterEach(() => {
   cleanup();
   useAuthStore.setState({
     currentUser: null,
+    organizationCode: null,
     activeBranchId: null,
     isAuthenticated: false,
     isInitializing: false,
@@ -220,55 +195,47 @@ afterAll(() => server.close());
 describe('CategoryTreePanel and CategoryFormModal', () => {
   it('renders category hierarchy with depth indentation capped at 3, toggles filter on click, and excludes self + descendants when editing', async () => {
     const user = userEvent.setup();
-    const deepCategories: ProductCategoryDto[] = [
-      {
+    const deepCategories: ProductCategory[] = [
+      makeCategoryFixture({
         category_id: 'cat-0',
-        parent_category_id: null,
         code: 'CAT-D0',
         name: 'Level Zero',
         description: 'Root group',
-        is_active: true,
-      },
-      {
+      }),
+      makeCategoryFixture({
         category_id: 'cat-1',
         parent_category_id: 'cat-0',
         code: 'CAT-D1',
         name: 'Level One',
-        is_active: true,
-      },
-      {
+      }),
+      makeCategoryFixture({
         category_id: 'cat-2',
         parent_category_id: 'cat-1',
         code: 'CAT-D2',
         name: 'Level Two',
-        is_active: true,
-      },
-      {
+      }),
+      makeCategoryFixture({
         category_id: 'cat-3',
         parent_category_id: 'cat-2',
         code: 'CAT-D3',
         name: 'Level Three',
-        is_active: true,
-      },
-      {
+      }),
+      makeCategoryFixture({
         category_id: 'cat-4',
         parent_category_id: 'cat-3',
         code: 'CAT-D4',
         name: 'Level Four',
-        is_active: true,
-      },
-      {
+      }),
+      makeCategoryFixture({
         category_id: 'cat-other',
-        parent_category_id: null,
         code: 'CAT-OTH',
         name: 'Other Root',
-        is_active: true,
-      },
+      }),
     ];
 
     server.use(
       http.get('*/api/v1/product-categories', () =>
-        HttpResponse.json({ items: deepCategories, nextCursor: null })
+        HttpResponse.json(makePagedResponse(deepCategories))
       )
     );
 
@@ -303,19 +270,25 @@ describe('CategoryTreePanel and CategoryFormModal', () => {
     // Click to filter by Level Zero, then click again to clear
     await user.click(levelZeroBtn);
     expect(levelZeroBtn.getAttribute('aria-pressed')).toBe('true');
-    expect((screen.getByLabelText('Category') as HTMLSelectElement).value).toBe(
+    expect(expectSelectElement(screen.getByLabelText('Category')).value).toBe(
       'cat-0'
     );
 
     await user.click(levelZeroBtn);
     expect(levelZeroBtn.getAttribute('aria-pressed')).toBe('false');
-    expect((screen.getByLabelText('Category') as HTMLSelectElement).value).toBe(
+    expect(expectSelectElement(screen.getByLabelText('Category')).value).toBe(
       ''
     );
 
-    // Edit Level Zero -> Parent select excludes self (cat-0) and all descendants (cat-1..cat-4)
+    // Edit Level Zero -> code is locked, Parent select excludes self and descendants
     await user.click(screen.getByRole('button', { name: 'Edit Level Zero' }));
     const dialog = screen.getByRole('dialog');
+    const codeInput = expectInputElement(
+      within(dialog).getByLabelText('Category code')
+    );
+    expect(codeInput.disabled).toBe(true);
+    expect(codeInput.readOnly).toBe(true);
+
     const parentSelect = within(dialog).getByLabelText('Parent category');
     const parentOptionValues = Array.from(
       parentSelect.querySelectorAll('option')
@@ -329,19 +302,49 @@ describe('CategoryTreePanel and CategoryFormModal', () => {
     ).toBe(true);
   });
 
-  it('creates and edits categories, maps 409 duplicate code, and supports inactive inspection', async () => {
+  it('creates categories without is_active, edits with locked code omitting code from PATCH, maps 409 duplicate code, and supports inactive inspection', async () => {
     const user = userEvent.setup();
+    const categoryPostBodies: Array<Record<string, unknown>> = [];
+    const categoryPatchBodies: Array<Record<string, unknown>> = [];
+
+    server.use(
+      http.post('*/api/v1/product-categories', async ({ request }) => {
+        const cloned = request.clone();
+        const body: unknown = await cloned.json().catch(() => null);
+        if (isRecord(body)) {
+          categoryPostBodies.push(body);
+        }
+        return undefined;
+      }),
+      http.patch(
+        '*/api/v1/product-categories/:categoryId',
+        async ({ request }) => {
+          const cloned = request.clone();
+          const body: unknown = await cloned.json().catch(() => null);
+          if (isRecord(body)) {
+            categoryPatchBodies.push(body);
+          }
+          return undefined;
+        }
+      )
+    );
+
     renderWithProviders(<CatalogWorkbenchHarness />);
 
     const categoryTree = await screen.findByRole('list', {
       name: 'Product categories',
     });
+    expect(within(categoryTree).getByText('Antibiotics')).toBeDefined();
+    expect(within(categoryTree).getByText('Penicillins')).toBeDefined();
     expect(within(categoryTree).getByText('Analgesics')).toBeDefined();
-    expect(screen.queryByText('Discontinued Seasonal')).toBeNull();
+    expect(screen.queryByText('Archived Catalog')).toBeNull();
 
-    // Create validation & 409 duplicate code
+    // Create validation, omitted is_active toggle, & 409 duplicate code
     await user.click(screen.getByRole('button', { name: 'Add category' }));
     const dialog = screen.getByRole('dialog');
+    expect(
+      within(dialog).queryByRole('switch', { name: 'Active category' })
+    ).toBeNull();
 
     await user.click(
       within(dialog).getByRole('button', { name: 'Create category' })
@@ -380,7 +383,7 @@ describe('CategoryTreePanel and CategoryFormModal', () => {
     );
     await user.selectOptions(
       within(dialog).getByLabelText('Parent category'),
-      'c9d8e7f6-4444-4d55-8e66-cbccddeeffbb'
+      MOCK_CATEGORY_IDS.ANALGESICS
     );
     await user.click(
       within(dialog).getByRole('button', { name: 'Create category' })
@@ -389,12 +392,25 @@ describe('CategoryTreePanel and CategoryFormModal', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull();
     });
+    expect(categoryPostBodies[1]).toEqual({
+      parent_category_id: MOCK_CATEGORY_IDS.ANALGESICS,
+      code: 'CAT-DERM',
+      name: 'Dermatology',
+      description: 'Skin treatments',
+    });
+    expect('is_active' in categoryPostBodies[1]).toBe(false);
     expect(await within(categoryTree).findByText('Dermatology')).toBeDefined();
     expect(within(categoryTree).getByText('CAT-DERM')).toBeDefined();
 
-    // Edit Dermatology -> rename and deactivate
+    // Edit Dermatology -> code is locked, PATCH omits code, rename and deactivate
     await user.click(screen.getByRole('button', { name: 'Edit Dermatology' }));
     const editDialog = screen.getByRole('dialog');
+    const editCodeInput = expectInputElement(
+      within(editDialog).getByLabelText('Category code')
+    );
+    expect(editCodeInput.disabled).toBe(true);
+    expect(editCodeInput.readOnly).toBe(true);
+
     const editName = within(editDialog).getByLabelText('Category name');
     await user.clear(editName);
     await user.type(editName, 'Dermatology & Topical');
@@ -408,6 +424,13 @@ describe('CategoryTreePanel and CategoryFormModal', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull();
     });
+    expect(categoryPatchBodies[0]).toEqual({
+      parent_category_id: MOCK_CATEGORY_IDS.ANALGESICS,
+      name: 'Dermatology & Topical',
+      description: 'Skin treatments',
+      is_active: false,
+    });
+    expect('code' in categoryPatchBodies[0]).toBe(false);
     expect(
       within(categoryTree).queryByText('Dermatology & Topical')
     ).toBeNull();
@@ -417,14 +440,12 @@ describe('CategoryTreePanel and CategoryFormModal', () => {
     expect(
       await within(categoryTree).findByText('Dermatology & Topical')
     ).toBeDefined();
-    expect(
-      within(categoryTree).getByText('Discontinued Seasonal')
-    ).toBeDefined();
+    expect(within(categoryTree).getByText('Archived Catalog')).toBeDefined();
   });
 });
 
 describe('ProductsTable, filters, pagination, and Create/Edit Product modals', () => {
-  it('renders loading skeleton, handles errors with retry and Category unavailable fallback, filters, paginates, and shows no delete button', async () => {
+  it('renders loading skeleton, displays tax_rate and base UOM price, handles errors with retry, filters, and shows no delete button', async () => {
     const user = userEvent.setup();
     let failProducts = true;
     let resolveGate: (() => void) | undefined;
@@ -439,8 +460,9 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
           return HttpResponse.json(
             {
               error: {
-                code: 'INTERNAL_ERROR',
+                code: 'INTERNAL_SERVER_ERROR',
                 message: 'Temporary catalog outage',
+                details: [],
                 trace_id: 'trace-prod-500',
               },
             },
@@ -451,7 +473,14 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
       }),
       http.get('*/api/v1/product-categories', () =>
         HttpResponse.json(
-          { error: { code: 'INTERNAL_ERROR', message: 'Categories down' } },
+          {
+            error: {
+              code: 'INTERNAL_SERVER_ERROR',
+              message: 'Categories down',
+              details: [],
+              trace_id: 'trace-cat-500',
+            },
+          },
           { status: 500 }
         )
       )
@@ -465,13 +494,13 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
     expect(loadingRegion.getAttribute('aria-busy')).toBe('true');
 
     resolveGate?.();
-    expect(await screen.findByText('Temporary catalog outage')).toBeDefined();
-    expect(await screen.findByText('Categories down')).toBeDefined();
+    expect(await screen.findByText(/Temporary catalog outage/)).toBeDefined();
+    expect(await screen.findByText(/Categories down/)).toBeDefined();
 
     // Retry products while categories stay down -> 'Category unavailable' fallback
     failProducts = false;
     await user.click(screen.getAllByRole('button', { name: 'Retry' })[0]);
-    expect(await screen.findByText('Panadol 500mg Tablets')).toBeDefined();
+    expect(await screen.findByText('Panadol Extra 500mg')).toBeDefined();
     expect(screen.getAllByText('Category unavailable').length).toBeGreaterThan(
       0
     );
@@ -484,29 +513,39 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
       expect(screen.queryByText('Category unavailable')).toBeNull();
     });
 
+    // Verify numeric tax_rate and base UOM sale_unit_price formatting on Panadol Extra 500mg
+    const panadolRowInitial = screen
+      .getByText('Panadol Extra 500mg')
+      .closest('tr');
+    if (!panadolRowInitial) {
+      throw new Error('Expected Panadol row');
+    }
+    expect(within(panadolRowInitial).getByText('5%')).toBeDefined();
+    expect(within(panadolRowInitial).getByText('EGP 2.50')).toBeDefined();
+
     // Search by barcode and SKU
     const searchInput = screen.getByLabelText('Search products');
-    await user.type(searchInput, '6221048001234');
+    await user.type(searchInput, '6221001000026');
     await waitFor(() => {
-      expect(screen.queryByText('Augmentin 1g Tablets')).toBeNull();
+      expect(screen.queryByText('Augmentin 1g Film-Coated Tablets')).toBeNull();
     });
-    expect(screen.getByText('Panadol 500mg Tablets')).toBeDefined();
+    expect(screen.getByText('Panadol Extra 500mg')).toBeDefined();
 
     // Click product name opens details callback; View button also opens details
     await user.click(
-      screen.getByRole('button', { name: 'Panadol 500mg Tablets' })
+      screen.getByRole('button', { name: 'Panadol Extra 500mg' })
     );
     expect(screen.getByTestId('selected-product-id').textContent).toBe(
-      productFixture.product_id
+      MOCK_PRODUCT_IDS.PANADOL_EXTRA
     );
 
-    const panadolRow = screen.getByText('Panadol 500mg Tablets').closest('tr');
+    const panadolRow = screen.getByText('Panadol Extra 500mg').closest('tr');
     if (!panadolRow) {
       throw new Error('Expected Panadol row');
     }
     await user.click(within(panadolRow).getByRole('button', { name: 'View' }));
     expect(screen.getByTestId('selected-product-id').textContent).toBe(
-      productFixture.product_id
+      MOCK_PRODUCT_IDS.PANADOL_EXTRA
     );
 
     // Search with no matches triggers filtered empty state -> Clear filters recovers
@@ -516,74 +555,93 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
       await screen.findByText('No products match your filters')
     ).toBeDefined();
 
-    // Clear filters -> test Include inactive shows Legacy Aspirin with barcode 'Unavailable'
+    // Clear filters -> test Include inactive shows Discontinued Cough Syrup with barcode 'Unavailable'
     const clearButtons = screen.getAllByRole('button', {
       name: 'Clear filters',
     });
     expect(clearButtons).toHaveLength(2);
     await user.click(clearButtons[1]);
-    expect(await screen.findByText('Augmentin 1g Tablets')).toBeDefined();
-    await user.click(screen.getByRole('switch', { name: 'Include inactive' }));
     expect(
-      await screen.findByText('Legacy Aspirin 75mg Tablets')
+      await screen.findByText('Augmentin 1g Film-Coated Tablets')
     ).toBeDefined();
-    const aspirinRow = screen
-      .getByText('Legacy Aspirin 75mg Tablets')
+    await user.click(screen.getByRole('switch', { name: 'Include inactive' }));
+    expect(await screen.findByText('Discontinued Cough Syrup')).toBeDefined();
+    const discontinuedRow = screen
+      .getByText('Discontinued Cough Syrup')
       .closest('tr');
-    if (!aspirinRow) {
-      throw new Error('Expected Legacy Aspirin row');
+    if (!discontinuedRow) {
+      throw new Error('Expected Discontinued Cough Syrup row');
     }
-    expect(within(aspirinRow).getByText('Unavailable')).toBeDefined();
-    expect(within(aspirinRow).getByText('0%')).toBeDefined();
+    expect(within(discontinuedRow).getByText('Unavailable')).toBeDefined();
+    expect(within(discontinuedRow).getByText('0%')).toBeDefined();
+    expect(within(discontinuedRow).getByText('EGP 45.00')).toBeDefined();
   });
 
-  it('paginates with fresh forward cursor and resets pagination on filter changes', async () => {
+  it('paginates with Stage 1 PagedResult (page, page_size, total_count, next_cursor) and resets page to 1 on filter changes', async () => {
     const user = userEvent.setup();
-    let page1Requests = 0;
-    const seenCursors: Array<string | null> = [];
+    const seenRequests: Array<{
+      page: string | null;
+      pageSize: string | null;
+      categoryId: string | null;
+      search: string | null;
+    }> = [];
 
     server.use(
       http.get('*/api/v1/products', ({ request }) => {
         const url = new URL(request.url);
-        const cursor = url.searchParams.get('cursor');
-        seenCursors.push(cursor);
-        if (cursor === 'cursor-2-fresh' || cursor === 'cursor-2') {
-          return HttpResponse.json({
-            items: [INITIAL_PRODUCTS[2]],
-            nextCursor: null,
-          });
-        }
-        page1Requests += 1;
-        return HttpResponse.json({
-          items: [INITIAL_PRODUCTS[0], INITIAL_PRODUCTS[1]],
-          nextCursor: page1Requests === 1 ? 'cursor-2' : 'cursor-2-fresh',
+        const pageParam = url.searchParams.get('page');
+        const pageSizeParam = url.searchParams.get('page_size');
+        const categoryIdParam = url.searchParams.get('category_id');
+        const searchParam = url.searchParams.get('search');
+
+        seenRequests.push({
+          page: pageParam,
+          pageSize: pageSizeParam,
+          categoryId: categoryIdParam,
+          search: searchParam,
         });
+
+        const pageNumber = Number(pageParam ?? '1');
+        if (pageNumber === 2) {
+          return HttpResponse.json(
+            makePagedResponse([INITIAL_PRODUCTS[2]], 2, 2, 3, null)
+          );
+        }
+        return HttpResponse.json(
+          makePagedResponse(
+            [INITIAL_PRODUCTS[0], INITIAL_PRODUCTS[1]],
+            1,
+            2,
+            3,
+            '2'
+          )
+        );
       })
     );
 
     renderWithProviders(<CatalogWorkbenchHarness pageSize={2} />);
-    expect(await screen.findByText('Panadol 500mg Tablets')).toBeDefined();
+    expect(await screen.findByText('Panadol Extra 500mg')).toBeDefined();
+    expect(screen.getByText('Showing 1–2 of 3')).toBeDefined();
+    expect(screen.getByText('Page 1')).toBeDefined();
 
     await user.click(screen.getByRole('button', { name: 'Next page' }));
-    expect(
-      await screen.findByText('Cetal Pediatric Suspension 120ml')
-    ).toBeDefined();
+    expect(await screen.findByText('Vitamin D3 5000 IU')).toBeDefined();
+    expect(screen.getByText('Showing 3–3 of 3')).toBeDefined();
+    expect(screen.getByText('Page 2')).toBeDefined();
 
-    // Back to page 1, then filter resets pagination cleanly
-    await user.click(screen.getByRole('button', { name: 'Previous page' }));
-    expect(await screen.findByText('Panadol 500mg Tablets')).toBeDefined();
-
-    // Filter change triggers fresh page 1 fetch; going forward uses fresh nextCursor
+    // Filter change resets page back to 1
     await user.selectOptions(
       screen.getByLabelText('Category'),
-      'c9d8e7f6-4444-4d55-8e66-cbccddeeffbb'
+      MOCK_CATEGORY_IDS.ANALGESICS
     );
-    await waitFor(() => {
-      expect(page1Requests).toBeGreaterThanOrEqual(2);
-    });
-    await user.click(screen.getByRole('button', { name: 'Next page' }));
-    await waitFor(() => {
-      expect(seenCursors).toContain('cursor-2-fresh');
+    expect(await screen.findByText('Panadol Extra 500mg')).toBeDefined();
+    expect(screen.getByText('Page 1')).toBeDefined();
+
+    expect(seenRequests).toContainEqual({
+      page: '1',
+      pageSize: '2',
+      categoryId: MOCK_CATEGORY_IDS.ANALGESICS,
+      search: null,
     });
   });
 
@@ -610,20 +668,20 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
           (p) => p.product_id === params.productId
         );
         return HttpResponse.json({
-          ...(target ?? productFixture),
+          ...(target ?? INITIAL_PRODUCTS[0]),
           is_active: false,
         });
       })
     );
 
     renderWithProviders(<CatalogWorkbenchHarness />);
-    await screen.findByText('Panadol 500mg Tablets');
+    await screen.findByText('Panadol Extra 500mg');
 
     const panadolSwitch = screen.getByRole('switch', {
-      name: 'Toggle status for Panadol 500mg Tablets',
+      name: 'Toggle status for Panadol Extra 500mg',
     });
     const augmentinSwitch = screen.getByRole('switch', {
-      name: 'Toggle status for Augmentin 1g Tablets',
+      name: 'Toggle status for Augmentin 1g Film-Coated Tablets',
     });
 
     await user.click(panadolSwitch);
@@ -644,7 +702,7 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
       expect(augmentinSwitch.hasAttribute('disabled')).toBe(false);
     });
     expect(
-      await screen.findByText('Panadol 500mg Tablets marked inactive')
+      await screen.findByText('Panadol Extra 500mg marked inactive')
     ).toBeDefined();
 
     // Toggle error surfaces trace-annotated toast
@@ -653,8 +711,9 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
         HttpResponse.json(
           {
             error: {
-              code: 'INTERNAL_ERROR',
+              code: 'INTERNAL_SERVER_ERROR',
               message: 'Product toggle failed',
+              details: [],
               trace_id: 'tr-toggle-500',
             },
           },
@@ -674,7 +733,7 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
 
     server.use(
       http.get('*/api/v1/products', () =>
-        HttpResponse.json({ items: [], nextCursor: null })
+        HttpResponse.json(makePagedResponse([], 1, 25, 0, null))
       ),
       http.post('*/api/v1/products', async ({ request }) => {
         const cloned = request.clone();
@@ -695,14 +754,14 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
 
     await user.selectOptions(
       within(dialog).getByLabelText('Category'),
-      'c9d8e7f6-4444-4d55-8e66-cbccddeeffbb'
+      MOCK_CATEGORY_IDS.ANALGESICS
     );
-    await user.type(within(dialog).getByLabelText('SKU'), 'ANA-BULK-001');
+    await user.type(within(dialog).getByLabelText('SKU'), 'MED-BULK-001');
     await user.type(
       within(dialog).getByLabelText('Product name'),
       'Bulk Paracetamol'
     );
-    await user.type(within(dialog).getByLabelText('Base UOM code'), 'tablet');
+    await user.type(within(dialog).getByLabelText('Base UOM code'), 'TAB');
     await user.type(
       within(dialog).getByLabelText('Display name'),
       'Tablet (bulk base)'
@@ -717,10 +776,12 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
     });
 
     expect(postedBodies[0]).toMatchObject({
-      sku: 'ANA-BULK-001',
+      sku: 'MED-BULK-001',
+      tax_rate: 0,
       uoms: [
         {
-          uom_code: 'tablet',
+          uom_code: 'TAB',
+          conversion_to_base: 1,
           is_base: true,
           is_sellable: false,
           sale_unit_price: null,
@@ -729,7 +790,7 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
     });
   });
 
-  it('creates a product with tax % -> 0.1400, sellable base UOM validation, no primary supplier field, and handles 409 duplicate SKU', async () => {
+  it('creates a product with native numeric tax_rate (0.14) and sale_unit_price, no supplier field, and handles 409 duplicate SKU', async () => {
     const user = userEvent.setup();
     const postedBodies: Array<Record<string, unknown>> = [];
 
@@ -745,7 +806,7 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
     );
 
     renderWithProviders(<CatalogWorkbenchHarness />);
-    await screen.findByText('Panadol 500mg Tablets');
+    await screen.findByText('Panadol Extra 500mg');
 
     await user.click(screen.getByRole('button', { name: 'Add product' }));
     const dialog = screen.getByRole('dialog');
@@ -757,9 +818,9 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
     const sellableToggle = within(dialog).getByRole('switch', {
       name: 'Sellable',
     });
-    const priceInput = within(dialog).getByLabelText(
-      'Sale unit price'
-    ) as HTMLInputElement;
+    const priceInput = expectInputElement(
+      within(dialog).getByLabelText('Sale unit price')
+    );
     await user.type(priceInput, '15.5');
     await user.click(sellableToggle);
     expect(priceInput.disabled).toBe(true);
@@ -780,9 +841,9 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
     // Fill valid fields with duplicate SKU -> 409 conflict
     await user.selectOptions(
       within(dialog).getByLabelText('Category'),
-      'c9d8e7f6-4444-4d55-8e66-cbccddeeffbb'
+      MOCK_CATEGORY_IDS.ANALGESICS
     );
-    await user.type(within(dialog).getByLabelText('SKU'), 'ABX-AUG-1000-TAB');
+    await user.type(within(dialog).getByLabelText('SKU'), 'MED-AUG-1000');
     await user.type(
       within(dialog).getByLabelText('Product name'),
       'Brufen 400mg'
@@ -794,25 +855,25 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
     await user.clear(expiryInput);
     await user.type(expiryInput, '45');
 
-    await user.type(within(dialog).getByLabelText('Base UOM code'), 'tablet');
+    await user.type(within(dialog).getByLabelText('Base UOM code'), 'TAB');
     await user.type(
       within(dialog).getByLabelText('Display name'),
       'Tablet (base)'
     );
-    await user.type(priceInput, '3.25');
+    await user.type(priceInput, '25.5');
 
     await user.click(
       within(dialog).getByRole('button', { name: 'Create product' })
     );
     expect(
-      await within(dialog).findByText(/SKU "ABX-AUG-1000-TAB" already exists/i)
+      await within(dialog).findByText(/SKU "MED-AUG-1000" already exists/i)
     ).toBeDefined();
     expect(within(dialog).getByText('SKU must be unique.')).toBeDefined();
 
-    // Change to unique SKU -> succeeds with tax_rate "0.1400"
+    // Change to unique SKU -> succeeds with native numeric tax_rate 0.14
     const skuInput = within(dialog).getByLabelText('SKU');
     await user.clear(skuInput);
-    await user.type(skuInput, 'ANA-BRU-400-TAB');
+    await user.type(skuInput, 'MED-BRU-400');
     await user.click(
       within(dialog).getByRole('button', { name: 'Create product' })
     );
@@ -823,17 +884,17 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
 
     const successPayload = postedBodies[1];
     expect(successPayload).toMatchObject({
-      sku: 'ANA-BRU-400-TAB',
+      sku: 'MED-BRU-400',
       name: 'Brufen 400mg',
-      tax_rate: '0.1400',
+      tax_rate: 0.14,
       expiry_alert_days: 45,
-      base_uom_code: 'tablet',
+      base_uom_code: 'TAB',
       uoms: [
         {
-          uom_code: 'tablet',
+          uom_code: 'TAB',
           display_name: 'Tablet (base)',
-          conversion_to_base: '1.000000',
-          sale_unit_price: '3.2500',
+          conversion_to_base: 1,
+          sale_unit_price: 25.5,
           is_base: true,
           is_sellable: true,
           is_purchasable: true,
@@ -841,23 +902,31 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
       ],
     });
     expect(await screen.findByText('Brufen 400mg')).toBeDefined();
+    expect(screen.getByText('EGP 25.50')).toBeDefined();
   });
 
   it('edits product with immutable SKU/Base UOM, !isDirty guard, 409 lot tracking lock inline on Augmentin, and Idempotency-Key stability on retry', async () => {
     const user = userEvent.setup();
     const seenKeys: Array<string | null> = [];
+    const patchedBodies: Array<Record<string, unknown>> = [];
     let failOnce = false;
 
     server.use(
       http.patch('*/api/v1/products/:productId', async ({ request }) => {
         seenKeys.push(request.headers.get('Idempotency-Key'));
+        const cloned = request.clone();
+        const body: unknown = await cloned.json().catch(() => null);
+        if (isRecord(body)) {
+          patchedBodies.push(body);
+        }
         if (failOnce) {
           failOnce = false;
           return HttpResponse.json(
             {
               error: {
-                code: 'INTERNAL_ERROR',
+                code: 'INTERNAL_SERVER_ERROR',
                 message: 'Temporary save error',
+                details: [],
                 trace_id: 'trace-edit-retry',
               },
             },
@@ -869,9 +938,11 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
     );
 
     renderWithProviders(<CatalogWorkbenchHarness />);
-    await screen.findByText('Augmentin 1g Tablets');
+    await screen.findByText('Augmentin 1g Film-Coated Tablets');
 
-    const augmentinRow = screen.getByText('Augmentin 1g Tablets').closest('tr');
+    const augmentinRow = screen
+      .getByText('Augmentin 1g Film-Coated Tablets')
+      .closest('tr');
     if (!augmentinRow) {
       throw new Error('Expected Augmentin row');
     }
@@ -880,18 +951,18 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
     );
 
     const dialog = screen.getByRole('dialog');
-    const skuInput = within(dialog).getByLabelText('SKU') as HTMLInputElement;
-    const baseUomInput = within(dialog).getByLabelText(
-      'Base UOM'
-    ) as HTMLInputElement;
+    const skuInput = expectInputElement(within(dialog).getByLabelText('SKU'));
+    const baseUomInput = expectInputElement(
+      within(dialog).getByLabelText('Base UOM')
+    );
     expect(skuInput.disabled).toBe(true);
     expect(skuInput.readOnly).toBe(true);
     expect(baseUomInput.disabled).toBe(true);
     expect(baseUomInput.readOnly).toBe(true);
 
-    const saveBtn = within(dialog).getByRole('button', {
-      name: 'Save changes',
-    }) as HTMLButtonElement;
+    const saveBtn = expectButtonElement(
+      within(dialog).getByRole('button', { name: 'Save changes' })
+    );
     expect(saveBtn.disabled).toBe(true);
 
     // Toggle lot tracking off on Augmentin -> 409 inline + alert
@@ -912,12 +983,16 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
     );
     expect(inlineLotError.getAttribute('role')).toBe('alert');
 
-    // Revert lot toggle, edit name, fail 500 once then retry with identical Idempotency-Key
+    // Revert lot toggle, edit name & tax %, fail 500 once then retry with identical Idempotency-Key
     await user.click(lotToggle);
     const nameInput = within(dialog).getByLabelText('Product name');
     await user.clear(nameInput);
     await user.type(nameInput, 'Augmentin 1g Tablets Updated');
+    const taxInput = within(dialog).getByLabelText('Tax rate (%)');
+    await user.clear(taxInput);
+    await user.type(taxInput, '14');
     seenKeys.length = 0;
+    patchedBodies.length = 0;
     failOnce = true;
 
     await user.click(saveBtn);
@@ -933,23 +1008,29 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
     expect(seenKeys).toHaveLength(2);
     expect(seenKeys[0]).not.toBeNull();
     expect(seenKeys[0]).toBe(seenKeys[1]);
+    expect(patchedBodies[1]).toMatchObject({
+      name: 'Augmentin 1g Tablets Updated',
+      tax_rate: 0.14,
+    });
     expect(
       await screen.findByText('Augmentin 1g Tablets Updated')
     ).toBeDefined();
-    expect(inventoryBalanceFixture.product_id).toBeTruthy();
+    expect(inventoryBalanceFixture.product_id).toBe(
+      MOCK_PRODUCT_IDS.AUGMENTIN_1G
+    );
   });
 });
 
 describe('Catalog RBAC and Runtime gating', () => {
   it('hides write actions and shows Cloud deployment notice on BranchLocal', async () => {
     seedAuthSession({
-      roles: ['Admin'],
+      role: 'Admin',
       scopes: ['inventory:read', 'inventory:write'],
-      runtime: 'BranchLocal',
+      runtime_mode: 'BranchLocal',
     });
 
     renderWithProviders(<CatalogWorkbenchHarness />);
-    expect(await screen.findByText('Panadol 500mg Tablets')).toBeDefined();
+    expect(await screen.findByText('Panadol Extra 500mg')).toBeDefined();
     const categoryTree = await screen.findByRole('list', {
       name: 'Product categories',
     });
@@ -964,18 +1045,18 @@ describe('Catalog RBAC and Runtime gating', () => {
     expect(
       screen.queryByRole('switch', { name: /Toggle status for/i })
     ).toBeNull();
-    expect(screen.getAllByRole('button', { name: 'View' }).length).toBe(5);
+    expect(screen.getAllByRole('button', { name: 'View' }).length).toBe(3);
   });
 
   it('hides write actions for Cashier on Cloud without showing the BranchLocal notice', async () => {
     seedAuthSession({
-      roles: ['Cashier'],
+      role: 'Cashier',
       scopes: ['inventory:read', 'sales:read', 'sales:write'],
-      runtime: 'Cloud',
+      runtime_mode: 'Cloud',
     });
 
     renderWithProviders(<CatalogWorkbenchHarness />);
-    expect(await screen.findByText('Panadol 500mg Tablets')).toBeDefined();
+    expect(await screen.findByText('Panadol Extra 500mg')).toBeDefined();
     const categoryTree = await screen.findByRole('list', {
       name: 'Product categories',
     });
@@ -994,13 +1075,13 @@ describe('Catalog RBAC and Runtime gating', () => {
 
   it('allows catalog write actions for Pharmacist on Cloud with inventory:write', async () => {
     seedAuthSession({
-      roles: ['Pharmacist'],
+      role: 'Pharmacist',
       scopes: ['inventory:read', 'inventory:write'],
-      runtime: 'Cloud',
+      runtime_mode: 'Cloud',
     });
 
     renderWithProviders(<CatalogWorkbenchHarness />);
-    expect(await screen.findByText('Panadol 500mg Tablets')).toBeDefined();
+    expect(await screen.findByText('Panadol Extra 500mg')).toBeDefined();
     const categoryTree = await screen.findByRole('list', {
       name: 'Product categories',
     });
@@ -1008,31 +1089,29 @@ describe('Catalog RBAC and Runtime gating', () => {
 
     expect(screen.getByRole('button', { name: 'Add product' })).toBeDefined();
     expect(screen.getByRole('button', { name: 'Add category' })).toBeDefined();
-    expect(screen.getAllByRole('button', { name: 'Edit' }).length).toBe(5);
+    expect(screen.getAllByRole('button', { name: 'Edit' }).length).toBe(3);
     expect(
       screen.getAllByRole('switch', { name: /Toggle status for/i }).length
-    ).toBe(5);
+    ).toBe(3);
   });
 });
 
 describe('Catalog edge cases and error boundaries', () => {
   it('maps 422 is_active and parent cycle errors in CategoryFormModal, excludes cyclic parents while preserving missing >200 parent fallback, and blocks Escape while pending', async () => {
     const user = userEvent.setup();
-    const cyclicAndTruncated: ProductCategoryDto[] = [
-      {
+    const cyclicAndTruncated: ProductCategory[] = [
+      makeCategoryFixture({
         category_id: 'cat-cyclic',
         parent_category_id: 'cat-cyclic',
         code: 'CAT-CYC',
         name: 'Cyclic Self',
-        is_active: true,
-      },
-      {
+      }),
+      makeCategoryFixture({
         category_id: 'cat-truncated-child',
         parent_category_id: 'cat-beyond-200',
         code: 'CAT-CHILD',
         name: 'Truncated Parent Child',
-        is_active: true,
-      },
+      }),
     ];
 
     let patchMode: 'active422' | 'cycle422' | 'pending' = 'active422';
@@ -1043,7 +1122,7 @@ describe('Catalog edge cases and error boundaries', () => {
 
     server.use(
       http.get('*/api/v1/product-categories', () =>
-        HttpResponse.json({ items: cyclicAndTruncated, nextCursor: null })
+        HttpResponse.json(makePagedResponse(cyclicAndTruncated))
       ),
       http.patch('*/api/v1/product-categories/:categoryId', async () => {
         if (patchMode === 'active422') {
@@ -1058,6 +1137,7 @@ describe('Catalog edge cases and error boundaries', () => {
                     issue: 'Category still contains active products.',
                   },
                 ],
+                trace_id: 'trace-cat-422-active',
               },
             },
             { status: 422 }
@@ -1075,6 +1155,7 @@ describe('Catalog edge cases and error boundaries', () => {
                     issue: 'Parent category creates a hierarchy cycle.',
                   },
                 ],
+                trace_id: 'trace-cat-422-cycle',
               },
             },
             { status: 422 }
@@ -1098,9 +1179,9 @@ describe('Catalog edge cases and error boundaries', () => {
       screen.getByRole('button', { name: 'Edit Truncated Parent Child' })
     );
     const truncatedDialog = screen.getByRole('dialog');
-    const truncatedParentSelect = within(truncatedDialog).getByLabelText(
-      'Parent category'
-    ) as HTMLSelectElement;
+    const truncatedParentSelect = expectSelectElement(
+      within(truncatedDialog).getByLabelText('Parent category')
+    );
     expect(truncatedParentSelect.value).toBe('cat-beyond-200');
     expect(
       within(truncatedParentSelect).getByRole('option', {
@@ -1114,9 +1195,9 @@ describe('Catalog edge cases and error boundaries', () => {
     // Cyclic self-parent is never re-injected as 'Current parent category'
     await user.click(screen.getByRole('button', { name: 'Edit Cyclic Self' }));
     const dialog = screen.getByRole('dialog');
-    const parentSelect = within(dialog).getByLabelText(
-      'Parent category'
-    ) as HTMLSelectElement;
+    const parentSelect = expectSelectElement(
+      within(dialog).getByLabelText('Parent category')
+    );
     const parentOptionValues = Array.from(
       parentSelect.querySelectorAll('option')
     ).map((opt) => opt.value);
@@ -1183,8 +1264,10 @@ describe('Catalog edge cases and error boundaries', () => {
           return HttpResponse.json(
             {
               error: {
-                code: 'INTERNAL_ERROR',
+                code: 'INTERNAL_SERVER_ERROR',
                 message: 'Categories temporarily down',
+                details: [],
+                trace_id: 'trace-cat-temp',
               },
             },
             { status: 500 }
@@ -1209,6 +1292,7 @@ describe('Catalog edge cases and error boundaries', () => {
                     issue: 'Base price precision invalid.',
                   },
                 ],
+                trace_id: 'trace-prod-422',
               },
             },
             { status: 422 }
@@ -1224,10 +1308,10 @@ describe('Catalog edge cases and error boundaries', () => {
     );
 
     renderWithProviders(<CatalogWorkbenchHarness />);
-    await screen.findByText('Panadol 500mg Tablets');
+    await screen.findByText('Panadol Extra 500mg');
 
     // Edit modal while categories failed -> shows warning + Category unavailable -> Retry recovers
-    const panadolRow = screen.getByText('Panadol 500mg Tablets').closest('tr');
+    const panadolRow = screen.getByText('Panadol Extra 500mg').closest('tr');
     if (!panadolRow) {
       throw new Error('Expected Panadol row');
     }
@@ -1236,10 +1320,10 @@ describe('Catalog edge cases and error boundaries', () => {
     expect(
       within(editDialog).getByText('Categories unavailable')
     ).toBeDefined();
-    const editCatSelect = within(editDialog).getByLabelText(
-      'Category'
-    ) as HTMLSelectElement;
-    expect(editCatSelect.value).toBe(productFixture.category_id);
+    const editCatSelect = expectSelectElement(
+      within(editDialog).getByLabelText('Category')
+    );
+    expect(editCatSelect.value).toBe(MOCK_CATEGORY_IDS.ANALGESICS);
 
     failCategories = false;
     await user.click(within(editDialog).getByRole('button', { name: 'Retry' }));
@@ -1255,7 +1339,7 @@ describe('Catalog edge cases and error boundaries', () => {
     // Edit Escape blocked while pending
     const editName = within(editDialog).getByLabelText('Product name');
     await user.clear(editName);
-    await user.type(editName, 'Panadol 500mg Updated');
+    await user.type(editName, 'Panadol Extra Updated');
     await user.click(
       within(editDialog).getByRole('button', { name: 'Save changes' })
     );
@@ -1271,16 +1355,16 @@ describe('Catalog edge cases and error boundaries', () => {
     const createDialog = screen.getByRole('dialog');
     await user.selectOptions(
       within(createDialog).getByLabelText('Category'),
-      'c9d8e7f6-4444-4d55-8e66-cbccddeeffbb'
+      MOCK_CATEGORY_IDS.ANALGESICS
     );
-    await user.type(within(createDialog).getByLabelText('SKU'), 'ANA-422-TEST');
+    await user.type(within(createDialog).getByLabelText('SKU'), 'MED-422-TEST');
     await user.type(
       within(createDialog).getByLabelText('Product name'),
       '422 Test Product'
     );
     await user.type(
       within(createDialog).getByLabelText('Base UOM code'),
-      'tablet'
+      'TAB'
     );
     await user.type(
       within(createDialog).getByLabelText('Display name'),
@@ -1318,45 +1402,38 @@ describe('Catalog edge cases and error boundaries', () => {
 
   it('clears inactive selectedCategoryId when Include inactive is turned off and keeps Pagination on empty page 2', async () => {
     const user = userEvent.setup();
-    renderWithProviders(<CatalogWorkbenchHarness pageSize={3} />);
+    renderWithProviders(<CatalogWorkbenchHarness pageSize={2} />);
 
     const categoryTree = await screen.findByRole('list', {
       name: 'Product categories',
     });
-    expect(await screen.findByText('Panadol 500mg Tablets')).toBeDefined();
+    expect(await screen.findByText('Panadol Extra 500mg')).toBeDefined();
 
     // Include inactive -> select inactive category -> turn Include inactive off -> clears category filter
     await user.click(screen.getByRole('switch', { name: 'Include inactive' }));
     const archivedBtn = await within(categoryTree).findByRole('button', {
-      name: /^Discontinued Seasonal/i,
+      name: /^Archived Catalog/i,
     });
     await user.click(archivedBtn);
-    expect((screen.getByLabelText('Category') as HTMLSelectElement).value).toBe(
-      'c9d8e7f6-4444-4d55-8e66-cbccddeeffbf'
+    expect(expectSelectElement(screen.getByLabelText('Category')).value).toBe(
+      MOCK_CATEGORY_IDS.ARCHIVED
     );
-    expect(
-      await screen.findByText('Legacy Aspirin 75mg Tablets')
-    ).toBeDefined();
+    expect(await screen.findByText('Discontinued Cough Syrup')).toBeDefined();
 
     await user.click(screen.getByRole('switch', { name: 'Include inactive' }));
-    expect((screen.getByLabelText('Category') as HTMLSelectElement).value).toBe(
+    expect(expectSelectElement(screen.getByLabelText('Category')).value).toBe(
       ''
     );
-    expect(await screen.findByText('Panadol 500mg Tablets')).toBeDefined();
+    expect(await screen.findByText('Panadol Extra 500mg')).toBeDefined();
 
-    // Navigate to page 2 (with 2 items) and deactivate both so page 2 becomes empty -> Pagination stays visible
+    // Navigate to page 2 (1 item: Vitamin D3 5000 IU) and deactivate it so page 2 becomes empty -> Pagination stays visible
     await user.click(screen.getByRole('button', { name: 'Next page' }));
-    expect(await screen.findByText('Zithromax 500mg Capsules')).toBeDefined();
+    expect(await screen.findByText('Vitamin D3 5000 IU')).toBeDefined();
     expect(screen.getByText('Page 2')).toBeDefined();
 
     await user.click(
       screen.getByRole('switch', {
-        name: 'Toggle status for Zithromax 500mg Capsules',
-      })
-    );
-    await user.click(
-      screen.getByRole('switch', {
-        name: 'Toggle status for Centrum Adults Multivitamin',
+        name: 'Toggle status for Vitamin D3 5000 IU',
       })
     );
 
@@ -1364,6 +1441,6 @@ describe('Catalog edge cases and error boundaries', () => {
     const prevBtn = screen.getByRole('button', { name: 'Previous page' });
     expect(prevBtn.hasAttribute('disabled')).toBe(false);
     await user.click(prevBtn);
-    expect(await screen.findByText('Panadol 500mg Tablets')).toBeDefined();
+    expect(await screen.findByText('Panadol Extra 500mg')).toBeDefined();
   });
 });

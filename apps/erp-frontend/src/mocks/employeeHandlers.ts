@@ -1,23 +1,31 @@
 import { http, HttpResponse } from 'msw';
 import currentUserContext from '@contracts/fixtures/current-user-context.json';
+import {
+  DEFAULT_PAGE,
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+} from '../lib/api/pagination';
 import type {
   AddressDto,
-  EmployeeDto,
-  EmployeePatchRequest,
+  Employee,
+  ErrorCode,
+  NormalizedApiErrorDetail,
+  NormalizedApiErrorEnvelope,
+  PagedResult,
 } from '../types/api';
 
 const ORGANIZATION_ID = currentUserContext.organization_id;
 
-export const INITIAL_EMPLOYEES: readonly EmployeeDto[] = [
+export const INITIAL_EMPLOYEES: readonly Employee[] = [
   {
-    employee_id: 'a1111111-1111-4111-8111-111111111101',
+    employee_id: '11111111-3333-4111-8111-000000000001',
     organization_id: ORGANIZATION_ID,
-    branch_id: 'd4e5f6a7-3333-4c44-9d55-bbccddeeffaa',
+    branch_id: '11111111-2222-4111-8111-000000000001',
     employee_no: 'EMP-001',
     full_name: 'Omar Khaled',
-    email: 'omar.khaled@pharmaplus.eg',
+    email: 'admin@medcare.test',
     phone: '+20 100 111 2233',
-    job_title: 'Lead Pharmacist',
+    job_title: 'Pharmacy Director',
     address: {
       line1: '15 Tahrir Square',
       line2: 'Apt 4',
@@ -32,14 +40,14 @@ export const INITIAL_EMPLOYEES: readonly EmployeeDto[] = [
     updated_at: '2024-03-01T09:00:00.000Z',
   },
   {
-    employee_id: 'a1111111-1111-4111-8111-111111111102',
+    employee_id: '11111111-3333-4111-8111-000000000002',
     organization_id: ORGANIZATION_ID,
-    branch_id: 'e5f6a7b8-4444-4d55-9e66-ccddeeff0011',
+    branch_id: '11111111-2222-4111-8111-000000000002',
     employee_no: 'EMP-002',
     full_name: 'Mona Adel',
-    email: 'mona.adel@pharmaplus.eg',
+    email: 'mona.adel@medcare.test',
     phone: '+20 122 333 4455',
-    job_title: 'Senior Cashier',
+    job_title: 'Senior Pharmacist',
     address: {
       line1: '240 El Geish Road',
       line2: null,
@@ -54,14 +62,14 @@ export const INITIAL_EMPLOYEES: readonly EmployeeDto[] = [
     updated_at: '2024-06-15T10:00:00.000Z',
   },
   {
-    employee_id: 'a1111111-1111-4111-8111-111111111103',
+    employee_id: '11111111-3333-4111-8111-000000000003',
     organization_id: ORGANIZATION_ID,
-    branch_id: 'd4e5f6a7-3333-4c44-9d55-bbccddeeffaa',
+    branch_id: '11111111-2222-4111-8111-000000000001',
     employee_no: 'EMP-003',
-    full_name: 'Youssef Tarek',
-    email: 'youssef.tarek@pharmaplus.eg',
-    phone: '+20 111 555 6677',
-    job_title: 'Inventory Pharmacist',
+    full_name: 'Karim Hassan',
+    email: 'karim.hassan@medcare.test',
+    phone: '+20 111 444 5566',
+    job_title: 'Dispensing Pharmacist',
     address: {
       line1: '42 Zamalek Street',
       line2: null,
@@ -76,14 +84,14 @@ export const INITIAL_EMPLOYEES: readonly EmployeeDto[] = [
     updated_at: '2025-01-10T08:30:00.000Z',
   },
   {
-    employee_id: 'a1111111-1111-4111-8111-111111111104',
+    employee_id: '11111111-3333-4111-8111-000000000004',
     organization_id: ORGANIZATION_ID,
-    branch_id: 'e5f6a7b8-4444-4d55-9e66-ccddeeff0011',
+    branch_id: '11111111-2222-4111-8111-000000000003',
     employee_no: 'EMP-004',
-    full_name: 'Salma Hassan',
+    full_name: 'Salma Nabil',
     email: null,
-    phone: '+20 109 777 8899',
-    job_title: 'Cashier',
+    phone: null,
+    job_title: 'Former Cashier',
     address: {
       line1: '18 Stanley Bridge St',
       line2: null,
@@ -92,31 +100,42 @@ export const INITIAL_EMPLOYEES: readonly EmployeeDto[] = [
       postal_code: '21532',
       country_code: 'EG',
     },
-    hired_on: '2025-02-20',
+    hired_on: '2023-09-01',
     is_active: false,
-    created_at: '2025-02-20T09:15:00.000Z',
-    updated_at: '2025-03-01T14:00:00.000Z',
+    created_at: '2023-09-01T09:15:00.000Z',
+    updated_at: '2024-01-15T14:00:00.000Z',
   },
 ];
 
-interface ValidationDetail {
-  field: string;
-  issue: string;
-}
-
-function cloneEmployee(employee: EmployeeDto): EmployeeDto {
+function cloneEmployee(employee: Employee): Employee {
   return {
     ...employee,
     address: { ...employee.address },
   };
 }
 
-let mockEmployees: EmployeeDto[] = INITIAL_EMPLOYEES.map(cloneEmployee);
+let mockEmployees: Employee[] = INITIAL_EMPLOYEES.map(cloneEmployee);
 let createdEmployeeCounter = 0;
 
 export function resetMockEmployees(): void {
   mockEmployees = INITIAL_EMPLOYEES.map(cloneEmployee);
   createdEmployeeCounter = 0;
+}
+
+function createMockErrorEnvelope(
+  code: ErrorCode,
+  message: string,
+  traceId: string,
+  details: NormalizedApiErrorDetail[] = []
+): NormalizedApiErrorEnvelope {
+  return {
+    error: {
+      code,
+      message,
+      details,
+      trace_id: traceId,
+    },
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -155,9 +174,15 @@ function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+function isValidUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    value
+  );
+}
+
 function parseAddress(
   value: unknown,
-  details: ValidationDetail[]
+  details: NormalizedApiErrorDetail[]
 ): AddressDto | null {
   if (!isRecord(value)) {
     details.push({
@@ -248,10 +273,10 @@ function parseAddress(
 
 function validateOptionalField(
   rawValue: unknown,
-  field: keyof Pick<EmployeePatchRequest, 'email' | 'phone' | 'job_title'>,
+  field: 'email' | 'phone',
   maxLength: number,
   label: string,
-  details: ValidationDetail[]
+  details: NormalizedApiErrorDetail[]
 ): string | null {
   if (rawValue === null || rawValue === undefined) {
     return null;
@@ -281,6 +306,32 @@ function validateOptionalField(
   return trimmed;
 }
 
+function parsePositiveIntegerParam(
+  raw: string | null,
+  fallback: number,
+  field: 'page' | 'page_size',
+  max: number | null,
+  details: NormalizedApiErrorDetail[]
+): number {
+  if (raw === null || raw.trim() === '') {
+    return fallback;
+  }
+  const parsed = Number(raw);
+  if (
+    !Number.isInteger(parsed) ||
+    parsed < 1 ||
+    (max !== null && parsed > max)
+  ) {
+    const rangeMessage =
+      max !== null
+        ? `${field} must be an integer between 1 and ${max}.`
+        : `${field} must be an integer of at least 1.`;
+    details.push({ field, issue: rangeMessage });
+    return fallback;
+  }
+  return parsed;
+}
+
 function createMockEmployeeId(): string {
   createdEmployeeCounter += 1;
   if (
@@ -289,64 +340,59 @@ function createMockEmployeeId(): string {
   ) {
     return globalThis.crypto.randomUUID();
   }
-  return `a1111111-1111-4111-8111-${String(createdEmployeeCounter + 4).padStart(12, '0')}`;
+  return `11111111-3333-4111-8111-${String(createdEmployeeCounter + 4).padStart(12, '0')}`;
 }
 
 function malformedRequestResponse(message: string) {
   return HttpResponse.json(
-    {
-      error: {
-        code: 'MALFORMED_REQUEST',
-        message,
-        trace_id: 'mock-trace-employee-malformed',
-      },
-    },
+    createMockErrorEnvelope(
+      'MALFORMED_REQUEST',
+      message,
+      'mock-trace-employee-malformed'
+    ),
     { status: 400 }
   );
 }
 
 function notFoundResponse() {
   return HttpResponse.json(
-    {
-      error: {
-        code: 'NOT_FOUND',
-        message: 'Employee was not found.',
-        trace_id: 'mock-trace-employee-not-found',
-      },
-    },
+    createMockErrorEnvelope(
+      'NOT_FOUND',
+      'Employee was not found.',
+      'mock-trace-employee-not-found'
+    ),
     { status: 404 }
   );
 }
 
-function validationErrorResponse(message: string, details: ValidationDetail[]) {
+function validationErrorResponse(
+  message: string,
+  details: NormalizedApiErrorDetail[]
+) {
   return HttpResponse.json(
-    {
-      error: {
-        code: 'VALIDATION_ERROR',
-        message,
-        trace_id: 'mock-trace-employee-validation',
-        details,
-      },
-    },
+    createMockErrorEnvelope(
+      'VALIDATION_ERROR',
+      message,
+      'mock-trace-employee-validation',
+      details
+    ),
     { status: 422 }
   );
 }
 
 function conflictResponse(employeeNo: string) {
   return HttpResponse.json(
-    {
-      error: {
-        code: 'CONFLICT',
-        message: `Employee number "${employeeNo}" already exists in this branch.`,
-        trace_id: 'mock-trace-employee-conflict',
-        details: [
-          {
-            field: 'employee_no',
-            issue: 'Employee number must be unique within the branch.',
-          },
-        ],
-      },
-    },
+    createMockErrorEnvelope(
+      'CONFLICT',
+      `Employee number "${employeeNo}" already exists.`,
+      'mock-trace-employee-conflict',
+      [
+        {
+          field: 'employee_no',
+          issue: 'Employee number must be unique within the organization.',
+        },
+      ]
+    ),
     { status: 409 }
   );
 }
@@ -354,26 +400,63 @@ function conflictResponse(employeeNo: string) {
 export const employeeHandlers = [
   http.get('*/api/v1/employees', ({ request }) => {
     const url = new URL(request.url);
-    const branchId = url.searchParams.get('branchId')?.trim() ?? '';
-    const rawLimit = Number(url.searchParams.get('limit') ?? '20');
-    const parsedLimit = Math.floor(rawLimit);
-    const limit =
-      Number.isFinite(rawLimit) && parsedLimit > 0
-        ? Math.min(parsedLimit, 200)
-        : 20;
-    const rawCursor = Number(url.searchParams.get('cursor') ?? '0');
-    const parsedCursor = Math.floor(rawCursor);
-    const start =
-      Number.isFinite(rawCursor) && parsedCursor >= 0 ? parsedCursor : 0;
+    const branchId = url.searchParams.get('branch_id')?.trim() ?? '';
+    const includeInactive = url.searchParams.get('include_inactive') === 'true';
+    const search = url.searchParams.get('search')?.trim().toLowerCase() ?? '';
 
-    const filtered = branchId
-      ? mockEmployees.filter((employee) => employee.branch_id === branchId)
-      : mockEmployees;
-    const items = filtered.slice(start, start + limit).map(cloneEmployee);
-    const nextOffset = start + limit;
-    const nextCursor = nextOffset < filtered.length ? String(nextOffset) : null;
+    const details: NormalizedApiErrorDetail[] = [];
+    const page = parsePositiveIntegerParam(
+      url.searchParams.get('page'),
+      DEFAULT_PAGE,
+      'page',
+      null,
+      details
+    );
+    const pageSize = parsePositiveIntegerParam(
+      url.searchParams.get('page_size'),
+      DEFAULT_PAGE_SIZE,
+      'page_size',
+      MAX_PAGE_SIZE,
+      details
+    );
 
-    return HttpResponse.json({ items, nextCursor }, { status: 200 });
+    if (details.length > 0) {
+      return validationErrorResponse('Invalid pagination parameters.', details);
+    }
+
+    const filtered = mockEmployees.filter((employee) => {
+      if (!includeInactive && !employee.is_active) {
+        return false;
+      }
+      if (branchId && employee.branch_id !== branchId) {
+        return false;
+      }
+      if (!search) {
+        return true;
+      }
+      return (
+        employee.full_name.toLowerCase().includes(search) ||
+        employee.employee_no.toLowerCase().includes(search) ||
+        (employee.email ?? '').toLowerCase().includes(search) ||
+        employee.job_title.toLowerCase().includes(search)
+      );
+    });
+
+    const totalCount = filtered.length;
+    const start = (page - 1) * pageSize;
+    const items = filtered.slice(start, start + pageSize).map(cloneEmployee);
+    const nextCursor =
+      start + items.length < totalCount ? String(page + 1) : null;
+
+    const payload: PagedResult<Employee> = {
+      items,
+      page,
+      page_size: pageSize,
+      total_count: totalCount,
+      next_cursor: nextCursor,
+    };
+
+    return HttpResponse.json(payload, { status: 200 });
   }),
 
   http.get('*/api/v1/employees/:employeeId', ({ params }) => {
@@ -394,16 +477,23 @@ export const employeeHandlers = [
       );
     }
 
-    const details: ValidationDetail[] = [];
+    const details: NormalizedApiErrorDetail[] = [];
     const branchId = readTrimmedString(body.branch_id);
     const employeeNo = readTrimmedString(body.employee_no);
     const fullName = readTrimmedString(body.full_name);
+    const jobTitle = readTrimmedString(body.job_title);
     const hiredOn = readTrimmedString(body.hired_on);
     const address = parseAddress(body.address, details);
 
     if (!branchId) {
       details.push({ field: 'branch_id', issue: 'Home branch is required.' });
+    } else if (!isValidUuid(branchId)) {
+      details.push({
+        field: 'branch_id',
+        issue: 'Home branch must be a valid UUID.',
+      });
     }
+
     if (!employeeNo) {
       details.push({
         field: 'employee_no',
@@ -415,6 +505,7 @@ export const employeeHandlers = [
         issue: 'Employee number must be at most 30 characters.',
       });
     }
+
     if (!fullName) {
       details.push({ field: 'full_name', issue: 'Full name is required.' });
     } else if (fullName.length > 150) {
@@ -423,18 +514,22 @@ export const employeeHandlers = [
         issue: 'Full name must be at most 150 characters.',
       });
     }
+
+    if (!jobTitle) {
+      details.push({ field: 'job_title', issue: 'Job title is required.' });
+    } else if (jobTitle.length > 80) {
+      details.push({
+        field: 'job_title',
+        issue: 'Job title must be at most 80 characters.',
+      });
+    }
+
     if (!hiredOn) {
       details.push({ field: 'hired_on', issue: 'Hire date is required.' });
     } else if (!isValidIsoDate(hiredOn)) {
       details.push({
         field: 'hired_on',
         issue: 'Hire date must be a valid YYYY-MM-DD date.',
-      });
-    }
-    if (body.is_active !== undefined && typeof body.is_active !== 'boolean') {
-      details.push({
-        field: 'is_active',
-        issue: 'Active status must be a boolean.',
       });
     }
 
@@ -452,13 +547,6 @@ export const employeeHandlers = [
       'Phone',
       details
     );
-    const jobTitle = validateOptionalField(
-      body.job_title,
-      'job_title',
-      80,
-      'Job title',
-      details
-    );
 
     if (details.length > 0 || !address) {
       return validationErrorResponse('Invalid employee details.', details);
@@ -466,9 +554,7 @@ export const employeeHandlers = [
 
     const normalizedEmployeeNo = employeeNo.toUpperCase();
     const duplicate = mockEmployees.some(
-      (item) =>
-        item.branch_id === branchId &&
-        item.employee_no.trim().toUpperCase() === normalizedEmployeeNo
+      (item) => item.employee_no.trim().toUpperCase() === normalizedEmployeeNo
     );
 
     if (duplicate) {
@@ -476,7 +562,7 @@ export const employeeHandlers = [
     }
 
     const now = new Date().toISOString();
-    const created: EmployeeDto = {
+    const created: Employee = {
       employee_id: createMockEmployeeId(),
       organization_id: ORGANIZATION_ID,
       branch_id: branchId,
@@ -487,7 +573,7 @@ export const employeeHandlers = [
       job_title: jobTitle,
       address,
       hired_on: hiredOn,
-      is_active: typeof body.is_active === 'boolean' ? body.is_active : true,
+      is_active: true,
       created_at: now,
       updated_at: now,
     };
@@ -510,38 +596,14 @@ export const employeeHandlers = [
     }
 
     const current = mockEmployees[index];
-    const details: ValidationDetail[] = [];
-
-    let nextBranchId = current.branch_id;
-    if ('branch_id' in body) {
-      const candidate = readTrimmedString(body.branch_id);
-      if (!candidate) {
-        details.push({ field: 'branch_id', issue: 'Home branch is required.' });
-      } else {
-        nextBranchId = candidate;
-      }
-    }
-
-    let nextEmployeeNo = current.employee_no;
-    if ('employee_no' in body) {
-      const candidate = readTrimmedString(body.employee_no);
-      if (!candidate) {
-        details.push({
-          field: 'employee_no',
-          issue: 'Employee number is required.',
-        });
-      } else if (candidate.length > 30) {
-        details.push({
-          field: 'employee_no',
-          issue: 'Employee number must be at most 30 characters.',
-        });
-      } else {
-        nextEmployeeNo = candidate;
-      }
-    }
+    const details: NormalizedApiErrorDetail[] = [];
 
     let nextFullName = current.full_name;
-    if ('full_name' in body) {
+    if (
+      'full_name' in body &&
+      body.full_name !== null &&
+      body.full_name !== undefined
+    ) {
       const candidate = readTrimmedString(body.full_name);
       if (!candidate) {
         details.push({ field: 'full_name', issue: 'Full name is required.' });
@@ -555,23 +617,31 @@ export const employeeHandlers = [
       }
     }
 
-    let nextHiredOn = current.hired_on;
-    if ('hired_on' in body) {
-      const candidate = readTrimmedString(body.hired_on);
+    let nextJobTitle = current.job_title;
+    if (
+      'job_title' in body &&
+      body.job_title !== null &&
+      body.job_title !== undefined
+    ) {
+      const candidate = readTrimmedString(body.job_title);
       if (!candidate) {
-        details.push({ field: 'hired_on', issue: 'Hire date is required.' });
-      } else if (!isValidIsoDate(candidate)) {
+        details.push({ field: 'job_title', issue: 'Job title is required.' });
+      } else if (candidate.length > 80) {
         details.push({
-          field: 'hired_on',
-          issue: 'Hire date must be a valid YYYY-MM-DD date.',
+          field: 'job_title',
+          issue: 'Job title must be at most 80 characters.',
         });
       } else {
-        nextHiredOn = candidate;
+        nextJobTitle = candidate;
       }
     }
 
     let nextIsActive = current.is_active;
-    if ('is_active' in body) {
+    if (
+      'is_active' in body &&
+      body.is_active !== null &&
+      body.is_active !== undefined
+    ) {
       if (typeof body.is_active !== 'boolean') {
         details.push({
           field: 'is_active',
@@ -585,24 +655,17 @@ export const employeeHandlers = [
     const nextEmail =
       'email' in body
         ? validateOptionalField(body.email, 'email', 254, 'Email', details)
-        : (current.email ?? null);
+        : current.email;
+
     const nextPhone =
       'phone' in body
         ? validateOptionalField(body.phone, 'phone', 30, 'Phone', details)
-        : (current.phone ?? null);
-    const nextJobTitle =
-      'job_title' in body
-        ? validateOptionalField(
-            body.job_title,
-            'job_title',
-            80,
-            'Job title',
-            details
-          )
-        : (current.job_title ?? null);
+        : current.phone;
 
     const nextAddress =
-      'address' in body ? parseAddress(body.address, details) : current.address;
+      'address' in body && body.address !== null && body.address !== undefined
+        ? parseAddress(body.address, details)
+        : current.address;
 
     if (details.length > 0 || !nextAddress) {
       return validationErrorResponse(
@@ -611,27 +674,13 @@ export const employeeHandlers = [
       );
     }
 
-    const duplicate = mockEmployees.some(
-      (item) =>
-        item.employee_id !== current.employee_id &&
-        item.branch_id === nextBranchId &&
-        item.employee_no.trim().toUpperCase() === nextEmployeeNo.toUpperCase()
-    );
-
-    if (duplicate) {
-      return conflictResponse(nextEmployeeNo);
-    }
-
-    const updated: EmployeeDto = {
+    const updated: Employee = {
       ...current,
-      branch_id: nextBranchId,
-      employee_no: nextEmployeeNo,
       full_name: nextFullName,
       email: nextEmail,
       phone: nextPhone,
       job_title: nextJobTitle,
       address: nextAddress,
-      hired_on: nextHiredOn,
       is_active: nextIsActive,
       updated_at: new Date().toISOString(),
     };

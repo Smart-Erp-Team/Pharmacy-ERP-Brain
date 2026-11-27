@@ -1,26 +1,26 @@
 import { z } from 'zod';
 import type {
   CreateProductRequest,
-  ProductDto,
-  ProductPatchRequest,
-  ProductUomRequest,
+  CreateProductUomItemRequest,
+  Product,
+  UpdateProductRequest,
 } from '../../../types/api';
 
 const NON_NEGATIVE_DECIMAL_PATTERN = /^(?:\d+(?:\.\d+)?|\.\d+)$/;
-const NON_NEGATIVE_NUMERIC_4_PATTERN = /^\d{1,14}(\.\d{1,4})?$/;
+const SIGNED_DECIMAL_PATTERN = /^-?(?:\d+(?:\.\d+)?|\.\d+)$/;
 
-function parseDecimalInput(value: string): number | null {
+function parseNonNegativeDecimal(value: string): number | null {
   const trimmed = value.trim();
   if (!NON_NEGATIVE_DECIMAL_PATTERN.test(trimmed)) {
     return null;
   }
   const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? parsed : null;
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
-function parseSignedDecimalInput(value: string): number | null {
+function parseSignedDecimal(value: string): number | null {
   const trimmed = value.trim();
-  if (!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(trimmed)) {
+  if (!SIGNED_DECIMAL_PATTERN.test(trimmed)) {
     return null;
   }
   const parsed = Number(trimmed);
@@ -41,58 +41,28 @@ function normalizeOptionalString(value: string): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function formatFixedDecimal(value: string, decimals: number): string {
-  const trimmed = value.trim();
-  if (!NON_NEGATIVE_DECIMAL_PATTERN.test(trimmed)) {
-    return (0).toFixed(decimals);
-  }
-  const [rawInt = '', rawFrac = ''] = trimmed.split('.');
-  const normInt = rawInt.replace(/^0+(?=\d)/, '') || '0';
-  if (rawFrac.length <= decimals) {
-    return `${normInt}.${rawFrac.padEnd(decimals, '0')}`;
-  }
-
-  const keptFrac = rawFrac.slice(0, decimals);
-  const nextDigit = Number(rawFrac[decimals] ?? '0');
-  let scaled = BigInt(`${normInt}${keptFrac}`);
-  if (nextDigit >= 5) {
-    scaled += 1n;
-  }
-  const digits = scaled.toString().padStart(decimals + 1, '0');
-  const splitIndex = digits.length - decimals;
-  return `${digits.slice(0, splitIndex)}.${digits.slice(splitIndex)}`;
-}
-
 /**
- * Converts a fractional TaxRate DTO string (for example `"0.1400"`) into a
- * display percent string (for example `"14"` or `"14.5"`) without float drift.
+ * Converts a Stage 1 fractional `tax_rate` number (`0..1`, e.g. `0.14`) into a
+ * clean display percent string (e.g. `"14"` or `"14.5"`) without IEEE-754 float drift.
  */
-export function taxRateDtoToPercentString(taxRate: string): string {
-  const trimmed = taxRate.trim();
-  if (!NON_NEGATIVE_DECIMAL_PATTERN.test(trimmed)) {
+export function taxRateDtoToPercentString(taxRate: number): string {
+  if (!Number.isFinite(taxRate) || taxRate <= 0) {
     return '0';
   }
-
-  const [intPart = '0', fracPart = ''] = trimmed.split('.');
-  const paddedFrac = fracPart.padEnd(2, '0');
-  const shiftedInt =
-    `${intPart}${paddedFrac.slice(0, 2)}`.replace(/^0+(?=\d)/, '') || '0';
-  const shiftedFrac = paddedFrac.slice(2).replace(/0+$/, '');
-
-  return shiftedFrac.length > 0 ? `${shiftedInt}.${shiftedFrac}` : shiftedInt;
+  const cleanPercent = Number((taxRate * 100).toPrecision(12));
+  return String(cleanPercent);
 }
 
 /**
- * Converts a percent string (`"14"` -> `"0.1400"`) into a fractional 4dp
- * TaxRate DTO string using integer scaling.
+ * Converts a display percent string (`"14"` -> `0.14`) into a native Stage 1
+ * fractional `tax_rate` number (`0..1`) without IEEE-754 float drift.
  */
-export function percentToTaxRateDto(percent: string): string {
-  const parsed = parseDecimalInput(percent);
-  if (parsed === null) {
-    return '0.0000';
+export function percentToTaxRateDto(percent: string): number {
+  const parsed = parseNonNegativeDecimal(percent);
+  if (parsed === null || parsed <= 0) {
+    return 0;
   }
-  const scaled = Math.round(parsed * 100) / 10000;
-  return scaled.toFixed(4);
+  return Number((parsed / 100).toPrecision(12));
 }
 
 const optionalImageUrlSchema = z
@@ -109,7 +79,7 @@ const taxPercentSchema = z
   .trim()
   .min(1, 'Tax rate is required')
   .superRefine((value, ctx) => {
-    const parsed = parseSignedDecimalInput(value);
+    const parsed = parseSignedDecimal(value);
     if (parsed === null) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -179,7 +149,7 @@ const baseUomFormSchema = z
       });
       return;
     }
-    const parsed = parseSignedDecimalInput(values.sale_unit_price);
+    const parsed = parseSignedDecimal(values.sale_unit_price);
     if (
       values.sale_unit_price.startsWith('-') ||
       parsed === null ||
@@ -189,18 +159,6 @@ const baseUomFormSchema = z
         code: z.ZodIssueCode.custom,
         path: ['sale_unit_price'],
         message: 'Sale unit price must be a non-negative number',
-      });
-      return;
-    }
-    if (
-      !NON_NEGATIVE_NUMERIC_4_PATTERN.test(
-        formatFixedDecimal(values.sale_unit_price, 4)
-      )
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['sale_unit_price'],
-        message: 'Sale unit price exceeds maximum supported value',
       });
     }
   });
@@ -263,12 +221,12 @@ export function toCreateProductPayload(
   values: CreateProductFormValues
 ): CreateProductRequest {
   const baseUomCode = values.base_uom.uom_code.trim();
-  const baseUom: ProductUomRequest = {
+  const baseUom: CreateProductUomItemRequest = {
     uom_code: baseUomCode,
     display_name: values.base_uom.display_name.trim(),
-    conversion_to_base: '1.000000',
+    conversion_to_base: 1,
     sale_unit_price: values.base_uom.is_sellable
-      ? formatFixedDecimal(values.base_uom.sale_unit_price, 4)
+      ? (parseNonNegativeDecimal(values.base_uom.sale_unit_price) ?? 0)
       : null,
     is_base: true,
     is_sellable: values.base_uom.is_sellable,
@@ -299,7 +257,7 @@ export const editProductFormSchema = z.object({
 export type EditProductFormValues = z.infer<typeof editProductFormSchema>;
 
 export function productDtoToEditFormValues(
-  product: ProductDto
+  product: Product
 ): EditProductFormValues {
   return {
     category_id: product.category_id,
@@ -315,9 +273,9 @@ export function productDtoToEditFormValues(
   };
 }
 
-export function toProductPatchPayload(
+export function toPatchProductPayload(
   values: EditProductFormValues
-): ProductPatchRequest {
+): UpdateProductRequest {
   return {
     category_id: values.category_id.trim(),
     barcode: normalizeOptionalString(values.barcode),
@@ -331,3 +289,5 @@ export function toProductPatchPayload(
     is_active: values.is_active,
   };
 }
+
+export const toProductPatchPayload = toPatchProductPayload;

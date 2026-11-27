@@ -41,6 +41,19 @@ function isEmployeeFieldPath(
   return typeof field === 'string' && EMPLOYEE_FORM_FIELDS.has(field);
 }
 
+function resolveEmployeeFieldPath(
+  field: string | undefined
+): EmployeeFieldPath | null {
+  if (typeof field !== 'string') {
+    return null;
+  }
+  const trimmed = field.trim();
+  if (trimmed === 'address') {
+    return 'address.line1';
+  }
+  return isEmployeeFieldPath(trimmed) ? trimmed : null;
+}
+
 export function applyEmployeeFormApiError(
   error: unknown,
   setError: UseFormSetError<EmployeeFormValues>
@@ -50,14 +63,25 @@ export function applyEmployeeFormApiError(
   }
 
   let mappedFieldError = false;
-  for (const detail of error.details ?? []) {
-    if (isEmployeeFieldPath(detail.field)) {
-      setError(detail.field, { type: 'server', message: detail.issue });
+  for (const detail of error.details) {
+    const fieldPath = resolveEmployeeFieldPath(detail.field);
+    if (fieldPath) {
+      setError(fieldPath, { type: 'server', message: detail.issue });
       mappedFieldError = true;
     }
   }
 
-  if (!mappedFieldError || error.status === 409) {
+  const isConflict = error.code === 'CONFLICT' || error.status === 409;
+  const isMalformed =
+    error.code === 'MALFORMED_REQUEST' || error.status === 400;
+  const isValidation =
+    error.code === 'VALIDATION_ERROR' || error.status === 422;
+
+  if (isValidation && mappedFieldError) {
+    return null;
+  }
+
+  if (!mappedFieldError || isConflict || isMalformed || !isValidation) {
     const traceSuffix = error.trace_id ? ` (Trace: ${error.trace_id})` : '';
     return `${error.message}${traceSuffix}`;
   }

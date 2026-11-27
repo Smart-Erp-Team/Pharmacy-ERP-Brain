@@ -5,7 +5,10 @@ import {
   type AttemptKeyRecord,
 } from '../../../lib/api/idempotency';
 import { fetchAllPages } from '../../../lib/api/pagination';
-import type { EmployeePatchRequest, EmployeeRequest } from '../../../types/api';
+import type {
+  CreateEmployeeRequest,
+  UpdateEmployeeRequest,
+} from '../../../types/api';
 import {
   createEmployee,
   getEmployee,
@@ -37,8 +40,8 @@ export function useAllEmployeesQuery(
   return useQuery({
     queryKey: employeesKeys.allList(params),
     queryFn: () =>
-      fetchAllPages((cursor, limit) =>
-        listEmployees({ ...params, cursor, limit })
+      fetchAllPages((page, pageSize) =>
+        listEmployees({ ...params, page, page_size: pageSize })
       ),
     enabled: options.enabled ?? true,
   });
@@ -67,7 +70,7 @@ export function useEmployeeQuery(
 }
 
 export interface CreateEmployeeVariables {
-  payload: EmployeeRequest;
+  payload: CreateEmployeeRequest;
   idempotencyKey?: string;
 }
 
@@ -93,7 +96,7 @@ export function useCreateEmployeeMutation() {
 
 export interface PatchEmployeeVariables {
   employeeId: string;
-  payload: EmployeePatchRequest;
+  payload: UpdateEmployeeRequest;
   idempotencyKey?: string;
 }
 

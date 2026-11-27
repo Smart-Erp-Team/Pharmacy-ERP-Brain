@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { PageHeading } from '../../../components/ui/PageHeading';
 import { Tabs } from '../../../components/ui/Tabs';
-import type { InventoryTxnDto } from '../../../types/api';
+import type { InventoryTxn } from '../../../types/api';
 import { InventoryBranchBar } from '../components/InventoryBranchBar';
 import { LedgerHistoryTab } from '../components/LedgerHistoryTab';
 import { StockAdjustmentsTab } from '../components/StockAdjustmentsTab';
@@ -11,8 +11,8 @@ import { StorageLocationsTab } from '../components/StorageLocationsTab';
 import { useInventoryBranchState } from '../hooks/useInventoryBranchState';
 
 /**
- * Inventory (Stage 1 Slice 4, Contract-First): balances & FEFO batches,
- * storage locations, branch-local adjustments & opening balances, and
+ * Inventory (Stage 1, Contract-First): balances & FEFO batches,
+ * storage locations, BranchLocal atomic adjustments & opening balances, and
  * append-only ledger history.
  */
 export function InventoryPage() {
@@ -21,7 +21,7 @@ export function InventoryPage() {
     'Stock Balances & Batches'
   );
   const [pendingReversalTxn, setPendingReversalTxn] =
-    useState<InventoryTxnDto | null>(null);
+    useState<InventoryTxn | null>(null);
 
   const visibleTabs: string[] = [
     'Stock Overview',

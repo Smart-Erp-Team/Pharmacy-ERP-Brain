@@ -9,11 +9,12 @@ import { RevokeSessionsModal } from '../components/RevokeSessionsModal';
 import { UserFormModal } from '../components/UserFormModal';
 import { UsersFilterBar } from '../components/UsersFilterBar';
 import { UsersTable } from '../components/UsersTable';
-import { USERS_PAGE_SIZE, useUsersPageState } from '../hooks/useUsersPageState';
+import { useUsersPageState } from '../hooks/useUsersPageState';
 
 export function UsersPage() {
   const state = useUsersPageState();
-  const { usersQuery, filteredUsers, pageIndex } = state;
+  const { usersQuery, filteredUsers, page, pageSize, totalCount, hasNextPage } =
+    state;
 
   const queryErrorMessage = usersQuery.isError
     ? usersQuery.error instanceof ApiClientError
@@ -23,15 +24,14 @@ export function UsersPage() {
 
   const hasActiveFilters =
     state.searchTerm.trim().length > 0 ||
+    state.branchFilter !== '' ||
     state.roleFilter !== 'all' ||
     state.statusFilter !== 'active';
 
   const showPagination =
     !usersQuery.isPending &&
     !usersQuery.isError &&
-    (filteredUsers.length > 0 ||
-      pageIndex > 0 ||
-      Boolean(usersQuery.data?.nextCursor));
+    (filteredUsers.length > 0 || page > 1 || hasNextPage);
 
   const openCreateModal = () =>
     state.setFormModalState({ open: true, user: null });
@@ -56,27 +56,31 @@ export function UsersPage() {
       <Card>
         <UsersFilterBar
           searchTerm={state.searchTerm}
+          branchFilter={state.branchFilter}
           roleFilter={state.roleFilter}
           statusFilter={state.statusFilter}
+          branches={state.branches}
+          isBranchesError={state.branchesDirectory.isError}
           onSearchChange={state.setSearchTerm}
+          onBranchChange={state.handleBranchChange}
           onRoleChange={state.handleRoleChange}
           onStatusChange={state.handleStatusChange}
         />
 
         <UsersTable
           users={filteredUsers}
+          currentUserId={state.currentUserId}
           getEmployeeDisplay={state.getEmployeeDisplay}
+          getBranchAccessDisplay={state.getBranchAccessDisplay}
           referenceNowMs={state.referenceNowMs}
           isLoading={usersQuery.isPending}
           errorMessage={queryErrorMessage}
           togglingUserIds={state.togglingUserIds}
           hasActiveFilters={hasActiveFilters}
-          hasHiddenInactive={state.hasHiddenInactive}
           onRetry={() => {
             void usersQuery.refetch();
           }}
           onResetFilters={state.resetFilters}
-          onShowAllUsers={() => state.handleStatusChange('all')}
           onAddUser={openCreateModal}
           onEdit={(user) => state.setFormModalState({ open: true, user })}
           onResetPassword={(user) => state.setResetPasswordUser(user)}
@@ -89,14 +93,10 @@ export function UsersPage() {
         {showPagination ? (
           <Pagination
             className="border-border border-t px-4 py-3"
-            page={pageIndex + 1}
-            pageSize={USERS_PAGE_SIZE}
-            itemCount={
-              pageIndex === 0 && !usersQuery.data?.nextCursor
-                ? filteredUsers.length
-                : null
-            }
-            hasNextPage={Boolean(usersQuery.data?.nextCursor)}
+            page={page}
+            pageSize={pageSize}
+            itemCount={totalCount}
+            hasNextPage={hasNextPage}
             onPageChange={state.handlePageChange}
           />
         ) : null}

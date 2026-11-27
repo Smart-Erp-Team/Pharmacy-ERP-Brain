@@ -1,6 +1,9 @@
 import type { ListBranchesParams } from '../api/branchesApi';
 
-export type AllBranchesKeyParams = Omit<ListBranchesParams, 'cursor' | 'limit'>;
+export type AllBranchesKeyParams = Omit<
+  ListBranchesParams,
+  'page' | 'page_size'
+>;
 
 export const branchesKeys = {
   all: ['branches'] as const,

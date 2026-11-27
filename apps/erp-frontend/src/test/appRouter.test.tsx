@@ -69,7 +69,7 @@ const renderRouter = (path: string) => {
   activeQueryClients.push(queryClient);
 
   queryClient.setQueryData<BranchDto[]>(
-    branchesKeys.allList({ includeInactive: false }),
+    branchesKeys.allList({ include_inactive: false }),
     STAGE1_BRANCHES
   );
 

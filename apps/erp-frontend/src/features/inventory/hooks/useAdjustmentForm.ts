@@ -11,209 +11,56 @@ import { toast } from 'react-toastify';
 import type { SelectOption } from '../../../components/ui/Select';
 import {
   useAllProductsQuery,
-  type ProductDto,
-  type ProductUomDto,
+  type Product,
+  type ProductUom,
 } from '../../../features/products';
 import { useAuth } from '../../../hooks/useAuth';
+import { isAdjustmentsTxnType } from '../../../lib/api/catalogInventoryNormalizers';
 import type {
   AdjustmentsTxnType,
-  InventoryBatchDto,
-  InventoryLocationDto,
-  InventoryTxnDto,
+  InventoryLocation,
+  InventoryTxn,
 } from '../../../types/api';
 import {
-  ADJUSTMENT_TXN_TYPES,
   createEmptyAdjustmentLine,
   DEFAULT_ADJUSTMENT_FORM_VALUES,
   inventoryAdjustmentFormSchema,
-  inventoryTxnDtoToPatchFormValues,
-  toInventoryTxnPatchPayload,
-  toInventoryTxnPayload,
+  toCreateInventoryAdjustmentPayload,
   type InventoryAdjustmentFormValues,
   type InventoryAdjustmentLineFormValues,
 } from '../schemas/inventoryAdjustmentSchema';
 import { applyAdjustmentFormApiError } from '../schemas/inventoryErrorMapper';
-import { formatInventoryApiError } from './useLedgerHistoryState';
+import { useCreateInventoryAdjustmentMutation } from './useInventoryMutations';
 import {
-  useCancelInventoryAdjustmentMutation,
-  usePatchInventoryAdjustmentMutation,
-  usePostInventoryAdjustmentByIdMutation,
-  usePostInventoryAdjustmentMutation,
-} from './useInventoryMutations';
-import {
-  useAllInventoryBatchesQuery,
   useAllInventoryLocationsQuery,
   useAllInventoryTransactionsQuery,
 } from './useInventoryQueries';
-
-export function getLineSelectOptions(
-  products: readonly ProductDto[],
-  locations: readonly InventoryLocationDto[],
-  batches: readonly InventoryBatchDto[],
-  uoms: readonly ProductUomDto[],
-  selectedProductId: string,
-  selectedLocationId: string,
-  selectedBatchId: string,
-  selectedUomId: string,
-  isNonLotProduct: boolean
-) {
-  return {
-    productOptions: buildLineProductOptions(products, selectedProductId),
-    locationOptions: buildLineLocationOptions(locations, selectedLocationId),
-    batchOptions: buildLineBatchOptions(
-      batches,
-      selectedProductId,
-      selectedBatchId,
-      isNonLotProduct
-    ),
-    uomOptions: buildLineUomOptions(uoms, selectedProductId, selectedUomId),
-  };
-}
-
-export function buildAdjustmentLineSelectConfigs(params: {
-  index: number;
-  disabled: boolean;
-  products: readonly ProductDto[];
-  locations: readonly InventoryLocationDto[];
-  batches: readonly InventoryBatchDto[];
-  uoms: readonly ProductUomDto[];
-  productId: string;
-  locationId: string;
-  batchId: string;
-  uomId: string;
-  isNonLot: boolean;
-  lineErrors?: FieldErrors<InventoryAdjustmentLineFormValues>;
-  onProductChange: (index: number, productId: string) => void;
-}) {
-  const {
-    index,
-    disabled,
-    products,
-    locations,
-    batches,
-    uoms,
-    productId,
-    locationId,
-    batchId,
-    uomId,
-    isNonLot,
-    lineErrors,
-    onProductChange,
-  } = params;
-  const opts = getLineSelectOptions(
-    products,
-    locations,
-    batches,
-    uoms,
-    productId,
-    locationId,
-    batchId,
-    uomId,
-    isNonLot
-  );
-  const batchHint = isNonLot
-    ? batchId
-      ? 'Locked to NON-LOT (lot tracking not required).'
-      : 'No NON-LOT batch found for this product.'
-    : undefined;
-
-  return [
-    {
-      name: `lines.${index}.product_id` as const,
-      label: 'Product',
-      options: opts.productOptions,
-      isDisabled: disabled,
-      hint: undefined,
-      error: lineErrors?.product_id?.message,
-      onValueChange: (value: string) => onProductChange(index, value),
-    },
-    {
-      name: `lines.${index}.location_id` as const,
-      label: 'Location',
-      options: opts.locationOptions,
-      isDisabled: disabled,
-      hint: undefined,
-      error: lineErrors?.location_id?.message,
-      onValueChange: undefined,
-    },
-    {
-      name: `lines.${index}.batch_id` as const,
-      label: 'Batch',
-      options: opts.batchOptions,
-      isDisabled: disabled || !productId || isNonLot,
-      hint: batchHint,
-      error: lineErrors?.batch_id?.message,
-      onValueChange: undefined,
-    },
-    {
-      name: `lines.${index}.product_uom_id` as const,
-      label: 'Unit of measure',
-      options: opts.uomOptions,
-      isDisabled: disabled || !productId,
-      hint: undefined,
-      error: lineErrors?.product_uom_id?.message,
-      onValueChange: undefined,
-    },
-  ];
-}
+import { formatInventoryApiError } from './useLedgerHistoryState';
 
 export interface UseAdjustmentFormOptions {
   branchId: string;
-  initialReversalTxn?: InventoryTxnDto | null;
+  initialReversalTxn?: InventoryTxn | null;
   onClearReversal?: () => void;
 }
-
-export interface ActiveDraftAction {
-  txnId: string;
-  type: 'post' | 'cancel';
-}
-
-const VALID_ADJUSTMENT_TYPES: ReadonlySet<string> = new Set(
-  ADJUSTMENT_TXN_TYPES
-);
 
 export function isAdjustmentTxnType(
   value: string
 ): value is AdjustmentsTxnType {
-  return VALID_ADJUSTMENT_TYPES.has(value);
-}
-
-function buildReversalFormValues(
-  targetTxn: InventoryTxnDto,
-  reasonCode = '',
-  note = ''
-): InventoryAdjustmentFormValues {
-  return {
-    transaction_type: 'REVERSAL',
-    reason_code: reasonCode,
-    note,
-    reverses_inventory_txn_id: targetTxn.inventory_txn_id,
-    lines:
-      targetTxn.lines.length > 0
-        ? targetTxn.lines.map((line) => ({
-            product_id: line.product_id,
-            location_id: line.location_id,
-            batch_id: line.batch_id,
-            product_uom_id: line.product_uom_id,
-            entered_qty: line.entered_qty,
-            unit_cost_base: '',
-          }))
-        : [createEmptyAdjustmentLine()],
-  };
+  return isAdjustmentsTxnType(value);
 }
 
 export function buildLineProductOptions(
-  products: readonly ProductDto[],
+  products: readonly Product[],
   selectedId: string
 ): SelectOption[] {
   const options: SelectOption[] = [
     { value: '', label: 'Select product...' },
-    ...products.map((p) => ({
-      value: p.product_id,
-      label: `${p.name} (${p.sku})`,
+    ...products.map((product) => ({
+      value: product.product_id,
+      label: `${product.name} (${product.sku})`,
     })),
   ];
-  if (selectedId && !products.some((p) => p.product_id === selectedId)) {
+  if (selectedId && !products.some((item) => item.product_id === selectedId)) {
     options.push({
       value: selectedId,
       label: `Product ${selectedId.slice(0, 8)}`,
@@ -223,7 +70,7 @@ export function buildLineProductOptions(
 }
 
 export function buildLineLocationOptions(
-  locations: readonly InventoryLocationDto[],
+  locations: readonly InventoryLocation[],
   selectedId: string
 ): SelectOption[] {
   const options: SelectOption[] = [
@@ -242,76 +89,29 @@ export function buildLineLocationOptions(
   return options;
 }
 
-export function buildLineBatchOptions(
-  batches: readonly InventoryBatchDto[],
-  selectedProductId: string,
-  selectedBatchId: string,
-  isNonLotProduct: boolean
-): SelectOption[] {
-  const productBatches = batches.filter(
-    (b) => b.product_id === selectedProductId
-  );
-  const nonLotBatch = productBatches.find(
-    (b) => b.is_non_lot || b.batch_number === 'NON-LOT'
-  );
-  if (isNonLotProduct) {
-    if (nonLotBatch) {
-      return [
-        {
-          value: nonLotBatch.batch_id,
-          label: 'NON-LOT (System non-lot batch)',
-        },
-      ];
-    }
-    return [{ value: '', label: 'NON-LOT unavailable' }];
-  }
-  const options: SelectOption[] = [
-    {
-      value: '',
-      label: selectedProductId ? 'Select batch...' : 'Select product first',
-    },
-    ...productBatches.map((b) => ({
-      value: b.batch_id,
-      label: b.expires_on
-        ? `${b.batch_number} · exp ${b.expires_on} (${b.quality_status})`
-        : `${b.batch_number} (${b.quality_status})`,
-    })),
-  ];
-  if (
-    selectedBatchId &&
-    !productBatches.some((b) => b.batch_id === selectedBatchId)
-  ) {
-    options.push({
-      value: selectedBatchId,
-      label: `Batch ${selectedBatchId.slice(0, 8)}`,
-    });
-  }
-  return options;
-}
-
 export function buildLineUomOptions(
-  uoms: readonly ProductUomDto[],
+  uoms: readonly ProductUom[],
   selectedProductId: string,
   selectedUomId: string
 ): SelectOption[] {
-  const visible = uoms.filter(
-    (u) => u.is_active || u.product_uom_id === selectedUomId
+  const activeUoms = uoms.filter(
+    (uom) => uom.is_active || uom.product_uom_id === selectedUomId
   );
   const options: SelectOption[] = [
     {
       value: '',
       label: selectedProductId ? 'Select UOM...' : 'Select product first',
     },
-    ...visible.map((u) => ({
-      value: u.product_uom_id,
-      label: u.is_base
-        ? `${u.display_name} (${u.uom_code}, base)`
-        : `${u.display_name} (${u.uom_code})`,
+    ...activeUoms.map((uom) => ({
+      value: uom.product_uom_id,
+      label: uom.is_base
+        ? `${uom.display_name} (${uom.uom_code}, base)`
+        : `${uom.display_name} (${uom.uom_code})`,
     })),
   ];
   if (
     selectedUomId &&
-    !visible.some((u) => u.product_uom_id === selectedUomId)
+    !activeUoms.some((uom) => uom.product_uom_id === selectedUomId)
   ) {
     options.push({
       value: selectedUomId,
@@ -319,6 +119,149 @@ export function buildLineUomOptions(
     });
   }
   return options;
+}
+
+export function buildAdjustmentLineFieldConfigs(params: {
+  index: number;
+  transactionType: AdjustmentsTxnType;
+  disabled: boolean;
+  products: readonly Product[];
+  locations: readonly InventoryLocation[];
+  productId: string;
+  uomId: string;
+  locationId: string;
+  lineErrors?: FieldErrors<InventoryAdjustmentLineFormValues>;
+  onProductChange: (index: number, productId: string) => void;
+}) {
+  const {
+    index,
+    transactionType,
+    disabled,
+    products,
+    locations,
+    productId,
+    uomId,
+    locationId,
+    lineErrors,
+    onProductChange,
+  } = params;
+
+  const selectedProduct = products.find((p) => p.product_id === productId);
+  const isNonLot = selectedProduct?.lot_tracking_required === false;
+  const uoms = selectedProduct?.uoms ?? [];
+  const showUnitCost =
+    transactionType === 'OPENING_BALANCE' ||
+    transactionType === 'ADJUSTMENT_IN';
+
+  const selectFields = [
+    {
+      name: `lines.${index}.product_id` as const,
+      label: 'Product',
+      options: buildLineProductOptions(products, productId),
+      isDisabled: disabled,
+      hint: undefined,
+      error: lineErrors?.product_id?.message,
+      onValueChange: (value: string) => onProductChange(index, value),
+    },
+    {
+      name: `lines.${index}.product_uom_id` as const,
+      label: 'Unit of measure',
+      options: buildLineUomOptions(uoms, productId, uomId),
+      isDisabled: disabled || !productId,
+      hint: undefined,
+      error: lineErrors?.product_uom_id?.message,
+      onValueChange: undefined,
+    },
+    {
+      name: `lines.${index}.location_id` as const,
+      label: 'Location',
+      options: buildLineLocationOptions(locations, locationId),
+      isDisabled: disabled,
+      hint: undefined,
+      error: lineErrors?.location_id?.message,
+      onValueChange: undefined,
+    },
+  ];
+
+  const baseInputs = [
+    {
+      name: `lines.${index}.batch_number` as const,
+      label: 'Batch number',
+      type: 'text' as const,
+      inputMode: undefined,
+      maxLength: 80,
+      placeholder: isNonLot ? 'NON-LOT' : 'e.g. MEDCARE-LOT-2601',
+      isDisabled: disabled || isNonLot,
+      hint: isNonLot ? 'Non-lot product (automatic NON-LOT batch)' : undefined,
+      error: lineErrors?.batch_number?.message,
+    },
+    {
+      name: `lines.${index}.manufactured_on` as const,
+      label: 'Manufactured date',
+      type: 'date' as const,
+      inputMode: undefined,
+      maxLength: undefined,
+      placeholder: undefined,
+      isDisabled: disabled || isNonLot,
+      hint: undefined,
+      error: lineErrors?.manufactured_on?.message,
+    },
+    {
+      name: `lines.${index}.expires_on` as const,
+      label: 'Expiry date',
+      type: 'date' as const,
+      inputMode: undefined,
+      maxLength: undefined,
+      placeholder: undefined,
+      isDisabled: disabled || isNonLot,
+      hint: undefined,
+      error: lineErrors?.expires_on?.message,
+    },
+    {
+      name: `lines.${index}.entered_qty` as const,
+      label: 'Quantity',
+      type: 'text' as const,
+      inputMode: 'decimal' as const,
+      maxLength: undefined,
+      placeholder: 'e.g. 10',
+      isDisabled: disabled,
+      hint: selectedProduct
+        ? `Entered in selected UOM (base: ${selectedProduct.base_uom_code})`
+        : undefined,
+      error: lineErrors?.entered_qty?.message,
+    },
+  ];
+
+  const inputFields = showUnitCost
+    ? [
+        ...baseInputs,
+        {
+          name: `lines.${index}.unit_cost_entered` as const,
+          label: 'Unit cost',
+          type: 'text' as const,
+          inputMode: 'decimal' as const,
+          maxLength: undefined,
+          placeholder: '0.00',
+          isDisabled: disabled,
+          hint: 'Required non-negative cost per entered UOM',
+          error: lineErrors?.unit_cost_entered?.message,
+        },
+      ]
+    : baseInputs;
+
+  return { selectFields, inputFields };
+}
+
+function buildReversalFormValues(
+  targetTxn: InventoryTxn
+): InventoryAdjustmentFormValues {
+  return {
+    transaction_type: 'REVERSAL',
+    reason_code: '',
+    note: '',
+    reverses_inventory_txn_id: targetTxn.inventory_txn_id,
+    lines: [createEmptyAdjustmentLine()],
+  };
 }
 
 export function useAdjustmentForm({
@@ -330,42 +273,30 @@ export function useAdjustmentForm({
   const canAccessTab =
     hasAnyRole(['Admin', 'Pharmacist']) && can('inventory:read');
   const canWriteAdjustments =
+    runtime === 'BranchLocal' &&
     hasAnyRole(['Admin', 'Pharmacist']) &&
-    can('inventory:write') &&
-    runtime === 'BranchLocal';
+    can('inventory:write');
 
   const productsQuery = useAllProductsQuery(
-    { includeInactive: false },
+    { include_inactive: false },
     { enabled: canAccessTab }
   );
   const locationsQuery = useAllInventoryLocationsQuery(
-    { branchId, includeInactive: false },
-    { enabled: canAccessTab }
-  );
-  const batchesQuery = useAllInventoryBatchesQuery(
-    { branchId },
+    { branch_id: branchId, include_inactive: false },
     { enabled: canAccessTab }
   );
   const transactionsQuery = useAllInventoryTransactionsQuery(
-    { branchId },
+    { branch_id: branchId },
     { enabled: canAccessTab }
   );
 
-  const postMutation = usePostInventoryAdjustmentMutation();
-  const patchMutation = usePatchInventoryAdjustmentMutation();
-  const postByIdMutation = usePostInventoryAdjustmentByIdMutation();
-  const cancelMutation = useCancelInventoryAdjustmentMutation();
+  const createMutation = useCreateInventoryAdjustmentMutation();
 
   const [prevBranchId, setPrevBranchId] = useState(branchId);
   const [prevReversalId, setPrevReversalId] = useState<string | null>(
     initialReversalTxn?.inventory_txn_id ?? null
   );
-  const [editingDraftTxn, setEditingDraftTxn] =
-    useState<InventoryTxnDto | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [draftActionError, setDraftActionError] = useState<string | null>(null);
-  const [activeDraftAction, setActiveDraftAction] =
-    useState<ActiveDraftAction | null>(null);
 
   const incomingReversalId =
     initialReversalTxn && initialReversalTxn.branch_id === branchId
@@ -374,14 +305,11 @@ export function useAdjustmentForm({
 
   if (branchId !== prevBranchId) {
     setPrevBranchId(branchId);
-    setEditingDraftTxn(null);
     setSubmitError(null);
-    setDraftActionError(null);
   }
   if (incomingReversalId !== prevReversalId) {
     setPrevReversalId(incomingReversalId);
     if (incomingReversalId) {
-      setEditingDraftTxn(null);
       setSubmitError(null);
     }
   }
@@ -446,31 +374,23 @@ export function useAdjustmentForm({
     () => locationsQuery.data ?? [],
     [locationsQuery.data]
   );
-  const batches = useMemo(() => batchesQuery.data ?? [], [batchesQuery.data]);
-  const transactions = useMemo(
-    () => transactionsQuery.data ?? [],
+  const reversibleTransactions = useMemo(
+    () =>
+      (transactionsQuery.data ?? []).filter(
+        (txn) => txn.status === 'POSTED' && txn.transaction_type !== 'REVERSAL'
+      ),
     [transactionsQuery.data]
   );
 
-  const draftTransactions = useMemo(
-    () => transactions.filter((txn) => txn.status === 'DRAFT'),
-    [transactions]
-  );
-  const reversibleTransactions = useMemo(
-    () => transactions.filter((txn) => txn.status === 'POSTED'),
-    [transactions]
-  );
-
-  const isSubmittingForm = postMutation.isPending || patchMutation.isPending;
-  const isMutatingDraft =
-    postByIdMutation.isPending || cancelMutation.isPending;
+  const isSubmittingForm = createMutation.isPending;
   const isFormDisabled =
     !canWriteAdjustments || isSubmittingForm || !branchId.trim();
 
   const handleTransactionTypeChange = (nextType: AdjustmentsTxnType) => {
-    if (isFormDisabled || editingDraftTxn) {
+    if (isFormDisabled) {
       return;
     }
+    setSubmitError(null);
     setValue('transaction_type', nextType, {
       shouldDirty: true,
       shouldValidate: true,
@@ -479,20 +399,24 @@ export function useAdjustmentForm({
       setValue('reverses_inventory_txn_id', '', { shouldDirty: true });
       clearErrors('reverses_inventory_txn_id');
       onClearReversal?.();
+      if (getValues('lines').length === 0) {
+        replace([createEmptyAdjustmentLine()]);
+      }
     }
     if (nextType === 'ADJUSTMENT_OUT' || nextType === 'REVERSAL') {
       const currentLines = getValues('lines');
-      for (let i = 0; i < currentLines.length; i += 1) {
-        setValue(`lines.${i}.unit_cost_base`, '', { shouldDirty: true });
-        clearErrors(`lines.${i}.unit_cost_base`);
+      for (let index = 0; index < currentLines.length; index += 1) {
+        setValue(`lines.${index}.unit_cost_entered`, '', { shouldDirty: true });
+        clearErrors(`lines.${index}.unit_cost_entered`);
       }
     }
   };
 
   const handleReversalTargetChange = (nextTxnId: string) => {
-    if (isFormDisabled || editingDraftTxn) {
+    if (isFormDisabled) {
       return;
     }
+    setSubmitError(null);
     setValue('reverses_inventory_txn_id', nextTxnId, {
       shouldDirty: true,
       shouldValidate: true,
@@ -500,18 +424,6 @@ export function useAdjustmentForm({
     clearErrors('reverses_inventory_txn_id');
     if (!nextTxnId) {
       onClearReversal?.();
-      return;
-    }
-    const targetTxn = reversibleTransactions.find(
-      (txn) => txn.inventory_txn_id === nextTxnId
-    );
-    if (targetTxn) {
-      const nextValues = buildReversalFormValues(
-        targetTxn,
-        getValues('reason_code'),
-        getValues('note')
-      );
-      replace(nextValues.lines);
     }
   };
 
@@ -527,36 +439,35 @@ export function useAdjustmentForm({
 
     const product = products.find((p) => p.product_id === nextProductId);
     if (!product) {
-      setValue(`lines.${index}.batch_id`, '', { shouldDirty: true });
       setValue(`lines.${index}.product_uom_id`, '', { shouldDirty: true });
       return;
     }
 
-    const baseUom =
-      product.uoms.find((u) => u.is_base) ?? product.uoms[0] ?? null;
-    setValue(`lines.${index}.product_uom_id`, baseUom?.product_uom_id ?? '', {
-      shouldDirty: true,
-      shouldValidate: Boolean(baseUom),
-    });
-    if (baseUom) {
+    const activeUoms = product.uoms.filter((uom) => uom.is_active);
+    const defaultUom =
+      activeUoms.find((uom) => uom.is_base) ?? activeUoms[0] ?? null;
+
+    setValue(
+      `lines.${index}.product_uom_id`,
+      defaultUom?.product_uom_id ?? '',
+      {
+        shouldDirty: true,
+        shouldValidate: Boolean(defaultUom),
+      }
+    );
+    if (defaultUom) {
       clearErrors(`lines.${index}.product_uom_id`);
     }
 
-    if (product.lot_tracking_required === false) {
-      const nonLotBatch = batches.find(
-        (b) =>
-          b.product_id === nextProductId &&
-          (b.is_non_lot || b.batch_number === 'NON-LOT')
-      );
-      setValue(`lines.${index}.batch_id`, nonLotBatch?.batch_id ?? '', {
-        shouldDirty: true,
-        shouldValidate: Boolean(nonLotBatch),
-      });
-      if (nonLotBatch) {
-        clearErrors(`lines.${index}.batch_id`);
-      }
-    } else {
-      setValue(`lines.${index}.batch_id`, '', { shouldDirty: true });
+    if (!product.lot_tracking_required) {
+      setValue(`lines.${index}.batch_number`, '', { shouldDirty: true });
+      setValue(`lines.${index}.manufactured_on`, '', { shouldDirty: true });
+      setValue(`lines.${index}.expires_on`, '', { shouldDirty: true });
+      clearErrors([
+        `lines.${index}.batch_number`,
+        `lines.${index}.manufactured_on`,
+        `lines.${index}.expires_on`,
+      ]);
     }
   };
 
@@ -574,111 +485,21 @@ export function useAdjustmentForm({
     remove(index);
   };
 
-  const handleEditDraft = (txn: InventoryTxnDto) => {
-    if (!canWriteAdjustments || txn.status !== 'DRAFT' || isMutatingDraft) {
-      return;
-    }
-    onClearReversal?.();
-    setSubmitError(null);
-    setDraftActionError(null);
-    setEditingDraftTxn(txn);
-    reset(inventoryTxnDtoToPatchFormValues(txn));
-  };
-
-  const handleCancelEditDraft = () => {
-    setEditingDraftTxn(null);
-    setSubmitError(null);
-    reset(DEFAULT_ADJUSTMENT_FORM_VALUES);
-  };
-
-  const handlePostDraft = async (txn: InventoryTxnDto) => {
-    if (
-      !canWriteAdjustments ||
-      txn.status !== 'DRAFT' ||
-      isMutatingDraft ||
-      isSubmittingForm
-    ) {
-      return;
-    }
-    setDraftActionError(null);
-    setActiveDraftAction({ txnId: txn.inventory_txn_id, type: 'post' });
-    try {
-      const posted = await postByIdMutation.mutateAsync({
-        txnId: txn.inventory_txn_id,
-      });
-      if (editingDraftTxn?.inventory_txn_id === txn.inventory_txn_id) {
-        setEditingDraftTxn(null);
-        reset(DEFAULT_ADJUSTMENT_FORM_VALUES);
-      }
-      toast.success(`Adjustment ${posted.transaction_no} posted`);
-    } catch (error) {
-      const msg = formatInventoryApiError(
-        error,
-        'Unable to post draft adjustment.'
-      );
-      setDraftActionError(msg);
-      toast.error(msg);
-    } finally {
-      setActiveDraftAction(null);
-    }
-  };
-
-  const handleCancelDraft = async (txn: InventoryTxnDto) => {
-    if (
-      !canWriteAdjustments ||
-      txn.status !== 'DRAFT' ||
-      isMutatingDraft ||
-      isSubmittingForm
-    ) {
-      return;
-    }
-    setDraftActionError(null);
-    setActiveDraftAction({ txnId: txn.inventory_txn_id, type: 'cancel' });
-    try {
-      await cancelMutation.mutateAsync({ txnId: txn.inventory_txn_id });
-      if (editingDraftTxn?.inventory_txn_id === txn.inventory_txn_id) {
-        setEditingDraftTxn(null);
-        reset(DEFAULT_ADJUSTMENT_FORM_VALUES);
-      }
-      toast.success(`Draft ${txn.transaction_no} cancelled`);
-    } catch (error) {
-      const msg = formatInventoryApiError(
-        error,
-        'Unable to cancel draft adjustment.'
-      );
-      setDraftActionError(msg);
-      toast.error(msg);
-    } finally {
-      setActiveDraftAction(null);
-    }
-  };
-
   const onSubmit = handleSubmit(async (values) => {
-    if (isFormDisabled || (editingDraftTxn && !isDirty)) {
+    if (isFormDisabled) {
       return;
     }
     setSubmitError(null);
     try {
-      if (editingDraftTxn) {
-        const updated = await patchMutation.mutateAsync({
-          txnId: editingDraftTxn.inventory_txn_id,
-          payload: toInventoryTxnPatchPayload(values),
-        });
-        setEditingDraftTxn(null);
-        reset(DEFAULT_ADJUSTMENT_FORM_VALUES);
-        toast.success(`Draft ${updated.transaction_no} updated`);
-      } else {
-        const created = await postMutation.mutateAsync({
-          payload: toInventoryTxnPayload(values, branchId),
-        });
-        setEditingDraftTxn(null);
-        reset(DEFAULT_ADJUSTMENT_FORM_VALUES);
-        onClearReversal?.();
-        toast.success(
-          `Adjustment ${created.transaction_no} posted (${created.transaction_type})`
-        );
-      }
-    } catch (error) {
+      const created = await createMutation.mutateAsync({
+        payload: toCreateInventoryAdjustmentPayload(values, branchId),
+      });
+      reset(DEFAULT_ADJUSTMENT_FORM_VALUES);
+      onClearReversal?.();
+      toast.success(
+        `Adjustment ${created.transaction_no} posted (${created.transaction_type})`
+      );
+    } catch (error: unknown) {
       const bannerMessage = applyAdjustmentFormApiError(error, setError);
       if (bannerMessage) {
         setSubmitError(bannerMessage);
@@ -690,59 +511,33 @@ export function useAdjustmentForm({
   const isLoadingLookups =
     productsQuery.isLoading ||
     locationsQuery.isLoading ||
-    batchesQuery.isLoading;
+    (transactionType === 'REVERSAL' && transactionsQuery.isLoading);
   const lookupsError =
-    productsQuery.error ?? locationsQuery.error ?? batchesQuery.error ?? null;
+    productsQuery.error ??
+    locationsQuery.error ??
+    (transactionType === 'REVERSAL' ? transactionsQuery.error : null) ??
+    null;
   const hasLookupsError =
-    productsQuery.isError || locationsQuery.isError || batchesQuery.isError;
+    productsQuery.isError ||
+    locationsQuery.isError ||
+    (transactionType === 'REVERSAL' && transactionsQuery.isError);
 
   const retryLookups = () => {
     if (productsQuery.isError) void productsQuery.refetch();
     if (locationsQuery.isError) void locationsQuery.refetch();
-    if (batchesQuery.isError) void batchesQuery.refetch();
     if (transactionsQuery.isError) void transactionsQuery.refetch();
   };
 
-  const draftsErrorMessage = transactionsQuery.isError
-    ? formatInventoryApiError(
-        transactionsQuery.error,
-        'Unable to load draft adjustments.'
-      )
-    : undefined;
   const lookupsErrorMessage = hasLookupsError
     ? formatInventoryApiError(
         lookupsError,
-        'Unable to load products, locations, or batches.'
+        'Unable to load products, locations, or posted transactions.'
       )
     : undefined;
-
-  const draftListProps = {
-    drafts: draftTransactions,
-    isLoading: transactionsQuery.isLoading,
-    isError: transactionsQuery.isError,
-    errorMessage: draftsErrorMessage,
-    isRetrying: transactionsQuery.isFetching,
-    canWriteAdjustments,
-    editingTxnId: editingDraftTxn?.inventory_txn_id ?? null,
-    activeAction: activeDraftAction,
-    isBusy: isMutatingDraft || isSubmittingForm,
-    actionError: draftActionError,
-    onRetry: () => {
-      void transactionsQuery.refetch();
-    },
-    onEditDraft: handleEditDraft,
-    onPostDraft: (txn: InventoryTxnDto) => {
-      void handlePostDraft(txn);
-    },
-    onCancelDraft: (txn: InventoryTxnDto) => {
-      void handleCancelDraft(txn);
-    },
-  };
 
   const headerProps = {
     transactionType,
     reversesTxnId,
-    isEditingDraft: editingDraftTxn !== null,
     disabled: isFormDisabled,
     reversibleTransactions,
     control,
@@ -751,23 +546,50 @@ export function useAdjustmentForm({
     onReversalTargetChange: handleReversalTargetChange,
   };
 
+  const linesError =
+    errors.lines?.root?.message ??
+    (typeof errors.lines?.message === 'string'
+      ? errors.lines.message
+      : undefined);
+
+  const readOnlyNotice =
+    runtime !== 'BranchLocal'
+      ? {
+          title: 'BranchLocal runtime required',
+          body: 'Stock adjustments and opening balances must be posted on the BranchLocal runtime.',
+        }
+      : !canWriteAdjustments
+        ? {
+            title: 'Read-only access',
+            body: 'Posting stock adjustments requires the inventory:write permission.',
+          }
+        : null;
+
+  const lineRowBaseProps = {
+    totalLines: fields.length,
+    transactionType,
+    disabled: isFormDisabled,
+    products,
+    locations,
+    control,
+    onProductChange: handleLineProductChange,
+    onRemove: handleRemoveLine,
+  };
+
   return {
     canAccessTab,
     canWriteAdjustments,
     runtime,
     products,
     locations,
-    batches,
-    draftTransactions,
     reversibleTransactions,
-    transactionsQuery,
     isLoadingLookups,
     hasLookupsError,
-    lookupsError,
     lookupsErrorMessage,
-    draftsErrorMessage,
-    draftListProps,
+    linesError,
+    readOnlyNotice,
     headerProps,
+    lineRowBaseProps,
     retryLookups,
     control,
     errors,
@@ -775,22 +597,14 @@ export function useAdjustmentForm({
     fields,
     transactionType,
     reversesTxnId,
-    editingDraftTxn,
     submitError,
-    draftActionError,
-    activeDraftAction,
     isSubmittingForm,
-    isMutatingDraft,
     isFormDisabled,
     handleTransactionTypeChange,
     handleReversalTargetChange,
     handleLineProductChange,
     handleAddLine,
     handleRemoveLine,
-    handleEditDraft,
-    handleCancelEditDraft,
-    handlePostDraft,
-    handleCancelDraft,
     onSubmit,
   };
 }

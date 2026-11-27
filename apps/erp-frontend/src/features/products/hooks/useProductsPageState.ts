@@ -4,7 +4,8 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'react-toastify';
 import { useAuth } from '../../../hooks/useAuth';
 import { ApiClientError } from '../../../lib/api/client';
-import type { ProductCategoryDto, ProductDto } from '../../../types/api';
+import { DEFAULT_PAGE, DEFAULT_PAGE_SIZE } from '../../../lib/api/pagination';
+import type { Product, ProductCategory } from '../../../types/api';
 import {
   applyCategoryFormApiError,
   applyCreateProductFormApiError,
@@ -42,7 +43,20 @@ import {
   useProductsQuery,
 } from './useCatalogQueries';
 
-export const PRODUCTS_PAGE_SIZE = 20;
+export const PRODUCTS_PAGE_SIZE = DEFAULT_PAGE_SIZE;
+
+export function formatBaseUomSalePrice(
+  price: number | null | undefined
+): string | null {
+  if (typeof price !== 'number' || !Number.isFinite(price)) {
+    return null;
+  }
+  const [whole = '0', frac = ''] = price
+    .toFixed(4)
+    .replace(/0+$/, '')
+    .split('.');
+  return `EGP ${whole}.${frac.padEnd(2, '0')}`;
+}
 
 export const EDIT_PRODUCT_TEXT_FIELDS = [
   {
@@ -86,7 +100,7 @@ export const EDIT_PRODUCT_TEXT_FIELDS = [
     placeholder: '14',
     type: 'text',
     inputMode: 'decimal' as const,
-    hint: 'Percentage 0–100 (stored as fractional 4dp, e.g. 14 → 0.1400)',
+    hint: 'Percentage 0–100 (stored as 0–1 decimal, e.g. 14 → 0.14)',
   },
   {
     name: 'expiry_alert_days',
@@ -104,12 +118,12 @@ export interface UseProductsPageStateOptions {
 
 export interface CategoryModalState {
   open: boolean;
-  category: ProductCategoryDto | null;
+  category: ProductCategory | null;
 }
 
 export interface ProductModalState {
   mode: 'create' | 'edit' | null;
-  product: ProductDto | null;
+  product: Product | null;
 }
 
 export function useProductsPageState(
@@ -130,10 +144,7 @@ export function useProductsPageState(
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
   const [includeInactive, setIncludeInactive] = useState(false);
-  const [cursorStack, setCursorStack] = useState<(string | undefined)[]>([
-    undefined,
-  ]);
-  const [pageIndex, setPageIndex] = useState(0);
+  const [page, setPage] = useState(DEFAULT_PAGE);
   const [categoryModalState, setCategoryModalState] =
     useState<CategoryModalState>({
       open: false,
@@ -149,16 +160,16 @@ export function useProductsPageState(
   const togglingIdsRef = useRef<Set<string>>(new Set());
 
   const categoriesQuery = useAllProductCategoriesQuery({
-    includeInactive: true,
+    include_inactive: true,
   });
 
   const normalizedSearch = searchTerm.trim();
   const productsQuery = useProductsQuery({
-    cursor: cursorStack[pageIndex],
-    limit: pageSize,
+    page,
+    page_size: pageSize,
     search: normalizedSearch || undefined,
-    categoryId: selectedCategoryId || undefined,
-    includeInactive,
+    category_id: selectedCategoryId || undefined,
+    include_inactive: includeInactive,
   });
 
   const patchProductMutation = usePatchProductMutation();
@@ -172,6 +183,8 @@ export function useProductsPageState(
     () => productsQuery.data?.items ?? [],
     [productsQuery.data?.items]
   );
+  const totalCount = productsQuery.data ? productsQuery.data.total_count : null;
+  const hasNextPage = (productsQuery.data?.next_cursor ?? null) !== null;
 
   const categoryTree: readonly CategoryTreeNode[] = useMemo(
     () => buildCategoryTree(categories, { includeInactive }),
@@ -200,8 +213,7 @@ export function useProductsPageState(
   };
 
   const resetPagination = () => {
-    setCursorStack([undefined]);
-    setPageIndex(0);
+    setPage(DEFAULT_PAGE);
   };
 
   const handleSearchChange = (nextSearch: string) => {
@@ -240,21 +252,13 @@ export function useProductsPageState(
   };
 
   const handlePageChange = (nextPage: number) => {
-    const nextIndex = nextPage - 1;
-    if (nextIndex < 0) {
+    if (!Number.isInteger(nextPage) || nextPage < DEFAULT_PAGE) {
       return;
     }
-    if (nextIndex < pageIndex && nextIndex < cursorStack.length) {
-      setPageIndex(nextIndex);
+    if (nextPage > page && !hasNextPage) {
       return;
     }
-    if (nextIndex === pageIndex + 1) {
-      const nextCursor = productsQuery.data?.nextCursor;
-      if (nextCursor) {
-        setCursorStack((prev) => [...prev.slice(0, nextIndex), nextCursor]);
-        setPageIndex(nextIndex);
-      }
-    }
+    setPage(nextPage);
   };
 
   const openCreateCategoryModal = () => {
@@ -264,7 +268,7 @@ export function useProductsPageState(
     setCategoryModalState({ open: true, category: null });
   };
 
-  const openEditCategoryModal = (category: ProductCategoryDto) => {
+  const openEditCategoryModal = (category: ProductCategory) => {
     if (!canWriteCatalog) {
       return;
     }
@@ -282,7 +286,7 @@ export function useProductsPageState(
     setProductModalState({ mode: 'create', product: null });
   };
 
-  const openEditProductModal = (product: ProductDto) => {
+  const openEditProductModal = (product: Product) => {
     if (!canWriteCatalog) {
       return;
     }
@@ -293,10 +297,7 @@ export function useProductsPageState(
     setProductModalState({ mode: null, product: null });
   };
 
-  const handleToggleActive = async (
-    product: ProductDto,
-    nextActive: boolean
-  ) => {
+  const handleToggleActive = async (product: Product, nextActive: boolean) => {
     if (!canWriteCatalog || togglingIdsRef.current.has(product.product_id)) {
       return;
     }
@@ -344,8 +345,10 @@ export function useProductsPageState(
     selectedCategoryId,
     includeInactive,
     hasActiveFilters,
-    pageIndex,
+    page,
     pageSize,
+    totalCount,
+    hasNextPage,
     categories,
     categoryTree,
     categoryNameById,
@@ -376,7 +379,7 @@ export function useProductsPageState(
 
 export function buildEligibleParentOptions(
   editingCategoryId: string | null | undefined,
-  categories: readonly ProductCategoryDto[],
+  categories: readonly ProductCategory[],
   currentParentId?: string | null
 ) {
   const eligible = getEligibleParentCategories(editingCategoryId, categories);
@@ -410,7 +413,7 @@ export interface ProductCategoryOptionsConfig {
 }
 
 export function buildProductCategoryOptions(
-  categories: readonly ProductCategoryDto[],
+  categories: readonly ProductCategory[],
   {
     includeInactive = false,
     emptyLabel,
@@ -454,8 +457,8 @@ export function useCategoryForm({
   categories,
   onClose,
 }: {
-  category: ProductCategoryDto | null;
-  categories: readonly ProductCategoryDto[];
+  category: ProductCategory | null;
+  categories: readonly ProductCategory[];
   onClose: () => void;
 }) {
   const isEdit = category !== null;
@@ -616,7 +619,7 @@ export function useEditProductForm({
   product,
   onClose,
 }: {
-  product: ProductDto;
+  product: Product;
   onClose: () => void;
 }) {
   const formId = useId();

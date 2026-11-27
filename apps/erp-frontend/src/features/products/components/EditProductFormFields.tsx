@@ -8,7 +8,7 @@ import {
 import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
 import { Toggle } from '../../../components/ui/Toggle';
-import type { ProductCategoryDto } from '../../../types/api';
+import type { ProductCategory } from '../../../types/api';
 import {
   buildProductCategoryOptions,
   EDIT_PRODUCT_TEXT_FIELDS,
@@ -19,7 +19,7 @@ export interface EditProductFormFieldsProps {
   sku: string;
   baseUomCode: string;
   currentCategoryId: string;
-  categories: readonly ProductCategoryDto[];
+  categories: readonly ProductCategory[];
   disabled: boolean;
   register: UseFormRegister<EditProductFormValues>;
   control: Control<EditProductFormValues>;

@@ -15,9 +15,10 @@ import {
 } from '../../../components/ui/Table';
 import { Toggle } from '../../../components/ui/Toggle';
 import {
+  LOCATION_SELLABLE_OPTIONS,
+  parseSellableFilter,
   STORAGE_LOCATIONS_PAGE_SIZE,
   useStorageLocationsState,
-  type LocationFilter,
 } from '../hooks/useInventoryBranchState';
 import { LocationFormModal } from './LocationFormModal';
 import { LocationTableRow } from './LocationTableRow';
@@ -26,13 +27,6 @@ export interface StorageLocationsTabProps {
   branchId: string;
 }
 
-const TYPE_OPTIONS = [
-  { value: 'ALL', label: 'All types' },
-  { value: 'SELLABLE', label: 'SELLABLE' },
-  { value: 'QUARANTINE', label: 'QUARANTINE' },
-  { value: 'SCRAP', label: 'SCRAP' },
-] as const;
-
 export function StorageLocationsTab({ branchId }: StorageLocationsTabProps) {
   const state = useStorageLocationsState(branchId);
 
@@ -40,7 +34,7 @@ export function StorageLocationsTab({ branchId }: StorageLocationsTabProps) {
     <Card>
       <CardHeader
         title="Storage Locations"
-        description="Manage sellable shelves, quarantine cages, and scrap bins for this branch."
+        description="Manage sellable shelves, quarantine cages, damaged bays, and scrap bins for this branch."
         action={
           state.canWrite ? (
             <Button
@@ -64,11 +58,11 @@ export function StorageLocationsTab({ branchId }: StorageLocationsTabProps) {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="w-full sm:w-56">
             <Select
-              label="Location type"
-              options={TYPE_OPTIONS}
-              value={state.locationType}
+              label="Sellable filter"
+              options={LOCATION_SELLABLE_OPTIONS}
+              value={state.sellableFilter}
               onChange={(e) =>
-                state.setLocationType(e.target.value as LocationFilter)
+                state.setSellableFilter(parseSellableFilter(e.target.value))
               }
             />
           </div>
@@ -131,6 +125,7 @@ export function StorageLocationsTab({ branchId }: StorageLocationsTabProps) {
             <Pagination
               page={state.page}
               pageSize={STORAGE_LOCATIONS_PAGE_SIZE}
+              itemCount={state.totalCount}
               hasNextPage={state.hasNextPage}
               onPageChange={state.handlePageChange}
             />
@@ -138,12 +133,15 @@ export function StorageLocationsTab({ branchId }: StorageLocationsTabProps) {
         )}
       </div>
 
-      <LocationFormModal
-        open={state.modal.open}
-        branchId={branchId}
-        location={state.modal.location}
-        onClose={state.closeModal}
-      />
+      {state.modal.open ? (
+        <LocationFormModal
+          key={state.modal.location?.location_id ?? 'new'}
+          open
+          branchId={branchId}
+          location={state.modal.location}
+          onClose={state.closeModal}
+        />
+      ) : null}
     </Card>
   );
 }

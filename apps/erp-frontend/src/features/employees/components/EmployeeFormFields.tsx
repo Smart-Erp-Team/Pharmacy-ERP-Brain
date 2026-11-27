@@ -8,14 +8,17 @@ import { AddressFields } from '../../../components/ui/AddressFields';
 import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
 import { Toggle } from '../../../components/ui/Toggle';
-import type { BranchDto } from '../../../types/api';
-import { buildEmployeeBranchOptions } from '../hooks/useEmployeeForm';
+import type { Branch } from '../../../features/branches';
+import {
+  buildEmployeeAddressRegistrations,
+  buildEmployeeBranchOptions,
+} from '../hooks/useEmployeeForm';
 import type { EmployeeFormValues } from '../schemas/employeeSchema';
 
 export interface EmployeeFormFieldsProps {
   isEdit: boolean;
   disabled: boolean;
-  branches: readonly BranchDto[];
+  branches: readonly Branch[];
   isBranchesLoading: boolean;
   isBranchesError: boolean;
   currentBranchId: string;
@@ -23,6 +26,11 @@ export interface EmployeeFormFieldsProps {
   control: Control<EmployeeFormValues>;
   errors: FieldErrors<EmployeeFormValues>;
 }
+
+const IMMUTABLE_BRANCH_HINT = 'Home branch cannot be changed after creation.';
+const IMMUTABLE_EMP_NO_HINT =
+  'Employee number cannot be changed after creation.';
+const IMMUTABLE_HIRE_DATE_HINT = 'Hire date cannot be changed after creation.';
 
 export function EmployeeFormFields({
   isEdit,
@@ -49,7 +57,8 @@ export function EmployeeFormFields({
         <Select
           label="Home branch"
           options={branchOptions}
-          disabled={disabled || isBranchesLoading}
+          disabled={isEdit || disabled || isBranchesLoading}
+          hint={isEdit ? IMMUTABLE_BRANCH_HINT : undefined}
           error={errors.branch_id?.message}
           {...register('branch_id')}
         />
@@ -57,8 +66,11 @@ export function EmployeeFormFields({
           label="Employee number"
           placeholder="EMP-001"
           maxLength={30}
-          disabled={disabled}
-          hint="Unique within the selected branch"
+          required
+          disabled={isEdit || disabled}
+          hint={
+            isEdit ? IMMUTABLE_EMP_NO_HINT : 'Unique within the organization'
+          }
           error={errors.employee_no?.message}
           {...register('employee_no')}
         />
@@ -66,14 +78,16 @@ export function EmployeeFormFields({
           label="Full name"
           placeholder="Omar Khaled"
           maxLength={150}
+          required
           disabled={disabled}
           error={errors.full_name?.message}
           {...register('full_name')}
         />
         <Input
-          label="Job title (optional)"
+          label="Job title"
           placeholder="Lead Pharmacist"
           maxLength={80}
+          required
           disabled={disabled}
           error={errors.job_title?.message}
           {...register('job_title')}
@@ -81,7 +95,7 @@ export function EmployeeFormFields({
         <Input
           type="email"
           label="Email (optional)"
-          placeholder="omar@pharmaplus.eg"
+          placeholder="omar@medcare.test"
           maxLength={254}
           disabled={disabled}
           error={errors.email?.message}
@@ -100,7 +114,9 @@ export function EmployeeFormFields({
           <Input
             type="date"
             label="Hire date"
-            disabled={disabled}
+            required
+            disabled={isEdit || disabled}
+            hint={isEdit ? IMMUTABLE_HIRE_DATE_HINT : undefined}
             error={errors.hired_on?.message}
             {...register('hired_on')}
           />
@@ -108,31 +124,26 @@ export function EmployeeFormFields({
       </div>
 
       <AddressFields
-        registrations={{
-          line1: register('address.line1'),
-          line2: register('address.line2'),
-          city: register('address.city'),
-          region: register('address.region'),
-          postal_code: register('address.postal_code'),
-          country_code: register('address.country_code'),
-        }}
+        registrations={buildEmployeeAddressRegistrations(register)}
         errors={errors.address}
         disabled={disabled}
       />
 
-      <Controller
-        name="is_active"
-        control={control}
-        render={({ field }) => (
-          <Toggle
-            label="Active employee"
-            description="Inactive employees remain in historical records and cannot be assigned active operations."
-            checked={field.value}
-            onChange={field.onChange}
-            disabled={disabled}
-          />
-        )}
-      />
+      {isEdit ? (
+        <Controller
+          name="is_active"
+          control={control}
+          render={({ field }) => (
+            <Toggle
+              label="Active employee"
+              description="Inactive employees remain in historical records and cannot be assigned active operations."
+              checked={field.value}
+              onChange={field.onChange}
+              disabled={disabled}
+            />
+          )}
+        />
+      ) : null}
     </>
   );
 }

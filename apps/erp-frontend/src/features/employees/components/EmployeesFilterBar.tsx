@@ -1,21 +1,20 @@
 import { Search } from 'lucide-react';
 import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
-import type { BranchDto } from '../../../types/api';
+import type { Branch } from '../../../features/branches';
 
-export type EmployeeStatusFilter = 'active' | 'all' | 'inactive';
+export type EmployeeStatusFilter = 'active' | 'all';
 
 const STATUS_OPTIONS = [
   { value: 'active', label: 'Active employees' },
   { value: 'all', label: 'All employees (include inactive)' },
-  { value: 'inactive', label: 'Inactive only' },
 ] as const;
 
 export interface EmployeesFilterBarProps {
   searchTerm: string;
   branchId: string;
   statusFilter: EmployeeStatusFilter;
-  branches: readonly BranchDto[];
+  branches: readonly Branch[];
   isBranchesError: boolean;
   onSearchChange: (value: string) => void;
   onBranchChange: (value: string) => void;
@@ -36,7 +35,7 @@ export function EmployeesFilterBar({
     { value: '', label: 'All branches' },
     ...branches.map((branch) => ({
       value: branch.branch_id,
-      label: `${branch.code} — ${branch.name}`,
+      label: `${branch.branch_code} — ${branch.name}`,
     })),
   ];
 
@@ -45,7 +44,7 @@ export function EmployeesFilterBar({
       <div className="flex-1">
         <Input
           label="Search employees"
-          placeholder="Search by employee no, name, job title, email, or phone"
+          placeholder="Search by employee no, name, job title, or email"
           leadingIcon={<Search className="h-4 w-4" />}
           value={searchTerm}
           onChange={(event) => onSearchChange(event.target.value)}

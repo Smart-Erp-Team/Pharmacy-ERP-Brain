@@ -13,52 +13,74 @@ import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import currentUserContext from '@contracts/fixtures/current-user-context.json';
-import inventoryBalanceFixture from '@contracts/fixtures/inventory-balance.json';
-import productFixture from '@contracts/fixtures/product.json';
 import {
   branchHandlers,
+  MOCK_BRANCH_IDS,
   resetMockBranches,
 } from '../../../mocks/branchHandlers';
 import {
   INITIAL_CATEGORIES,
   INITIAL_PRODUCTS,
+  MOCK_PRODUCT_IDS,
+  ORGANIZATION_ID,
   productHandlers,
   resetMockCatalog,
 } from '../../../mocks/productHandlers';
 import { useAuthStore } from '../../../stores/authStore';
 import { renderWithProviders } from '../../../test/renderWithProviders';
-import type { CurrentUserContext, ProductDto } from '../../../types/api';
+import type { CurrentUser, Product } from '../../../types/api';
 import { BranchReorderTab } from './BranchReorderTab';
 import { ProductDetailsView } from './ProductDetailsView';
 
-const CAIRO_BRANCH_ID = inventoryBalanceFixture.branch_id;
-const ALEX_BRANCH_ID = 'e5f6a7b8-4444-4d55-9e66-ccddeeff0011';
+const AUGMENTIN = INITIAL_PRODUCTS[0];
+const PANADOL = INITIAL_PRODUCTS[1];
+const VITAMIN_D3 = INITIAL_PRODUCTS[2];
+const DISCONTINUED = INITIAL_PRODUCTS[3];
 
 const server = setupServer(...branchHandlers, ...productHandlers);
 
-function buildAuthUser(
-  overrides: Partial<CurrentUserContext> = {}
-): CurrentUserContext {
+function requireInput(element: HTMLElement): HTMLInputElement {
+  if (!(element instanceof HTMLInputElement)) {
+    throw new Error('Expected HTMLInputElement');
+  }
+  return element;
+}
+
+function requireSelect(element: HTMLElement): HTMLSelectElement {
+  if (!(element instanceof HTMLSelectElement)) {
+    throw new Error('Expected HTMLSelectElement');
+  }
+  return element;
+}
+
+function buildAuthUser(overrides: Partial<CurrentUser> = {}): CurrentUser {
   return {
-    user: { ...currentUserContext.user, role: 'Admin', branch_scope: 'ALL' },
-    organization_id: currentUserContext.organization_id,
-    organization_code: currentUserContext.organization_code,
+    user_id: '11111111-4444-4111-8111-000000000001',
+    employee_id: '11111111-3333-4111-8111-000000000001',
+    organization_id: ORGANIZATION_ID,
+    username: 'admin@medcare.test',
+    role: 'Admin',
     branch_scope: 'ALL',
     branch_ids: [],
-    roles: ['Admin'],
-    scopes: ['inventory:read', 'inventory:write'],
-    runtime: 'Cloud',
+    scopes: [
+      'user:admin',
+      'inventory:read',
+      'inventory:write',
+      'sales:read',
+      'sales:write',
+    ],
+    runtime_mode: 'Cloud',
     ...overrides,
   };
 }
 
 function seedAuth(
-  overrides: Partial<CurrentUserContext> = {},
+  overrides: Partial<CurrentUser> = {},
   activeBranchId: string | null = null
 ) {
   useAuthStore.setState({
     currentUser: buildAuthUser(overrides),
+    organizationCode: 'MEDCARE',
     activeBranchId,
     isAuthenticated: true,
     isInitializing: false,
@@ -77,6 +99,7 @@ afterEach(() => {
   server.resetHandlers();
   useAuthStore.setState({
     currentUser: null,
+    organizationCode: null,
     activeBranchId: null,
     isAuthenticated: false,
     isInitializing: false,
@@ -106,8 +129,9 @@ describe('ProductDetailsView', () => {
           return HttpResponse.json(
             {
               error: {
-                code: 'INTERNAL_ERROR',
+                code: 'INTERNAL_SERVER_ERROR',
                 message: 'Temporary catalog outage',
+                details: [],
                 trace_id: 'trace-prod-500',
               },
             },
@@ -120,7 +144,7 @@ describe('ProductDetailsView', () => {
 
     renderWithProviders(
       <ProductDetailsView
-        productId={productFixture.product_id}
+        productId={AUGMENTIN.product_id}
         categories={INITIAL_CATEGORIES}
         onBack={onBack}
         onEditProduct={onEditProduct}
@@ -144,42 +168,66 @@ describe('ProductDetailsView', () => {
     await user.click(screen.getByRole('button', { name: 'Retry' }));
 
     expect(
-      await screen.findByRole('heading', { name: 'Panadol 500mg Tablets' })
+      await screen.findByRole('heading', {
+        name: 'Augmentin 1g Film-Coated Tablets',
+      })
     ).toBeDefined();
-    expect(screen.getAllByText('ANA-PCM-500-TAB')).toHaveLength(2);
+    expect(screen.getAllByText('MED-AUG-1000')).toHaveLength(2);
     expect(screen.getByText('Active')).toBeDefined();
-    expect(screen.getAllByText('Analgesics').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Penicillins').length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole('button', { name: 'Edit product' }));
     expect(onEditProduct).toHaveBeenCalledWith(
-      expect.objectContaining({ product_id: productFixture.product_id })
+      expect.objectContaining({ product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G })
     );
 
-    // Product Information fields
+    // Product Information fields (Augmentin: tax_rate 0, base price 10.5 -> EGP 10.50, lot_tracking true, 90 days)
+    expect(screen.getByText('EGP 10.50')).toBeDefined();
+    expect(screen.getByText('0%')).toBeDefined();
+    expect(screen.getByText('(0)')).toBeDefined();
+    expect(screen.getByText('Required')).toBeDefined();
+    expect(screen.getByText('90 days')).toBeDefined();
+    expect(screen.getByText('6221001000019')).toBeDefined();
+    expect(
+      screen.getByText('Amoxicillin 875mg + Clavulanic Acid 125mg')
+    ).toBeDefined();
+    expect(screen.getByText('GSK')).toBeDefined();
+
+    cleanup();
+
+    // Verify Vitamin D3 fractional tax_rate (0.14 -> 14%), non-lot tracking, and EGP 120.00 base price
+    renderWithProviders(
+      <ProductDetailsView
+        productId={VITAMIN_D3.product_id}
+        initialProduct={VITAMIN_D3}
+        categories={INITIAL_CATEGORIES}
+        onBack={onBack}
+      />
+    );
+    expect(
+      screen.getByRole('heading', { name: 'Vitamin D3 5000 IU' })
+    ).toBeDefined();
     expect(screen.getByText('14%')).toBeDefined();
-    expect(screen.getByText('(0.1400)')).toBeDefined();
+    expect(screen.getByText('(0.14)')).toBeDefined();
+    expect(screen.getByText('EGP 120.00')).toBeDefined();
     expect(screen.getByText('Not required')).toBeDefined();
     expect(screen.getByText('30 days')).toBeDefined();
-    expect(screen.getByText('6221048001234')).toBeDefined();
-    expect(screen.getByText('Paracetamol 500mg')).toBeDefined();
-    expect(
-      screen.getByText('https://cdn.pharmaplus.eg/products/ana-pcm-500-tab.jpg')
-    ).toBeDefined();
 
     cleanup();
 
     // Verify initialProduct fallback while query is still pending + explicit Unavailable for null optional fields & 0 days
-    const sparseProduct: ProductDto = {
-      ...INITIAL_PRODUCTS[5],
+    const sparseProduct: Product = {
+      ...DISCONTINUED,
       category_id: 'missing-category-id',
       barcode: null,
       generic_name: null,
       brand_name: '',
       image_url: null,
-      tax_rate: '0.0000',
+      tax_rate: 0,
       expiry_alert_days: 0,
-      created_at: undefined,
-      updated_at: undefined,
+      uoms: [],
+      created_at: '',
+      updated_at: '',
     };
 
     server.use(
@@ -198,23 +246,22 @@ describe('ProductDetailsView', () => {
     );
 
     expect(
-      screen.getByRole('heading', { name: 'Legacy Aspirin 75mg Tablets' })
+      screen.getByRole('heading', { name: 'Discontinued Cough Syrup' })
     ).toBeDefined();
-    expect(screen.getAllByText('Category unavailable').length).toBe(2);
+    expect(screen.getAllByText('Category unavailable')).toHaveLength(2);
     expect(screen.getByText('0%')).toBeDefined();
     expect(screen.getByText('0 days')).toBeDefined();
-    expect(screen.getAllByText('Unavailable')).toHaveLength(6);
+    expect(screen.getAllByText('Unavailable')).toHaveLength(7);
     expect(screen.queryByRole('button', { name: 'Edit product' })).toBeNull();
   });
 
-  it('manages UOMs & Pricing: base toggle disabled, add sellable UOM validation, edit !isDirty & 409 errors, and BranchLocal read-only gating', async () => {
+  it('manages UOMs & Pricing: include_inactive toggle, base toggle disabled, add/edit validation, 409 errors, and BranchLocal read-only gating', async () => {
     const user = userEvent.setup();
-    const centrumProduct = INITIAL_PRODUCTS[4];
 
     const { rerender } = renderWithProviders(
       <ProductDetailsView
-        productId={centrumProduct.product_id}
-        initialProduct={centrumProduct}
+        productId={AUGMENTIN.product_id}
+        initialProduct={AUGMENTIN}
         categories={INITIAL_CATEGORIES}
         onBack={() => undefined}
       />
@@ -222,30 +269,30 @@ describe('ProductDetailsView', () => {
 
     await user.click(screen.getByRole('tab', { name: 'UOMs & Pricing' }));
 
-    // Centrum has non-sellable/non-purchasable base tablet (Unavailable price + Inactive flags) plus active/inactive bottles
-    expect(await screen.findByText('Bottle of 60')).toBeDefined();
-    expect(screen.getByText('Legacy Bottle of 30')).toBeDefined();
-    const tabletRow = screen.getByText('Tablet (base)').closest('tr');
-    if (!tabletRow) throw new Error('Expected Tablet (base) row');
-    expect(within(tabletRow).getByText('Base unit')).toBeDefined();
-    expect(within(tabletRow).getByText('Inactive flags')).toBeDefined();
-    expect(within(tabletRow).getByText('Unavailable')).toBeDefined();
-    expect(screen.getByText('EGP 420.00')).toBeDefined();
+    // Augmentin seeded UOMs: TAB (1, EGP 10.50), STRIP (7, EGP 70.00), BOX (14, EGP 138.00)
+    expect(await screen.findByText('Strip of 7')).toBeDefined();
+    expect(screen.getByText('Box of 14')).toBeDefined();
+    const tabRow = screen.getByText('Tablet').closest('tr');
+    if (!tabRow) throw new Error('Expected Tablet row');
+    expect(within(tabRow).getByText('Base unit')).toBeDefined();
+    expect(within(tabRow).getByText('EGP 10.50')).toBeDefined();
+    expect(screen.getByText('EGP 70.00')).toBeDefined();
+    expect(screen.getByText('EGP 138.00')).toBeDefined();
     expect(screen.queryByRole('button', { name: /delete/i })).toBeNull();
 
     const baseToggle = screen.getByRole('switch', {
-      name: 'Toggle status for tablet',
+      name: 'Toggle status for TAB',
     });
     expect(baseToggle.hasAttribute('disabled')).toBe(true);
 
-    // Soft-toggle bottle60 inactive via PATCH
-    const bottle60Toggle = screen.getByRole('switch', {
-      name: 'Toggle status for bottle60',
+    // Soft-toggle STRIP inactive via PATCH; remains visible via include_inactive=true
+    const stripToggle = screen.getByRole('switch', {
+      name: 'Toggle status for STRIP',
     });
-    expect(bottle60Toggle.getAttribute('aria-checked')).toBe('true');
-    await user.click(bottle60Toggle);
+    expect(stripToggle.getAttribute('aria-checked')).toBe('true');
+    await user.click(stripToggle);
     await waitFor(() => {
-      expect(bottle60Toggle.getAttribute('aria-checked')).toBe('false');
+      expect(stripToggle.getAttribute('aria-checked')).toBe('false');
     });
 
     // Add sellable UOM -> validates price required when sellable, handles 409 duplicate code, then succeeds
@@ -268,14 +315,14 @@ describe('ProductDetailsView', () => {
       within(addDialog).getByText('Conversion factor is required')
     ).toBeDefined();
 
-    await user.type(within(addDialog).getByLabelText('UOM code'), 'bottle60');
+    await user.type(within(addDialog).getByLabelText('UOM code'), 'BOX');
     await user.type(
       within(addDialog).getByLabelText('Display name'),
-      'Duplicate Bottle'
+      'Duplicate Box'
     );
     await user.type(
       within(addDialog).getByLabelText('Conversion factor'),
-      '60'
+      '14'
     );
     await user.click(
       within(addDialog).getByRole('switch', { name: 'Sellable' })
@@ -291,26 +338,26 @@ describe('ProductDetailsView', () => {
 
     await user.type(
       within(addDialog).getByLabelText('Sale unit price (EGP)'),
-      '410'
+      '1350'
     );
     await user.click(
       within(addDialog).getByRole('button', { name: 'Add UOM' })
     );
     expect(
       await within(addDialog).findByText(
-        /UOM code "bottle60" already exists for this product/i
+        /UOM code "BOX" already exists for this product/i
       )
     ).toBeDefined();
 
     const codeInput = within(addDialog).getByLabelText('UOM code');
     await user.clear(codeInput);
-    await user.type(codeInput, 'box120');
+    await user.type(codeInput, 'CARTON');
     const nameInput = within(addDialog).getByLabelText('Display name');
     await user.clear(nameInput);
-    await user.type(nameInput, 'Box of 120');
+    await user.type(nameInput, 'Carton of 140');
     const factorInput = within(addDialog).getByLabelText('Conversion factor');
     await user.clear(factorInput);
-    await user.type(factorInput, '120');
+    await user.type(factorInput, '140');
     await user.click(
       within(addDialog).getByRole('switch', { name: 'Purchasable' })
     );
@@ -321,13 +368,13 @@ describe('ProductDetailsView', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull();
     });
-    expect(await screen.findByText('Box of 120')).toBeDefined();
-    expect(screen.getByText('EGP 410.00')).toBeDefined();
+    expect(await screen.findByText('Carton of 140')).toBeDefined();
+    expect(screen.getByText('EGP 1350.00')).toBeDefined();
 
     // Edit UOM: enforces !isDirty, immutable code/conversion, immutability notice, and 409 error surfacing
-    const bottle60Row = screen.getByText('Bottle of 60').closest('tr');
-    if (!bottle60Row) throw new Error('Expected Bottle of 60 row');
-    await user.click(within(bottle60Row).getByRole('button', { name: 'Edit' }));
+    const boxRow = screen.getByText('Box of 14').closest('tr');
+    if (!boxRow) throw new Error('Expected Box of 14 row');
+    await user.click(within(boxRow).getByRole('button', { name: 'Edit' }));
 
     const editDialog = screen.getByRole('dialog');
     expect(
@@ -337,7 +384,7 @@ describe('ProductDetailsView', () => {
     ).toBeDefined();
     expect(within(editDialog).queryByLabelText('UOM code')).toBeNull();
     expect(within(editDialog).queryByLabelText('Conversion factor')).toBeNull();
-    expect(within(editDialog).getByText('Factor: 60')).toBeDefined();
+    expect(within(editDialog).getByText('Factor: 14')).toBeDefined();
 
     const saveBtn = within(editDialog).getByRole('button', {
       name: 'Save changes',
@@ -370,7 +417,7 @@ describe('ProductDetailsView', () => {
 
     const editName = within(editDialog).getByLabelText('Display name');
     await user.clear(editName);
-    await user.type(editName, 'Bottle of 60 Updated');
+    await user.type(editName, 'Box of 14 Updated');
     expect(saveBtn.hasAttribute('disabled')).toBe(false);
     await user.click(saveBtn);
 
@@ -387,14 +434,14 @@ describe('ProductDetailsView', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull();
     });
-    expect(await screen.findByText('Bottle of 60 Updated')).toBeDefined();
+    expect(await screen.findByText('Box of 14 Updated')).toBeDefined();
 
     // BranchLocal hides Add UOM & Edit buttons, disables toggles, and displays Cloud deployment notice
-    seedAuth({ runtime: 'BranchLocal' });
+    seedAuth({ runtime_mode: 'BranchLocal' });
     rerender(
       <ProductDetailsView
-        productId={centrumProduct.product_id}
-        initialProduct={centrumProduct}
+        productId={AUGMENTIN.product_id}
+        initialProduct={AUGMENTIN}
         categories={INITIAL_CATEGORIES}
         onBack={() => undefined}
       />
@@ -407,70 +454,99 @@ describe('ProductDetailsView', () => {
     expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
     expect(
       screen
-        .getByRole('switch', { name: 'Toggle status for bottle60' })
+        .getByRole('switch', { name: 'Toggle status for BOX' })
         .hasAttribute('disabled')
     ).toBe(true);
   }, 15_000);
 
-  it('hides Branch Reorder Settings from Cashier, falls back safely on role switch, validates & saves PUT on Cloud, and locks BranchLocal', async () => {
+  it('shows Branch Reorder Settings read-only for Cashier, allows Admin PUT on Cloud with native numbers, and locks BranchLocal', async () => {
     const user = userEvent.setup();
-    let reorderRequests = 0;
-    let branchRequests = 0;
 
-    server.use(
-      http.get('*/api/v1/branches', () => {
-        branchRequests += 1;
-        return undefined;
-      }),
-      http.get(
-        '*/api/v1/branches/:branchId/products/:productId/reorder-rule',
-        () => {
-          reorderRequests += 1;
-          return undefined;
-        }
-      )
+    // 1. Cashier with inventory:read CAN view Branch Reorder Settings read-only
+    seedAuth(
+      {
+        role: 'Cashier',
+        branch_scope: 'ASSIGNED',
+        branch_ids: [MOCK_BRANCH_IDS.DOWNTOWN],
+        scopes: ['inventory:read', 'sales:read', 'sales:write'],
+        runtime_mode: 'Cloud',
+      },
+      MOCK_BRANCH_IDS.DOWNTOWN
     );
-
-    // 1. Cashier cannot see Branch Reorder Settings and fires zero reorder/branch requests
-    seedAuth({ roles: ['Cashier'], scopes: ['inventory:read'] });
     const { rerender } = renderWithProviders(
       <ProductDetailsView
-        productId={productFixture.product_id}
-        initialProduct={productFixture}
+        productId={AUGMENTIN.product_id}
+        initialProduct={AUGMENTIN}
         categories={INITIAL_CATEGORIES}
         onBack={() => undefined}
         onEditProduct={() => undefined}
       />
     );
 
-    expect(
-      screen.queryByRole('tab', { name: 'Branch Reorder Settings' })
-    ).toBeNull();
     expect(screen.queryByRole('button', { name: 'Edit product' })).toBeNull();
-    expect(reorderRequests).toBe(0);
-    expect(branchRequests).toBe(0);
-
-    // 2. Admin on Cloud with activeBranchId=Alexandria defaults to Alexandria (unconfigured rule)
-    seedAuth({}, ALEX_BRANCH_ID);
-    rerender(
-      <ProductDetailsView
-        productId={productFixture.product_id}
-        initialProduct={productFixture}
-        categories={INITIAL_CATEGORIES}
-        onBack={() => undefined}
-        onEditProduct={() => undefined}
-      />
-    );
-
     await user.click(
       screen.getByRole('tab', { name: 'Branch Reorder Settings' })
     );
 
-    const branchSelect = (await screen.findByLabelText(
-      'Branch'
-    )) as HTMLSelectElement;
-    expect(branchSelect.value).toBe(ALEX_BRANCH_ID);
-    expect(screen.getByText('Base unit: tablet')).toBeDefined();
+    const cashierBranchSelect = requireSelect(
+      await screen.findByLabelText('Branch')
+    );
+    expect(cashierBranchSelect.value).toBe(MOCK_BRANCH_IDS.DOWNTOWN);
+    expect(
+      screen.getByRole('option', {
+        name: 'MED-DT — MedCare - Downtown Flagship',
+      })
+    ).toBeDefined();
+
+    await waitFor(() => {
+      expect(requireInput(screen.getByLabelText('Reorder point')).value).toBe(
+        '50'
+      );
+    });
+    expect(requireInput(screen.getByLabelText('Reorder quantity')).value).toBe(
+      '200'
+    );
+    expect(
+      requireInput(screen.getByLabelText('Maximum stock quantity')).value
+    ).toBe('500');
+    expect(requireInput(screen.getByLabelText('Reorder point')).disabled).toBe(
+      true
+    );
+    expect(
+      screen
+        .getByRole('switch', { name: 'Active reorder rule' })
+        .hasAttribute('disabled')
+    ).toBe(true);
+    expect(
+      screen.queryByRole('button', { name: 'Save reorder rule' })
+    ).toBeNull();
+    expect(
+      screen.getByText(/Read-only access — reorder configuration writes/i)
+    ).toBeDefined();
+
+    // 2. Admin on Cloud with activeBranchId=Alexandria defaults to MED-ALX (unconfigured rule)
+    seedAuth({}, MOCK_BRANCH_IDS.ALEXANDRIA);
+    rerender(
+      <ProductDetailsView
+        productId={AUGMENTIN.product_id}
+        initialProduct={AUGMENTIN}
+        categories={INITIAL_CATEGORIES}
+        onBack={() => undefined}
+        onEditProduct={() => undefined}
+      />
+    );
+
+    const branchSelect = requireSelect(await screen.findByLabelText('Branch'));
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('option', {
+          name: 'MED-ALX — MedCare - Alexandria Corniche',
+        })
+      ).not.toBeNull();
+    });
+    await user.selectOptions(branchSelect, MOCK_BRANCH_IDS.ALEXANDRIA);
+    expect(branchSelect.value).toBe(MOCK_BRANCH_IDS.ALEXANDRIA);
+    expect(screen.getByText('Base unit: TAB')).toBeDefined();
     expect(
       await screen.findByText('No reorder rule configured yet for this branch')
     ).toBeDefined();
@@ -503,27 +579,26 @@ describe('ProductDetailsView', () => {
         .hasAttribute('disabled')
     ).toBe(true);
 
-    // Switch to Cairo -> loads seeded rule (200.0000 / 500.0000 / 1200.0000)
-    await user.selectOptions(branchSelect, CAIRO_BRANCH_ID);
+    // Switch to Downtown (MED-DT) -> loads seeded rule (50 / 200 / 500)
+    await user.selectOptions(branchSelect, MOCK_BRANCH_IDS.DOWNTOWN);
     await waitFor(() => {
-      expect(
-        (screen.getByLabelText('Reorder point') as HTMLInputElement).value
-      ).toBe('200.0000');
+      expect(requireInput(screen.getByLabelText('Reorder point')).value).toBe(
+        '50'
+      );
     });
+    expect(requireInput(screen.getByLabelText('Reorder quantity')).value).toBe(
+      '200'
+    );
     expect(
-      (screen.getByLabelText('Reorder quantity') as HTMLInputElement).value
-    ).toBe('500.0000');
-    expect(
-      (screen.getByLabelText('Maximum stock quantity') as HTMLInputElement)
-        .value
-    ).toBe('1200.0000');
+      requireInput(screen.getByLabelText('Maximum stock quantity')).value
+    ).toBe('500');
 
     // Switch to BranchLocal -> read-only mode
-    seedAuth({ runtime: 'BranchLocal' }, CAIRO_BRANCH_ID);
+    seedAuth({ runtime_mode: 'BranchLocal' }, MOCK_BRANCH_IDS.DOWNTOWN);
     rerender(
       <ProductDetailsView
-        productId={productFixture.product_id}
-        initialProduct={productFixture}
+        productId={AUGMENTIN.product_id}
+        initialProduct={AUGMENTIN}
         categories={INITIAL_CATEGORIES}
         onBack={() => undefined}
         onEditProduct={() => undefined}
@@ -538,21 +613,21 @@ describe('ProductDetailsView', () => {
     expect(
       screen.queryByRole('button', { name: 'Save reorder rule' })
     ).toBeNull();
-    expect(
-      (screen.getByLabelText('Reorder point') as HTMLInputElement).disabled
-    ).toBe(true);
+    expect(requireInput(screen.getByLabelText('Reorder point')).disabled).toBe(
+      true
+    );
     expect(
       screen
         .getByRole('switch', { name: 'Active reorder rule' })
         .hasAttribute('disabled')
     ).toBe(true);
 
-    // Role switch to Cashier falls back safely to Product Information
-    seedAuth({ roles: ['Cashier'], scopes: ['inventory:read'] });
+    // Losing inventory:read scope hides Branch Reorder Settings and falls back safely
+    seedAuth({ role: 'Cashier', scopes: ['sales:read'] });
     rerender(
       <ProductDetailsView
-        productId={productFixture.product_id}
-        initialProduct={productFixture}
+        productId={AUGMENTIN.product_id}
+        initialProduct={AUGMENTIN}
         categories={INITIAL_CATEGORIES}
         onBack={() => undefined}
       />
@@ -565,35 +640,24 @@ describe('ProductDetailsView', () => {
     ).toBeDefined();
   });
 
-  it('allows Pharmacist with assigned branches to read and save reorder rules without calling GET /branches', async () => {
+  it('allows Pharmacist with assigned branch to load MED-DT and save reorder rules via PUT', async () => {
     const user = userEvent.setup();
-    let branchListCalls = 0;
-
-    server.use(
-      http.get('*/api/v1/branches', () => {
-        branchListCalls += 1;
-        return HttpResponse.json(
-          { error: { code: 'FORBIDDEN', message: 'Admin only' } },
-          { status: 403 }
-        );
-      })
-    );
 
     seedAuth(
       {
-        roles: ['Pharmacist'],
+        role: 'Pharmacist',
         branch_scope: 'ASSIGNED',
-        branch_ids: [CAIRO_BRANCH_ID],
-        scopes: ['inventory:read', 'inventory:write'],
-        runtime: 'Cloud',
+        branch_ids: [MOCK_BRANCH_IDS.DOWNTOWN],
+        scopes: ['inventory:read', 'inventory:write', 'sales:read'],
+        runtime_mode: 'Cloud',
       },
-      CAIRO_BRANCH_ID
+      MOCK_BRANCH_IDS.DOWNTOWN
     );
 
     renderWithProviders(
       <ProductDetailsView
-        productId={productFixture.product_id}
-        initialProduct={productFixture}
+        productId={AUGMENTIN.product_id}
+        initialProduct={AUGMENTIN}
         categories={INITIAL_CATEGORIES}
         onBack={() => undefined}
       />
@@ -604,19 +668,28 @@ describe('ProductDetailsView', () => {
     );
 
     await waitFor(() => {
-      expect(
-        (screen.getByLabelText('Reorder point') as HTMLInputElement).value
-      ).toBe('200.0000');
+      expect(requireInput(screen.getByLabelText('Reorder point')).value).toBe(
+        '50'
+      );
     });
-    expect(branchListCalls).toBe(0);
+    expect(
+      screen.getByRole('option', {
+        name: 'MED-DT — MedCare - Downtown Flagship',
+      })
+    ).toBeDefined();
+    expect(
+      screen.queryByRole('option', {
+        name: 'MED-ALX — MedCare - Alexandria Corniche',
+      })
+    ).toBeNull();
 
-    const pointInput = screen.getByLabelText('Reorder point');
+    const pointInput = requireInput(screen.getByLabelText('Reorder point'));
     await user.clear(pointInput);
-    await user.type(pointInput, '250');
+    await user.type(pointInput, '75');
     await user.click(screen.getByRole('button', { name: 'Save reorder rule' }));
 
     await waitFor(() => {
-      expect((pointInput as HTMLInputElement).value).toBe('250.0000');
+      expect(pointInput.value).toBe('75');
     });
   });
 
@@ -624,8 +697,8 @@ describe('ProductDetailsView', () => {
     const user = userEvent.setup();
     renderWithProviders(
       <ProductDetailsView
-        productId={productFixture.product_id}
-        initialProduct={productFixture}
+        productId={AUGMENTIN.product_id}
+        initialProduct={AUGMENTIN}
         categories={INITIAL_CATEGORIES}
         onBack={() => undefined}
       />
@@ -659,8 +732,9 @@ describe('ProductDetailsView', () => {
           return HttpResponse.json(
             {
               error: {
-                code: 'INTERNAL_ERROR',
+                code: 'INTERNAL_SERVER_ERROR',
                 message: 'UOM fetch error',
+                details: [],
                 trace_id: 'tr-uom-500',
               },
             },
@@ -672,7 +746,14 @@ describe('ProductDetailsView', () => {
       http.get('*/api/v1/branches', () => {
         if (failBranches) {
           return HttpResponse.json(
-            { error: { code: 'INTERNAL_ERROR', message: 'Branches down' } },
+            {
+              error: {
+                code: 'INTERNAL_SERVER_ERROR',
+                message: 'Branches down',
+                details: [],
+                trace_id: 'tr-br-500',
+              },
+            },
             { status: 500 }
           );
         }
@@ -685,8 +766,9 @@ describe('ProductDetailsView', () => {
             return HttpResponse.json(
               {
                 error: {
-                  code: 'INTERNAL_ERROR',
+                  code: 'INTERNAL_SERVER_ERROR',
                   message: 'Reorder service busy',
+                  details: [],
                   trace_id: 'tr-reo-500',
                 },
               },
@@ -698,11 +780,10 @@ describe('ProductDetailsView', () => {
       )
     );
 
-    const centrum = INITIAL_PRODUCTS[4];
     renderWithProviders(
       <ProductDetailsView
-        productId={centrum.product_id}
-        initialProduct={centrum}
+        productId={PANADOL.product_id}
+        initialProduct={PANADOL}
         categories={INITIAL_CATEGORIES}
         onBack={() => undefined}
       />
@@ -714,11 +795,11 @@ describe('ProductDetailsView', () => {
     ).toBeDefined();
     failUoms = false;
     await user.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(await screen.findByText('Tablet (base)')).toBeDefined();
+    expect(await screen.findByText('Box of 24')).toBeDefined();
 
-    // Base UOM edit keeps Active UOM toggle disabled and enforces price when Sellable toggled ON
-    const baseRow = screen.getByText('Tablet (base)').closest('tr');
-    if (!baseRow) throw new Error('Expected Tablet (base) row');
+    // Base UOM edit keeps Active UOM toggle disabled and enforces price when Sellable is ON
+    const baseRow = screen.getByText('Tablet').closest('tr');
+    if (!baseRow) throw new Error('Expected Tablet row');
     await user.click(within(baseRow).getByRole('button', { name: 'Edit' }));
     const editBaseDialog = screen.getByRole('dialog');
     expect(
@@ -726,9 +807,10 @@ describe('ProductDetailsView', () => {
         .getByRole('switch', { name: 'Active UOM' })
         .hasAttribute('disabled')
     ).toBe(true);
-    await user.click(
-      within(editBaseDialog).getByRole('switch', { name: 'Sellable' })
+    const priceInput = within(editBaseDialog).getByLabelText(
+      'Sale unit price (EGP)'
     );
+    await user.clear(priceInput);
     await user.click(
       within(editBaseDialog).getByRole('button', { name: 'Save changes' })
     );
@@ -745,7 +827,9 @@ describe('ProductDetailsView', () => {
     await user.click(
       screen.getByRole('tab', { name: 'Branch Reorder Settings' })
     );
-    expect(await screen.findByText('Branches down')).toBeDefined();
+    expect(
+      await screen.findByText(/Branches down \(Trace: tr-br-500\)/i)
+    ).toBeDefined();
     failBranches = false;
     await user.click(screen.getByRole('button', { name: 'Retry' }));
 
@@ -768,6 +852,7 @@ describe('ProductDetailsView', () => {
               error: {
                 code: 'VALIDATION_ERROR',
                 message: 'Invalid threshold',
+                trace_id: 'tr-reo-422',
                 details: [
                   {
                     field: 'reorder_point_base',
@@ -815,8 +900,9 @@ describe('ProductDetailsView', () => {
           return HttpResponse.json(
             {
               error: {
-                code: 'INTERNAL_ERROR',
+                code: 'INTERNAL_SERVER_ERROR',
                 message: 'Temporary refresh failure',
+                details: [],
                 trace_id: 'trace-bg-500',
               },
             },
@@ -824,7 +910,7 @@ describe('ProductDetailsView', () => {
           );
         }
         return HttpResponse.json(
-          { ...productFixture, name: 'Panadol Extra 500mg' },
+          { ...AUGMENTIN, name: 'Augmentin 1g Refreshed' },
           { status: 200 }
         );
       })
@@ -832,15 +918,15 @@ describe('ProductDetailsView', () => {
 
     renderWithProviders(
       <ProductDetailsView
-        productId={productFixture.product_id}
-        initialProduct={productFixture}
+        productId={AUGMENTIN.product_id}
+        initialProduct={AUGMENTIN}
         categories={INITIAL_CATEGORIES}
         onBack={() => undefined}
       />
     );
 
     expect(
-      screen.getByRole('heading', { name: 'Panadol 500mg Tablets' })
+      screen.getByRole('heading', { name: 'Augmentin 1g Film-Coated Tablets' })
     ).toBeDefined();
     expect(await screen.findByText('Could not refresh product')).toBeDefined();
     expect(
@@ -850,14 +936,14 @@ describe('ProductDetailsView', () => {
     failRefresh = false;
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     expect(
-      await screen.findByRole('heading', { name: 'Panadol Extra 500mg' })
+      await screen.findByRole('heading', { name: 'Augmentin 1g Refreshed' })
     ).toBeDefined();
     expect(screen.queryByText('Could not refresh product')).toBeNull();
   });
 
-  it('covers UOM modal edge cases: hasBaseUom=false, clearing price when Sellable toggled off, toggle errors, price formatting, and auto-close on BranchLocal', async () => {
+  it('covers UOM modal edge cases: hasBaseUom=false, clearing price when Sellable toggled off, toggle errors, numeric price formatting, and auto-close on BranchLocal', async () => {
     const user = userEvent.setup();
-    const noBaseProduct: ProductDto = { ...productFixture, uoms: [] };
+    const noBaseProduct: Product = { ...PANADOL, uoms: [] };
 
     server.use(
       http.get('*/api/v1/products/:productId/uoms', () =>
@@ -882,9 +968,9 @@ describe('ProductDetailsView', () => {
     const baseToggle = within(createDialog).getByRole('switch', {
       name: 'Base unit',
     });
-    const factorField = within(createDialog).getByLabelText(
-      'Conversion factor'
-    ) as HTMLInputElement;
+    const factorField = requireInput(
+      within(createDialog).getByLabelText('Conversion factor')
+    );
 
     await user.click(baseToggle);
     expect(factorField.value).toBe('1');
@@ -902,6 +988,7 @@ describe('ProductDetailsView', () => {
               error: {
                 code: 'VALIDATION_ERROR',
                 message: 'Invalid flags',
+                trace_id: 'tr-uom-flags',
                 details: [
                   { field: 'is_sellable', issue: 'Sellable flag blocked' },
                   {
@@ -917,7 +1004,7 @@ describe('ProductDetailsView', () => {
       )
     );
 
-    await user.type(within(createDialog).getByLabelText('UOM code'), 'tablet');
+    await user.type(within(createDialog).getByLabelText('UOM code'), 'TAB');
     await user.type(factorField, '1');
     await user.type(
       within(createDialog).getByLabelText('Display name'),
@@ -934,7 +1021,7 @@ describe('ProductDetailsView', () => {
     ).toBeDefined();
 
     // Switching runtime to BranchLocal while modal is open must immediately close it
-    seedAuth({ runtime: 'BranchLocal' });
+    seedAuth({ runtime_mode: 'BranchLocal' });
     rerender(
       <ProductDetailsView
         productId={noBaseProduct.product_id}
@@ -947,38 +1034,54 @@ describe('ProductDetailsView', () => {
 
     cleanup();
 
-    // Reset to Cloud with Centrum UOMs + leading-dot & zero prices, and test Sellable OFF clears sale_unit_price
-    seedAuth({ runtime: 'Cloud' });
+    // Reset to Cloud with numeric 0, 0.5, and null prices, and test Sellable OFF clears sale_unit_price
+    seedAuth({ runtime_mode: 'Cloud' });
     server.resetHandlers();
-    const centrum = INITIAL_PRODUCTS[4];
     server.use(
       http.get(
         '*/api/v1/products/:productId/uoms',
         () =>
           HttpResponse.json(
             [
-              ...centrum.uoms,
+              ...PANADOL.uoms,
               {
-                product_uom_id: 'u-zero',
-                uom_code: 'sample',
+                product_uom_id: '11111111-7777-4111-8111-000000000090',
+                product_id: PANADOL.product_id,
+                uom_code: 'SAMPLE',
                 display_name: 'Free Sample',
-                conversion_to_base: '1.000000',
-                sale_unit_price: '0.0000',
+                conversion_to_base: 1,
+                sale_unit_price: 0,
                 is_base: false,
                 is_sellable: true,
                 is_purchasable: false,
                 is_active: true,
+                updated_at: '2026-11-25T10:00:00+00:00',
               },
               {
-                product_uom_id: 'u-dot',
-                uom_code: 'drop',
+                product_uom_id: '11111111-7777-4111-8111-000000000091',
+                product_id: PANADOL.product_id,
+                uom_code: 'DROP',
                 display_name: 'Single Drop',
-                conversion_to_base: '0.500000',
-                sale_unit_price: '.5',
+                conversion_to_base: 0.5,
+                sale_unit_price: 0.5,
                 is_base: false,
                 is_sellable: true,
                 is_purchasable: false,
                 is_active: true,
+                updated_at: '2026-11-25T10:00:00+00:00',
+              },
+              {
+                product_uom_id: '11111111-7777-4111-8111-000000000092',
+                product_id: PANADOL.product_id,
+                uom_code: 'BULK',
+                display_name: 'Bulk Drum',
+                conversion_to_base: 100,
+                sale_unit_price: null,
+                is_base: false,
+                is_sellable: false,
+                is_purchasable: false,
+                is_active: true,
+                updated_at: '2026-11-25T10:00:00+00:00',
               },
             ],
             { status: 200 }
@@ -989,8 +1092,8 @@ describe('ProductDetailsView', () => {
 
     renderWithProviders(
       <ProductDetailsView
-        productId={centrum.product_id}
-        initialProduct={centrum}
+        productId={PANADOL.product_id}
+        initialProduct={PANADOL}
         categories={INITIAL_CATEGORIES}
         onBack={() => undefined}
       />
@@ -998,16 +1101,20 @@ describe('ProductDetailsView', () => {
     await user.click(screen.getByRole('tab', { name: 'UOMs & Pricing' }));
     expect(await screen.findByText('EGP 0.00')).toBeDefined();
     expect(screen.getByText('EGP 0.50')).toBeDefined();
+    const bulkRow = screen.getByText('Bulk Drum').closest('tr');
+    if (!bulkRow) throw new Error('Expected Bulk Drum row');
+    expect(within(bulkRow).getByText('Inactive flags')).toBeDefined();
+    expect(within(bulkRow).getByText('Unavailable')).toBeDefined();
 
-    const bottle60Row = screen.getByText('Bottle of 60').closest('tr');
-    if (!bottle60Row) throw new Error('Expected Bottle of 60 row');
-    await user.click(within(bottle60Row).getByRole('button', { name: 'Edit' }));
+    const boxRow = screen.getByText('Box of 24').closest('tr');
+    if (!boxRow) throw new Error('Expected Box of 24 row');
+    await user.click(within(boxRow).getByRole('button', { name: 'Edit' }));
 
     const editDialog = screen.getByRole('dialog');
-    const priceInput = within(editDialog).getByLabelText(
-      'Sale unit price (EGP)'
-    ) as HTMLInputElement;
-    expect(priceInput.value).toBe('420.0000');
+    const priceInput = requireInput(
+      within(editDialog).getByLabelText('Sale unit price (EGP)')
+    );
+    expect(priceInput.value).toBe('55');
     await user.click(
       within(editDialog).getByRole('switch', { name: 'Sellable' })
     );
@@ -1021,7 +1128,7 @@ describe('ProductDetailsView', () => {
     });
   });
 
-  it('guards direct BranchReorderTab mount from Cashier and clears max_quantity_base to null + is_active=false on PUT', async () => {
+  it('guards direct BranchReorderTab mount without inventory:read and clears max_quantity_base to null + is_active=false with native numbers on PUT', async () => {
     const user = userEvent.setup();
     let branchCalls = 0;
     let reorderGetCalls = 0;
@@ -1048,22 +1155,22 @@ describe('ProductDetailsView', () => {
       )
     );
 
-    seedAuth({ roles: ['Cashier'], scopes: ['inventory:read'] });
-    renderWithProviders(<BranchReorderTab product={productFixture} />);
+    seedAuth({ role: 'Cashier', scopes: ['sales:read'] });
+    renderWithProviders(<BranchReorderTab product={AUGMENTIN} />);
     expect(screen.getByText('Access restricted')).toBeDefined();
     expect(branchCalls).toBe(0);
     expect(reorderGetCalls).toBe(0);
 
     cleanup();
 
-    seedAuth({}, CAIRO_BRANCH_ID);
-    renderWithProviders(<BranchReorderTab product={productFixture} />);
+    seedAuth({}, MOCK_BRANCH_IDS.DOWNTOWN);
+    renderWithProviders(<BranchReorderTab product={AUGMENTIN} />);
 
-    const maxInput = (await screen.findByLabelText(
-      'Maximum stock quantity'
-    )) as HTMLInputElement;
+    const maxInput = requireInput(
+      await screen.findByLabelText('Maximum stock quantity')
+    );
     await waitFor(() => {
-      expect(maxInput.value).toBe('1200.0000');
+      expect(maxInput.value).toBe('500');
     });
 
     await user.clear(maxInput);
@@ -1075,8 +1182,8 @@ describe('ProductDetailsView', () => {
 
     await waitFor(() => {
       expect(capturedPut).toEqual({
-        reorder_point_base: '200.0000',
-        reorder_quantity_base: '500.0000',
+        reorder_point_base: 50,
+        reorder_quantity_base: 200,
         max_quantity_base: null,
         is_active: false,
       });

@@ -5,7 +5,7 @@ import { toast } from 'react-toastify';
 import { Alert } from '../../../components/ui/Alert';
 import { Button } from '../../../components/ui/Button';
 import { Modal } from '../../../components/ui/Modal';
-import type { BranchDto } from '../../../types/api';
+import type { Branch } from '../../../types/api';
 import {
   useCreateBranchMutation,
   usePatchBranchMutation,
@@ -23,12 +23,12 @@ import { BranchFormFields } from './BranchFormFields';
 
 export interface BranchFormModalProps {
   open: boolean;
-  branch: BranchDto | null;
+  branch: Branch | null;
   onClose: () => void;
 }
 
 interface BranchFormModalBodyProps {
-  branch: BranchDto | null;
+  branch: Branch | null;
   onClose: () => void;
 }
 

@@ -10,12 +10,12 @@ import {
   TableHeader,
   TableRow,
 } from '../../../components/ui/Table';
-import type { ProductDto } from '../../../types/api';
+import type { Product } from '../../../types/api';
 import { ProductTableRow } from './ProductTableRow';
 import { ProductsTableEmptyState } from './ProductsTableEmptyState';
 
 export interface ProductsTableProps {
-  products: readonly ProductDto[];
+  products: readonly Product[];
   categoryNameById: ReadonlyMap<string, string>;
   getCategoryName?: (categoryId: string) => string;
   canWriteCatalog: boolean;
@@ -23,16 +23,17 @@ export interface ProductsTableProps {
   errorMessage: string | null;
   togglingProductIds: readonly string[];
   hasActiveFilters: boolean;
-  pageIndex: number;
+  page: number;
   pageSize: number;
-  nextCursor: string | null | undefined;
+  totalCount: number | null;
+  hasNextPage: boolean;
   onPageChange: (page: number) => void;
   onRetry: () => void;
   onResetFilters: () => void;
   onAddProduct: () => void;
-  onViewProduct: (product: ProductDto) => void;
-  onEditProduct: (product: ProductDto) => void;
-  onToggleActive: (product: ProductDto, nextActive: boolean) => void;
+  onViewProduct: (product: Product) => void;
+  onEditProduct: (product: Product) => void;
+  onToggleActive: (product: Product, nextActive: boolean) => void;
 }
 
 const COLUMNS = [
@@ -62,7 +63,7 @@ export function ProductsTable(props: ProductsTableProps) {
     props;
   const { isLoading, errorMessage, togglingProductIds, hasActiveFilters } =
     props;
-  const { pageIndex, pageSize, nextCursor } = props;
+  const { page, pageSize, totalCount, hasNextPage } = props;
 
   if (errorMessage) {
     return (
@@ -98,8 +99,7 @@ export function ProductsTable(props: ProductsTableProps) {
       </div>
     );
   }
-  const showPagination =
-    products.length > 0 || pageIndex > 0 || Boolean(nextCursor);
+  const showPagination = products.length > 0 || page > 1 || hasNextPage;
   const resolveCategory = (categoryId: string) =>
     getCategoryName
       ? getCategoryName(categoryId)
@@ -135,10 +135,10 @@ export function ProductsTable(props: ProductsTableProps) {
       {showPagination ? (
         <Pagination
           className="border-border border-t px-4 py-3"
-          page={pageIndex + 1}
+          page={page}
           pageSize={pageSize}
-          itemCount={pageIndex === 0 && !nextCursor ? products.length : null}
-          hasNextPage={Boolean(nextCursor)}
+          itemCount={totalCount}
+          hasNextPage={hasNextPage}
           onPageChange={props.onPageChange}
         />
       ) : null}

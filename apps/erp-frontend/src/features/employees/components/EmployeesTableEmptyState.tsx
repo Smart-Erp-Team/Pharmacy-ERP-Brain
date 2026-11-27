@@ -4,17 +4,13 @@ import { EmptyState } from '../../../components/ui/EmptyState';
 
 export interface EmployeesTableEmptyStateProps {
   hasActiveFilters: boolean;
-  hasHiddenInactive: boolean;
   onResetFilters: () => void;
-  onShowAllEmployees?: () => void;
   onAddEmployee: () => void;
 }
 
 export function EmployeesTableEmptyState({
   hasActiveFilters,
-  hasHiddenInactive,
   onResetFilters,
-  onShowAllEmployees,
   onAddEmployee,
 }: EmployeesTableEmptyStateProps) {
   if (hasActiveFilters) {
@@ -26,21 +22,6 @@ export function EmployeesTableEmptyState({
         action={
           <Button variant="secondary" onClick={onResetFilters}>
             Clear filters
-          </Button>
-        }
-      />
-    );
-  }
-
-  if (hasHiddenInactive && onShowAllEmployees) {
-    return (
-      <EmptyState
-        icon={<Users className="h-5 w-5" />}
-        title="No active employees"
-        description="All employees on this page are inactive. Switch status filter to view inactive employees."
-        action={
-          <Button variant="secondary" onClick={onShowAllEmployees}>
-            Show all employees
           </Button>
         }
       />

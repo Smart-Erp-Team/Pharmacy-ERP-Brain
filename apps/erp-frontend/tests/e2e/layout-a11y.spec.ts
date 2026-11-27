@@ -1,32 +1,56 @@
-import { expect, test } from '@playwright/test';
-import { holdNextRequest } from './helpers/mswBridge';
-import { loginAsWorkspaceUser, trackUncaughtErrors } from './helpers/session';
+import { expect, test, type Page } from '@playwright/test';
+import { BRANCH_ALX_ID, MEDCARE_ORG_CODE } from './helpers/authContext.ts';
+import { createBranchViaDialog } from './helpers/formFillers.ts';
+import { holdNextRequest } from './helpers/mswBridge.ts';
+import {
+  loginAsWorkspaceUser,
+  trackUncaughtErrors,
+} from './helpers/session.ts';
 
-test('keeps sidebar, topbar, main column, and product grid aligned at 1280px and 1180px', async ({
+async function fitsViewport(page: Page): Promise<boolean> {
+  return page.evaluate(
+    () => document.documentElement.scrollWidth <= window.innerWidth
+  );
+}
+
+test('renders flat username in Sidebar, MEDCARE + Cloud + MED-DT/MED-ALX in Topbar, and aligns grid at 1280px & 1180px', async ({
   page,
 }) => {
   const errors = trackUncaughtErrors(page);
   await loginAsWorkspaceUser(page, '/products');
-
   await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible();
 
-  const asideBox = await page.locator('aside').boundingBox();
-  const headerBox = await page.locator('header').first().boundingBox();
+  const sidebar = page.getByRole('complementary');
+  const topbar = page.getByRole('banner');
+  await expect(sidebar.getByText('admin@medcare.test')).toBeVisible();
+  await expect(sidebar.getByText('Admin', { exact: true })).toBeVisible();
+  await expect(
+    topbar.getByText(MEDCARE_ORG_CODE, { exact: true })
+  ).toBeVisible();
+  await expect(topbar.getByText('Cloud', { exact: true })).toBeVisible();
+
+  const branchSelect = topbar.getByLabel('Active branch');
+  for (const label of [
+    'MED-DT — MedCare - Downtown Flagship',
+    'MED-ALX — MedCare - Alexandria Corniche',
+  ]) {
+    await expect(
+      branchSelect.locator('option', { hasText: label })
+    ).toBeAttached();
+  }
+  await branchSelect.selectOption(BRANCH_ALX_ID);
+  await expect(branchSelect).toHaveValue(BRANCH_ALX_ID);
+
+  const asideBox = await sidebar.boundingBox();
+  const headerBox = await topbar.boundingBox();
   const mainBox = await page.getByRole('main').boundingBox();
-  const listHeadingBox = await page
+  const listBox = await page
     .getByRole('heading', { name: 'Product list' })
     .boundingBox();
-  const treeHeadingBox = await page
+  const treeBox = await page
     .getByRole('heading', { name: 'Categories' })
     .boundingBox();
-
-  if (
-    !asideBox ||
-    !headerBox ||
-    !mainBox ||
-    !listHeadingBox ||
-    !treeHeadingBox
-  ) {
+  if (!asideBox || !headerBox || !mainBox || !listBox || !treeBox) {
     throw new Error('Expected shell layout bounding boxes to be measured');
   }
 
@@ -34,17 +58,12 @@ test('keeps sidebar, topbar, main column, and product grid aligned at 1280px and
   expect(headerBox.height).toBeCloseTo(66, 0);
   expect(mainBox.x).toBeGreaterThanOrEqual(asideBox.x + asideBox.width);
   expect(mainBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height);
-  expect(treeHeadingBox.x).toBeGreaterThan(listHeadingBox.x + 200);
-  expect(Math.abs(treeHeadingBox.y - listHeadingBox.y)).toBeLessThan(40);
-
-  const fits1280 = await page.evaluate(
-    () => document.documentElement.scrollWidth <= window.innerWidth
-  );
-  expect(fits1280).toBe(true);
+  expect(treeBox.x).toBeGreaterThan(listBox.x + 200);
+  expect(Math.abs(treeBox.y - listBox.y)).toBeLessThan(40);
+  expect(await fitsViewport(page)).toBe(true);
 
   await page.setViewportSize({ width: 1180, height: 800 });
-
-  const aside1180 = await page.locator('aside').boundingBox();
+  const aside1180 = await sidebar.boundingBox();
   const main1180 = await page.getByRole('main').boundingBox();
   const list1180 = await page
     .getByRole('heading', { name: 'Product list' })
@@ -52,18 +71,12 @@ test('keeps sidebar, topbar, main column, and product grid aligned at 1280px and
   const tree1180 = await page
     .getByRole('heading', { name: 'Categories' })
     .boundingBox();
-
   if (!aside1180 || !main1180 || !list1180 || !tree1180) {
     throw new Error('Expected 1180px layout bounding boxes to be measured');
   }
-
   expect(main1180.x).toBeGreaterThanOrEqual(aside1180.x + aside1180.width);
   expect(tree1180.x).toBeGreaterThan(list1180.x + 150);
-
-  const fits1180 = await page.evaluate(
-    () => document.documentElement.scrollWidth <= window.innerWidth
-  );
-  expect(fits1180).toBe(true);
+  expect(await fitsViewport(page)).toBe(true);
   expect(errors).toEqual([]);
 });
 
@@ -79,7 +92,6 @@ test('traps Tab and Shift+Tab inside Modal and returns focus on Escape', async (
 
   const dialog = page.getByRole('dialog', { name: 'Add category' });
   await expect(dialog).toBeVisible();
-
   const closeBtn = dialog.getByRole('button', { name: 'Close dialog' });
   const submitBtn = dialog.getByRole('button', { name: 'Create category' });
 
@@ -99,18 +111,18 @@ test('locks Escape while branch save is pending and shows ToastHost notice after
   page,
 }) => {
   const errors = trackUncaughtErrors(page);
-
   await loginAsWorkspaceUser(page, '/branches');
   const postHold = await holdNextRequest(page, 'POST', '/api/v1/branches');
   await page.getByRole('button', { name: 'Add branch' }).click();
 
   const dialog = page.getByRole('dialog', { name: 'Add branch' });
-  await dialog.getByLabel('Branch code').fill('CAI-99');
-  await dialog.getByLabel('Branch name').fill('Slow Network Branch');
-  await dialog.getByLabel('Address line 1').fill('10 Nile Street');
-  await dialog.getByLabel('City').fill('Cairo');
-  await dialog.getByLabel('Country code').fill('EG');
-  await dialog.getByRole('button', { name: 'Create branch' }).click();
+  await createBranchViaDialog(dialog, {
+    code: 'MED-NEW',
+    name: 'MedCare - Heliopolis',
+    line1: '10 Nile Street',
+    city: 'Cairo',
+    countryCode: 'EG',
+  });
 
   await postHold.waitUntilSeen();
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeDisabled();
@@ -119,9 +131,9 @@ test('locks Escape while branch save is pending and shows ToastHost notice after
 
   await postHold.release();
   await expect(dialog).toBeHidden();
-  await expect(page.getByText('CAI-99')).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'MED-NEW' })).toBeVisible();
   await expect(
-    page.getByText('Branch "Slow Network Branch" created')
+    page.getByText('Branch "MedCare - Heliopolis" created')
   ).toBeVisible();
   expect(errors).toEqual([]);
 });

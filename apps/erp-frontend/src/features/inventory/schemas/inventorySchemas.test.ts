@@ -4,24 +4,18 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { useForm, type UseFormSetError } from 'react-hook-form';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiClientError } from '../../../lib/api/client';
-import type { InventoryLocationDto, InventoryTxnDto } from '../../../types/api';
+import type { InventoryLocation } from '../../../types/api';
 import {
-  compareDecimalStrings,
+  ADJUSTMENT_TXN_TYPES,
+  ADJUSTMENTS_TXN_TYPES,
   createEmptyAdjustmentLine,
   DEFAULT_ADJUSTMENT_FORM_VALUES,
   DEFAULT_ADJUSTMENT_LINE,
-  formatFixed4,
-  formatNonNegativeNumeric4,
   formatNumericDisplay,
-  formatPositiveNumeric4,
-  formatScaled4,
   inventoryAdjustmentFormSchema,
-  inventoryTxnDtoToPatchFormValues,
-  multiplyToFixed4,
-  parseScaled4,
-  sumDecimalStrings,
-  toInventoryTxnPatchPayload,
-  toInventoryTxnPayload,
+  isValidIsoDate,
+  parseFiniteNumber,
+  toCreateInventoryAdjustmentPayload,
   type InventoryAdjustmentFormValues,
 } from './inventoryAdjustmentSchema';
 import {
@@ -31,9 +25,11 @@ import {
   applyLocationFormApiError,
 } from './inventoryErrorMapper';
 import {
+  createEditLocationFormSchema,
   createLocationFormSchema,
   DEFAULT_LOCATION_FORM_VALUES,
   editLocationFormSchema,
+  isSellableAllowedForLocationType,
   LOCATION_TYPES,
   locationDtoToFormValues,
   toCreateLocationPayload,
@@ -48,35 +44,85 @@ afterEach(() => {
 });
 
 describe('inventoryLocationSchema', () => {
-  it('validates createLocationFormSchema and builds InventoryLocationRequest', () => {
-    expect(LOCATION_TYPES).toEqual(['SELLABLE', 'QUARANTINE', 'SCRAP']);
+  it('supports all 4 Stage 1 LocationType values and builds CreateInventoryLocationRequest without is_active', () => {
+    expect(LOCATION_TYPES).toEqual([
+      'SELLABLE',
+      'QUARANTINE',
+      'DAMAGED',
+      'SCRAP',
+    ]);
+    expect(isSellableAllowedForLocationType('SELLABLE')).toBe(true);
+    expect(isSellableAllowedForLocationType('QUARANTINE')).toBe(false);
+    expect(isSellableAllowedForLocationType('DAMAGED')).toBe(false);
+    expect(isSellableAllowedForLocationType('SCRAP')).toBe(false);
 
-    const parsed = createLocationFormSchema.parse({
+    const parsedSellable = createLocationFormSchema.parse({
       location_code: '  CAI-FRIDGE-1  ',
       name: '  Cold Chain Fridge  ',
       location_type: 'SELLABLE',
-      is_active: true,
+      is_sellable: true,
     });
 
-    expect(
-      toCreateLocationPayload(parsed, ' d4e5f6a7-3333-4c44-9d55-bbccddeeffaa ')
-    ).toEqual({
-      branch_id: 'd4e5f6a7-3333-4c44-9d55-bbccddeeffaa',
+    const createPayload = toCreateLocationPayload(
+      parsedSellable,
+      ' 11111111-2222-4111-8111-000000000001 '
+    );
+    expect(createPayload).toEqual({
+      branch_id: '11111111-2222-4111-8111-000000000001',
       location_code: 'CAI-FRIDGE-1',
       name: 'Cold Chain Fridge',
       location_type: 'SELLABLE',
-      is_active: true,
+      is_sellable: true,
     });
+    expect('is_active' in createPayload).toBe(false);
 
-    const invalid = createLocationFormSchema.safeParse({
+    const parsedDamaged = createLocationFormSchema.parse({
+      location_code: 'DMG-BIN-1',
+      name: 'Damaged Goods Bin',
+      location_type: 'DAMAGED',
+      is_sellable: false,
+    });
+    expect(
+      toCreateLocationPayload(
+        parsedDamaged,
+        '11111111-2222-4111-8111-000000000001'
+      )
+    ).toEqual({
+      branch_id: '11111111-2222-4111-8111-000000000001',
+      location_code: 'DMG-BIN-1',
+      name: 'Damaged Goods Bin',
+      location_type: 'DAMAGED',
+      is_sellable: false,
+    });
+  });
+
+  it('enforces is_sellable === false when location_type !== SELLABLE and rejects invalid bounds', () => {
+    for (const nonSellableType of ['QUARANTINE', 'DAMAGED', 'SCRAP'] as const) {
+      const invalidSellable = createLocationFormSchema.safeParse({
+        location_code: 'LOC-01',
+        name: 'Hold Bay',
+        location_type: nonSellableType,
+        is_sellable: true,
+      });
+      expect(invalidSellable.success).toBe(false);
+      if (!invalidSellable.success) {
+        expect(
+          invalidSellable.error.issues.map((issue) => issue.path.join('.'))
+        ).toContain('is_sellable');
+      }
+    }
+
+    const invalidBounds = createLocationFormSchema.safeParse({
       ...DEFAULT_LOCATION_FORM_VALUES,
       location_code: 'C'.repeat(31),
       name: 'N'.repeat(101),
-      location_type: 'DAMAGED',
+      location_type: 'UNKNOWN_TYPE',
     });
-    expect(invalid.success).toBe(false);
-    if (!invalid.success) {
-      const paths = invalid.error.issues.map((issue) => issue.path.join('.'));
+    expect(invalidBounds.success).toBe(false);
+    if (!invalidBounds.success) {
+      const paths = invalidBounds.error.issues.map((issue) =>
+        issue.path.join('.')
+      );
       expect(paths).toContain('location_code');
       expect(paths).toContain('name');
       expect(paths).toContain('location_type');
@@ -86,235 +132,269 @@ describe('inventoryLocationSchema', () => {
       location_code: '   ',
       name: '   ',
       location_type: 'QUARANTINE',
-      is_active: true,
+      is_sellable: false,
     });
     expect(blankRequired.success).toBe(false);
   });
 
-  it('converts InventoryLocationDto to EditLocationFormValues and omits immutable location_code on patch', () => {
-    const location: InventoryLocationDto = {
-      location_id: '2f31c9d4-7070-4a10-8b2d-ce0f1a2b3c14',
-      branch_id: 'd4e5f6a7-3333-4c44-9d55-bbccddeeffaa',
-      location_code: 'MAIN-SELL',
+  it('converts InventoryLocation to EditLocationFormValues and omits immutable location_code and location_type on patch', () => {
+    const location: InventoryLocation = {
+      location_id: '694cb9a9-c19d-3c46-be41-a7fc76fcdc9f',
+      organization_id: '11111111-1111-4111-8111-111111111101',
+      branch_id: '11111111-2222-4111-8111-000000000001',
+      location_code: 'MAIN-SELLABLE',
       name: 'Main Pharmacy Shelf',
       location_type: 'SELLABLE',
       is_sellable: true,
       is_active: true,
+      updated_at: '2026-11-25T10:15:00+00:00',
     };
 
     const formValues = locationDtoToFormValues(location);
     expect(formValues).toEqual({
       name: 'Main Pharmacy Shelf',
-      location_type: 'SELLABLE',
+      is_sellable: true,
       is_active: true,
     });
     expect('location_code' in formValues).toBe(false);
+    expect('location_type' in formValues).toBe(false);
 
     const parsedEdit = editLocationFormSchema.parse({
       ...formValues,
-      name: '  Quarantine Reassigned Shelf  ',
-      location_type: 'QUARANTINE',
+      name: '  Updated Shelf  ',
+      is_sellable: false,
       is_active: false,
     });
     const patchPayload = toLocationPatchPayload(parsedEdit);
     expect(patchPayload).toEqual({
-      name: 'Quarantine Reassigned Shelf',
-      location_type: 'QUARANTINE',
+      name: 'Updated Shelf',
+      is_sellable: false,
       is_active: false,
     });
     expect('location_code' in patchPayload).toBe(false);
+    expect('location_type' in patchPayload).toBe(false);
+
+    const damagedEditSchema = createEditLocationFormSchema('DAMAGED');
+    const badDamagedEdit = damagedEditSchema.safeParse({
+      name: 'Damaged Shelf',
+      is_sellable: true,
+      is_active: true,
+    });
+    expect(badDamagedEdit.success).toBe(false);
+    if (!badDamagedEdit.success) {
+      expect(badDamagedEdit.error.issues[0]?.path).toEqual(['is_sellable']);
+    }
   });
 
-  it('integrates createLocationFormSchema with React Hook Form zodResolver', async () => {
+  it('integrates createLocationFormSchema and editLocationFormSchema with React Hook Form zodResolver', async () => {
     const { result } = renderHook(() => {
-      const form = useForm<CreateLocationFormValues>({
+      const createForm = useForm<CreateLocationFormValues>({
         resolver: zodResolver(createLocationFormSchema),
         defaultValues: DEFAULT_LOCATION_FORM_VALUES,
       });
+      const editForm = useForm<EditLocationFormValues>({
+        resolver: zodResolver(editLocationFormSchema),
+        defaultValues: { name: '', is_sellable: true, is_active: true },
+      });
       return {
-        trigger: form.trigger,
-        codeError: form.formState.errors.location_code?.message,
-        nameError: form.formState.errors.name?.message,
+        triggerCreate: createForm.trigger,
+        triggerEdit: editForm.trigger,
+        codeError: createForm.formState.errors.location_code?.message,
+        createNameError: createForm.formState.errors.name?.message,
+        editNameError: editForm.formState.errors.name?.message,
       };
     });
 
-    let valid = true;
+    let createValid = true;
+    let editValid = true;
     await act(async () => {
-      valid = await result.current.trigger();
+      createValid = await result.current.triggerCreate();
+      editValid = await result.current.triggerEdit();
     });
-    expect(valid).toBe(false);
+    expect(createValid).toBe(false);
+    expect(editValid).toBe(false);
     await waitFor(() => {
       expect(result.current.codeError).toBe('Location code is required');
-      expect(result.current.nameError).toBe('Location name is required');
+      expect(result.current.createNameError).toBe('Location name is required');
+      expect(result.current.editNameError).toBe('Location name is required');
     });
   });
 });
 
-describe('BigInt decimal helpers in inventoryAdjustmentSchema', () => {
-  it('parses and formats scaled-4 decimals without float drift and rejects -0', () => {
-    expect(parseScaled4('5000.0000')).toBe(50000000n);
-    expect(parseScaled4('1.2052')).toBe(12052n);
-    expect(parseScaled4('-10.5')).toBe(-105000n);
-    expect(parseScaled4('.25')).toBe(2500n);
-    expect(parseScaled4('0')).toBe(0n);
-    expect(parseScaled4('0.0000')).toBe(0n);
-    expect(parseScaled4('-0')).toBeNull();
-    expect(parseScaled4('-0.0')).toBeNull();
-    expect(parseScaled4('-0.0000')).toBeNull();
-    expect(parseScaled4('1.23456')).toBeNull();
-    expect(parseScaled4('not-a-number')).toBeNull();
-
-    expect(formatScaled4(50000000n)).toBe('5000.0000');
-    expect(formatScaled4(-105000n)).toBe('-10.5000');
-    expect(formatScaled4(0n)).toBe('0.0000');
-
-    expect(formatFixed4('12')).toBe('12.0000');
-    expect(formatFixed4('007.5')).toBe('7.5000');
-    expect(formatFixed4('1.23455')).toBe('1.2346');
-    expect(formatFixed4('-0')).toBe('0.0000');
-    expect(formatFixed4('invalid')).toBe('0.0000');
-
-    expect(formatPositiveNumeric4('10')).toBe('10.0000');
-    expect(formatPositiveNumeric4('.5')).toBe('0.5000');
-    expect(formatPositiveNumeric4('99999999999999.9999')).toBe(
-      '99999999999999.9999'
-    );
-    expect(formatPositiveNumeric4('0')).toBeNull();
-    expect(formatPositiveNumeric4('0.0000')).toBeNull();
-    expect(formatPositiveNumeric4('-0')).toBeNull();
-    expect(formatPositiveNumeric4('-5')).toBeNull();
-    expect(formatPositiveNumeric4('1.23456')).toBeNull();
-    expect(formatPositiveNumeric4('100000000000000')).toBeNull();
-
-    expect(formatNonNegativeNumeric4('0')).toBe('0.0000');
-    expect(formatNonNegativeNumeric4('0.0000')).toBe('0.0000');
-    expect(formatNonNegativeNumeric4('1.2052')).toBe('1.2052');
-    expect(formatNonNegativeNumeric4('-0')).toBeNull();
-    expect(formatNonNegativeNumeric4('-0.0001')).toBeNull();
+describe('native finite number & ISO date helpers in inventoryAdjustmentSchema', () => {
+  it('parses finite numbers cleanly and rejects -0, NaN, Infinity, and non-decimal input', () => {
+    expect(parseFiniteNumber('5000')).toBe(5000);
+    expect(parseFiniteNumber('  2.5  ')).toBe(2.5);
+    expect(parseFiniteNumber('.25')).toBe(0.25);
+    expect(parseFiniteNumber('0')).toBe(0);
+    expect(parseFiniteNumber('0.0000')).toBe(0);
+    expect(parseFiniteNumber('-10.5')).toBe(-10.5);
+    expect(parseFiniteNumber('-0')).toBeNull();
+    expect(parseFiniteNumber('-0.0')).toBeNull();
+    expect(parseFiniteNumber('')).toBeNull();
+    expect(parseFiniteNumber('   ')).toBeNull();
+    expect(parseFiniteNumber('NaN')).toBeNull();
+    expect(parseFiniteNumber('Infinity')).toBeNull();
+    expect(parseFiniteNumber('1e5')).toBeNull();
+    expect(parseFiniteNumber('abc')).toBeNull();
   });
 
-  it('compares, sums, multiplies, and formats display values with exact BigInt arithmetic', () => {
-    expect(compareDecimalStrings('5000.0000', '5000')).toBe(0);
-    expect(
-      compareDecimalStrings('99999999999999.9999', '99999999999999.9998')
-    ).toBe(1);
-    expect(compareDecimalStrings('-10.5', '-2.1')).toBe(-1);
-    expect(compareDecimalStrings('-1', '0')).toBe(-1);
-    expect(() => compareDecimalStrings('-0', '0')).toThrow(RangeError);
+  it('validates real YYYY-MM-DD calendar dates', () => {
+    expect(isValidIsoDate('2027-01-28')).toBe(true);
+    expect(isValidIsoDate('2024-02-29')).toBe(true);
+    expect(isValidIsoDate('2025-02-29')).toBe(false);
+    expect(isValidIsoDate('2026-02-30')).toBe(false);
+    expect(isValidIsoDate('2026-13-01')).toBe(false);
+    expect(isValidIsoDate('01-01-2026')).toBe(false);
+    expect(isValidIsoDate('not-a-date')).toBe(false);
+  });
 
-    expect(
-      sumDecimalStrings([
-        '99999999999990.0001',
-        '9.9998',
-        '',
-        'invalid',
-        '0.0000',
-      ])
-    ).toBe('99999999999999.9999');
-    expect(sumDecimalStrings(['0.1', '0.2'])).toBe('0.3000');
-    expect(sumDecimalStrings(['-5.25', '2.25'])).toBe('-3.0000');
-    expect(sumDecimalStrings([])).toBe('0.0000');
-
-    expect(multiplyToFixed4('2.0000', '14.000000')).toBe('28.0000');
-    expect(multiplyToFixed4('0.1', '0.2')).toBe('0.0200');
-    expect(multiplyToFixed4('9999999999.0001', '1.000000')).toBe(
-      '9999999999.0001'
-    );
-
+  it('formats native finite numbers for display and handles null/undefined/non-finite safely', () => {
     expect(formatNumericDisplay(null)).toBe('Unavailable');
     expect(formatNumericDisplay(undefined)).toBe('Unavailable');
-    expect(formatNumericDisplay('   ', { fallback: '—' })).toBe('—');
-    expect(formatNumericDisplay('5000.0000')).toBe('5,000');
-    expect(formatNumericDisplay('1.2052')).toBe('1.2052');
+    expect(formatNumericDisplay(Number.NaN, { fallback: '—' })).toBe('—');
+    expect(formatNumericDisplay(Number.POSITIVE_INFINITY)).toBe('Unavailable');
+    expect(formatNumericDisplay(-0)).toBe('0');
+    expect(formatNumericDisplay(5000)).toBe('5,000');
+    expect(formatNumericDisplay(1.2052)).toBe('1.2052');
     expect(
-      formatNumericDisplay('1.2052', { minDecimals: 2, maxDecimals: 2 })
+      formatNumericDisplay(1.2052, { minDecimals: 2, maxDecimals: 2 })
     ).toBe('1.21');
-    expect(
-      formatNumericDisplay('12.0000', { minDecimals: 2, maxDecimals: 4 })
-    ).toBe('12.00');
-    expect(formatNumericDisplay('99999999999999.9999')).toBe(
-      '99,999,999,999,999.9999'
+    expect(formatNumericDisplay(12, { minDecimals: 2, maxDecimals: 4 })).toBe(
+      '12.00'
     );
   });
 });
 
-describe('inventoryAdjustmentFormSchema and payload converters', () => {
+describe('inventoryAdjustmentFormSchema and toCreateInventoryAdjustmentPayload', () => {
+  const branchId = '11111111-2222-4111-8111-000000000001';
   const sampleLine = {
-    product_id: 'f6a7b8c9-4444-4eee-9c3d-456789012abc',
-    location_id: '2f31c9d4-7070-4a10-8b2d-ce0f1a2b3c14',
-    batch_id: '3a42d0e5-8080-4b2f-8d4a-3c4d5e6f8a16',
-    product_uom_id: 'c1d2e3f4-1111-4aaa-8a1b-111111110002',
+    product_id: '6dbdb1a7-c723-da4c-8e0e-b067c18bc710',
+    product_uom_id: 'db06a376-50a7-224c-b9c5-4f342c45debb',
+    location_id: '694cb9a9-c19d-3c46-be41-a7fc76fcdc9f',
+    batch_number: ' MEDCARE-LOT-2601 ',
+    manufactured_on: ' 2026-01-10 ',
+    expires_on: ' 2027-07-31 ',
     entered_qty: ' 2.5 ',
-    unit_cost_base: ' 0 ',
+    unit_cost_entered: ' 100.80 ',
   };
 
-  it('requires unit_cost_base on OPENING_BALANCE and ADJUSTMENT_IN and formats 4dp payloads', () => {
+  it('exposes the exact 4 Stage 1 adjustment transaction types', () => {
+    expect(ADJUSTMENTS_TXN_TYPES).toEqual([
+      'OPENING_BALANCE',
+      'ADJUSTMENT_IN',
+      'ADJUSTMENT_OUT',
+      'REVERSAL',
+    ]);
+    expect(ADJUSTMENT_TXN_TYPES).toBe(ADJUSTMENTS_TXN_TYPES);
+  });
+
+  it('validates OPENING_BALANCE and ADJUSTMENT_IN and emits native numbers in CreateInventoryAdjustmentRequest', () => {
     const missingCost = inventoryAdjustmentFormSchema.safeParse({
       ...DEFAULT_ADJUSTMENT_FORM_VALUES,
       transaction_type: 'OPENING_BALANCE',
       reason_code: 'INITIAL_COUNT',
-      lines: [{ ...sampleLine, unit_cost_base: '   ' }],
+      lines: [{ ...sampleLine, unit_cost_entered: '   ' }],
     });
     expect(missingCost.success).toBe(false);
     if (!missingCost.success) {
       expect(missingCost.error.issues[0]?.path).toEqual([
         'lines',
         0,
-        'unit_cost_base',
+        'unit_cost_entered',
       ]);
     }
 
     const parsedIn = inventoryAdjustmentFormSchema.parse({
       transaction_type: 'ADJUSTMENT_IN',
-      reason_code: ' FOUND_STOCK ',
+      reason_code: ' MANUAL_RESTOCK_TEST ',
       note: '   ',
       reverses_inventory_txn_id: '',
       lines: [sampleLine],
     });
 
     expect(
-      toInventoryTxnPayload(parsedIn, ' d4e5f6a7-3333-4c44-9d55-bbccddeeffaa ')
+      toCreateInventoryAdjustmentPayload(parsedIn, ` ${branchId} `)
     ).toEqual({
+      branch_id: branchId,
       transaction_type: 'ADJUSTMENT_IN',
-      branch_id: 'd4e5f6a7-3333-4c44-9d55-bbccddeeffaa',
-      reason_code: 'FOUND_STOCK',
+      reason_code: 'MANUAL_RESTOCK_TEST',
       note: null,
       reverses_inventory_txn_id: null,
       lines: [
         {
-          product_id: 'f6a7b8c9-4444-4eee-9c3d-456789012abc',
-          location_id: '2f31c9d4-7070-4a10-8b2d-ce0f1a2b3c14',
-          batch_id: '3a42d0e5-8080-4b2f-8d4a-3c4d5e6f8a16',
-          product_uom_id: 'c1d2e3f4-1111-4aaa-8a1b-111111110002',
-          entered_qty: '2.5000',
-          unit_cost_base: '0.0000',
+          product_id: '6dbdb1a7-c723-da4c-8e0e-b067c18bc710',
+          product_uom_id: 'db06a376-50a7-224c-b9c5-4f342c45debb',
+          location_id: '694cb9a9-c19d-3c46-be41-a7fc76fcdc9f',
+          batch_number: 'MEDCARE-LOT-2601',
+          manufactured_on: '2026-01-10',
+          expires_on: '2027-07-31',
+          entered_qty: 2.5,
+          unit_cost_entered: 100.8,
+        },
+      ],
+    });
+
+    // Zero cost is allowed (>= 0) and blank optional batch/date fields map to null
+    const parsedZeroCost = inventoryAdjustmentFormSchema.parse({
+      transaction_type: 'OPENING_BALANCE',
+      reason_code: 'INITIAL_COUNT',
+      note: 'Opening stock',
+      reverses_inventory_txn_id: '',
+      lines: [
+        {
+          ...sampleLine,
+          batch_number: '  ',
+          manufactured_on: '',
+          expires_on: '',
+          entered_qty: '10',
+          unit_cost_entered: '0',
+        },
+      ],
+    });
+
+    expect(
+      toCreateInventoryAdjustmentPayload(parsedZeroCost, branchId)
+    ).toEqual({
+      branch_id: branchId,
+      transaction_type: 'OPENING_BALANCE',
+      reason_code: 'INITIAL_COUNT',
+      note: 'Opening stock',
+      reverses_inventory_txn_id: null,
+      lines: [
+        {
+          product_id: '6dbdb1a7-c723-da4c-8e0e-b067c18bc710',
+          product_uom_id: 'db06a376-50a7-224c-b9c5-4f342c45debb',
+          location_id: '694cb9a9-c19d-3c46-be41-a7fc76fcdc9f',
+          batch_number: null,
+          manufactured_on: null,
+          expires_on: null,
+          entered_qty: 10,
+          unit_cost_entered: 0,
         },
       ],
     });
   });
 
-  it('omits unit_cost_base on ADJUSTMENT_OUT and REVERSAL and enforces reversal UUID', () => {
+  it('nulls unit_cost_entered on ADJUSTMENT_OUT and emits lines: null with optional reason_code on REVERSAL', () => {
     const parsedOut = inventoryAdjustmentFormSchema.parse({
       transaction_type: 'ADJUSTMENT_OUT',
       reason_code: 'DAMAGED_REMOVAL',
       note: 'Broken blister pack',
       reverses_inventory_txn_id: '',
-      lines: [{ ...sampleLine, unit_cost_base: '99.0000' }],
+      lines: [{ ...sampleLine, unit_cost_entered: '' }],
     });
 
-    const outPayload = toInventoryTxnPayload(
-      parsedOut,
-      'd4e5f6a7-3333-4c44-9d55-bbccddeeffaa'
-    );
-    expect(outPayload.lines[0]?.unit_cost_base).toBeUndefined();
-    expect('unit_cost_base' in (outPayload.lines[0] ?? {})).toBe(false);
+    const outPayload = toCreateInventoryAdjustmentPayload(parsedOut, branchId);
+    expect(outPayload.lines?.[0]?.unit_cost_entered).toBeNull();
+    expect(outPayload.lines?.[0]?.entered_qty).toBe(2.5);
 
     const invalidReversal = inventoryAdjustmentFormSchema.safeParse({
       transaction_type: 'REVERSAL',
-      reason_code: 'ENTRY_ERROR',
+      reason_code: '',
       note: '',
       reverses_inventory_txn_id: 'not-a-uuid',
-      lines: [sampleLine],
+      lines: [],
     });
     expect(invalidReversal.success).toBe(false);
     if (!invalidReversal.success) {
@@ -323,34 +403,48 @@ describe('inventoryAdjustmentFormSchema and payload converters', () => {
       ]);
     }
 
+    // Reversal succeeds with blank reason_code, blank note, and empty or default blank lines
     const validReversal = inventoryAdjustmentFormSchema.parse({
       transaction_type: 'REVERSAL',
-      reason_code: 'ENTRY_ERROR',
-      note: 'Undo wrong count',
+      reason_code: '',
+      note: '',
       reverses_inventory_txn_id: '7d9503b8-1001-4ca5-8a0b-cd4040620002',
-      lines: [{ ...sampleLine, unit_cost_base: '1.2500' }],
+      lines: [createEmptyAdjustmentLine()],
     });
 
-    const reversalPayload = toInventoryTxnPayload(
-      validReversal,
-      'd4e5f6a7-3333-4c44-9d55-bbccddeeffaa'
+    expect(toCreateInventoryAdjustmentPayload(validReversal, branchId)).toEqual(
+      {
+        branch_id: branchId,
+        transaction_type: 'REVERSAL',
+        reason_code: null,
+        note: null,
+        reverses_inventory_txn_id: '7d9503b8-1001-4ca5-8a0b-cd4040620002',
+        lines: null,
+      }
     );
-    expect(reversalPayload.reverses_inventory_txn_id).toBe(
-      '7d9503b8-1001-4ca5-8a0b-cd4040620002'
-    );
-    expect('unit_cost_base' in (reversalPayload.lines[0] ?? {})).toBe(false);
   });
 
-  it('rejects -0, zero qty, >4dp qty/cost, empty lines, and converts DTO to DRAFT patch form', () => {
+  it('rejects invalid dates, expires_on < manufactured_on, -0, <=0 qty, negative cost, and empty lines on non-REVERSAL', () => {
     const badInputs = inventoryAdjustmentFormSchema.safeParse({
       transaction_type: 'ADJUSTMENT_IN',
       reason_code: 'R'.repeat(41),
       note: 'N'.repeat(501),
       reverses_inventory_txn_id: '',
       lines: [
-        { ...sampleLine, entered_qty: '-0', unit_cost_base: '-0' },
-        { ...sampleLine, entered_qty: '1.23456', unit_cost_base: '2.34567' },
-        { ...sampleLine, entered_qty: '0.0000', unit_cost_base: '-1' },
+        {
+          ...sampleLine,
+          manufactured_on: '2026-02-30',
+          expires_on: 'invalid-date',
+          entered_qty: '-0',
+          unit_cost_entered: '-0',
+        },
+        {
+          ...sampleLine,
+          manufactured_on: '2027-06-01',
+          expires_on: '2026-01-01',
+          entered_qty: '0',
+          unit_cost_entered: '-1',
+        },
       ],
     });
     expect(badInputs.success).toBe(false);
@@ -358,12 +452,13 @@ describe('inventoryAdjustmentFormSchema and payload converters', () => {
       const paths = badInputs.error.issues.map((issue) => issue.path.join('.'));
       expect(paths).toContain('reason_code');
       expect(paths).toContain('note');
+      expect(paths).toContain('lines.0.manufactured_on');
+      expect(paths).toContain('lines.0.expires_on');
       expect(paths).toContain('lines.0.entered_qty');
-      expect(paths).toContain('lines.0.unit_cost_base');
+      expect(paths).toContain('lines.0.unit_cost_entered');
+      expect(paths).toContain('lines.1.expires_on');
       expect(paths).toContain('lines.1.entered_qty');
-      expect(paths).toContain('lines.1.unit_cost_base');
-      expect(paths).toContain('lines.2.entered_qty');
-      expect(paths).toContain('lines.2.unit_cost_base');
+      expect(paths).toContain('lines.1.unit_cost_entered');
     }
 
     const emptyLines = inventoryAdjustmentFormSchema.safeParse({
@@ -372,68 +467,9 @@ describe('inventoryAdjustmentFormSchema and payload converters', () => {
       lines: [],
     });
     expect(emptyLines.success).toBe(false);
-
-    const draftTxn: InventoryTxnDto = {
-      inventory_txn_id: '7d9503b8-1001-4ca5-8a0b-cd4040620003',
-      branch_id: 'd4e5f6a7-3333-4c44-9d55-bbccddeeffaa',
-      transaction_no: 'TXN-2026-000003',
-      transaction_type: 'ADJUSTMENT_IN',
-      status: 'DRAFT',
-      reason_code: 'PENDING_RECOUNT',
-      note: 'Draft note',
-      posted_at: null,
-      reverses_inventory_txn_id: null,
-      lines: [
-        {
-          inventory_txn_line_id: 'line-1',
-          product_id: sampleLine.product_id,
-          location_id: sampleLine.location_id,
-          batch_id: sampleLine.batch_id,
-          product_uom_id: sampleLine.product_uom_id,
-          entered_qty: '70.0000',
-          conversion_snapshot: '1.000000',
-          quantity_delta_base: '70.0000',
-          unit_cost_base: '1.2500',
-        },
-      ],
-    };
-
-    const draftFormValues = inventoryTxnDtoToPatchFormValues(draftTxn);
-    expect(draftFormValues).toEqual({
-      transaction_type: 'ADJUSTMENT_IN',
-      reason_code: 'PENDING_RECOUNT',
-      note: 'Draft note',
-      reverses_inventory_txn_id: '',
-      lines: [
-        {
-          product_id: sampleLine.product_id,
-          location_id: sampleLine.location_id,
-          batch_id: sampleLine.batch_id,
-          product_uom_id: sampleLine.product_uom_id,
-          entered_qty: '70.0000',
-          unit_cost_base: '1.2500',
-        },
-      ],
-    });
-
-    const patchPayload = toInventoryTxnPatchPayload(draftFormValues);
-    expect(patchPayload).toEqual({
-      reason_code: 'PENDING_RECOUNT',
-      note: 'Draft note',
-      lines: [
-        {
-          product_id: sampleLine.product_id,
-          location_id: sampleLine.location_id,
-          batch_id: sampleLine.batch_id,
-          product_uom_id: sampleLine.product_uom_id,
-          entered_qty: '70.0000',
-          unit_cost_base: '1.2500',
-        },
-      ],
-    });
-    expect('transaction_type' in patchPayload).toBe(false);
-    expect('branch_id' in patchPayload).toBe(false);
-    expect('reverses_inventory_txn_id' in patchPayload).toBe(false);
+    if (!emptyLines.success) {
+      expect(emptyLines.error.issues[0]?.path).toEqual(['lines']);
+    }
 
     expect(createEmptyAdjustmentLine()).toEqual(DEFAULT_ADJUSTMENT_LINE);
     expect(createEmptyAdjustmentLine()).not.toBe(DEFAULT_ADJUSTMENT_LINE);
@@ -449,7 +485,7 @@ describe('inventoryAdjustmentFormSchema and payload converters', () => {
         trigger: form.trigger,
         reasonError: form.formState.errors.reason_code?.message,
         qtyError: form.formState.errors.lines?.[0]?.entered_qty?.message,
-        costError: form.formState.errors.lines?.[0]?.unit_cost_base?.message,
+        costError: form.formState.errors.lines?.[0]?.unit_cost_entered?.message,
       };
     });
 
@@ -469,7 +505,7 @@ describe('inventoryAdjustmentFormSchema and payload converters', () => {
 });
 
 describe('inventoryErrorMapper', () => {
-  it('maps location 422, 409, unmapped, and non-API errors', () => {
+  it('maps location 422, 409 CONFLICT, 403 FORBIDDEN/FORBIDDEN_BRANCH, 400 MALFORMED_REQUEST, and non-API errors', () => {
     const createSetError = vi.fn<UseFormSetError<CreateLocationFormValues>>();
     const err422 = new ApiClientError(
       {
@@ -478,6 +514,7 @@ describe('inventoryErrorMapper', () => {
         details: [
           { field: 'location_code', issue: 'Too long' },
           { field: 'location_type', issue: 'Invalid type' },
+          { field: 'is_sellable', issue: 'Only SELLABLE may be sellable' },
         ],
       },
       422
@@ -490,6 +527,10 @@ describe('inventoryErrorMapper', () => {
     expect(createSetError).toHaveBeenCalledWith('location_type', {
       type: 'server',
       message: 'Invalid type',
+    });
+    expect(createSetError).toHaveBeenCalledWith('is_sellable', {
+      type: 'server',
+      message: 'Only SELLABLE may be sellable',
     });
 
     const err409 = new ApiClientError(
@@ -505,38 +546,87 @@ describe('inventoryErrorMapper', () => {
       'Location code already exists in branch. (Trace: tr-loc-409)'
     );
 
+    const err403Branch = new ApiClientError(
+      {
+        code: 'FORBIDDEN_BRANCH',
+        message: 'Branch access denied.',
+        trace_id: 'tr-loc-403',
+        details: [{ field: 'branch_id', issue: 'Not assigned to this branch' }],
+      },
+      403
+    );
+    expect(applyCreateLocationFormApiError(err403Branch, createSetError)).toBe(
+      'Branch access denied. (Trace: tr-loc-403)'
+    );
+
+    const err400 = new ApiClientError(
+      {
+        code: 'MALFORMED_REQUEST',
+        message: 'Missing Idempotency-Key header.',
+        trace_id: 'tr-loc-400',
+        details: [
+          {
+            field: 'Idempotency-Key',
+            issue: 'The idempotency key is required.',
+          },
+        ],
+      },
+      400
+    );
+    expect(applyCreateLocationFormApiError(err400, createSetError)).toBe(
+      'Missing Idempotency-Key header. (Trace: tr-loc-400)'
+    );
+
     const editSetError = vi.fn<UseFormSetError<EditLocationFormValues>>();
     const editErr = new ApiClientError(
       {
         code: 'VALIDATION_ERROR',
-        message: 'Location name required',
-        details: [{ field: 'name', issue: 'Required' }],
+        message: 'Location validation failed',
+        details: [
+          { field: 'name', issue: 'Required' },
+          { field: 'is_sellable', issue: 'Cannot mark non-sellable location' },
+          { field: 'is_active', issue: 'Cannot deactivate active stock' },
+        ],
       },
       422
     );
     expect(applyEditLocationFormApiError(editErr, editSetError)).toBeNull();
+    expect(editSetError).toHaveBeenCalledWith('name', {
+      type: 'server',
+      message: 'Required',
+    });
+    expect(editSetError).toHaveBeenCalledWith('is_sellable', {
+      type: 'server',
+      message: 'Cannot mark non-sellable location',
+    });
+    expect(editSetError).toHaveBeenCalledWith('is_active', {
+      type: 'server',
+      message: 'Cannot deactivate active stock',
+    });
+
+    // Immutable fields (location_code / location_type) on edit surface in banner
     expect(
       applyLocationFormApiError(
         new ApiClientError(
           {
             code: 'VALIDATION_ERROR',
-            message: 'Cannot change code',
+            message: 'Cannot change location_type',
             trace_id: 'tr-edit-unmapped',
-            details: [{ field: 'location_code', issue: 'Immutable' }],
+            details: [{ field: 'location_type', issue: 'Immutable' }],
           },
           422
         ),
         editSetError,
         'edit'
       )
-    ).toBe('Cannot change code (Trace: tr-edit-unmapped)');
+    ).toBe('Cannot change location_type (Trace: tr-edit-unmapped)');
 
     expect(
       applyLocationFormApiError(new Error('network'), createSetError)
     ).toBe('Unable to save inventory location. Please try again.');
   });
 
-  it('maps adjustment details including lines[i].quantity -> lines.i.entered_qty and 409 OUT_OF_STOCK', () => {
+  it('maps adjustment 422, 422 EXPIRY_POLICY_VIOLATION, 409 OUT_OF_STOCK/CONFLICT, 403 FORBIDDEN, and 400 MALFORMED_REQUEST', () => {
     const setError = vi.fn<UseFormSetError<InventoryAdjustmentFormValues>>();
 
     const err422 = new ApiClientError(
@@ -548,11 +638,13 @@ describe('inventoryErrorMapper', () => {
           { field: 'note', issue: 'Note too long' },
           { field: 'reverses_inventory_txn_id', issue: 'Invalid txn' },
           { field: 'lines[0].product_id', issue: 'Unknown product' },
-          { field: 'lines[0].location_id', issue: 'Wrong branch' },
-          { field: 'lines[0].batch_id', issue: 'Invalid batch' },
           { field: 'lines[0].product_uom_id', issue: 'Invalid UOM' },
+          { field: 'lines[0].location_id', issue: 'Wrong branch' },
+          { field: 'lines[0].batch_number', issue: 'Batch required' },
+          { field: 'lines[0].manufactured_on', issue: 'Invalid date' },
+          { field: 'lines[0].expires_on', issue: 'Invalid expiry' },
           { field: 'lines[0].entered_qty', issue: 'Must be > 0' },
-          { field: 'lines[1].unit_cost_base', issue: 'Cost required' },
+          { field: 'lines[1].unit_cost_entered', issue: 'Cost required' },
         ],
       },
       422
@@ -575,23 +667,31 @@ describe('inventoryErrorMapper', () => {
       type: 'server',
       message: 'Unknown product',
     });
+    expect(setError).toHaveBeenCalledWith('lines.0.product_uom_id', {
+      type: 'server',
+      message: 'Invalid UOM',
+    });
     expect(setError).toHaveBeenCalledWith('lines.0.location_id', {
       type: 'server',
       message: 'Wrong branch',
     });
-    expect(setError).toHaveBeenCalledWith('lines.0.batch_id', {
+    expect(setError).toHaveBeenCalledWith('lines.0.batch_number', {
       type: 'server',
-      message: 'Invalid batch',
+      message: 'Batch required',
     });
-    expect(setError).toHaveBeenCalledWith('lines.0.product_uom_id', {
+    expect(setError).toHaveBeenCalledWith('lines.0.manufactured_on', {
       type: 'server',
-      message: 'Invalid UOM',
+      message: 'Invalid date',
+    });
+    expect(setError).toHaveBeenCalledWith('lines.0.expires_on', {
+      type: 'server',
+      message: 'Invalid expiry',
     });
     expect(setError).toHaveBeenCalledWith('lines.0.entered_qty', {
       type: 'server',
       message: 'Must be > 0',
     });
-    expect(setError).toHaveBeenCalledWith('lines.1.unit_cost_base', {
+    expect(setError).toHaveBeenCalledWith('lines.1.unit_cost_entered', {
       type: 'server',
       message: 'Cost required',
     });
@@ -606,7 +706,7 @@ describe('inventoryErrorMapper', () => {
         details: [
           {
             field: 'lines[0].quantity',
-            issue: 'Available on-hand quantity is 10.0000.',
+            issue: 'Available on-hand quantity is 10.',
           },
         ],
       },
@@ -618,8 +718,58 @@ describe('inventoryErrorMapper', () => {
     );
     expect(outOfStockSetError).toHaveBeenCalledWith('lines.0.entered_qty', {
       type: 'server',
-      message: 'Available on-hand quantity is 10.0000.',
+      message: 'Available on-hand quantity is 10.',
     });
+
+    const expirySetError =
+      vi.fn<UseFormSetError<InventoryAdjustmentFormValues>>();
+    const errExpiry = new ApiClientError(
+      {
+        code: 'EXPIRY_POLICY_VIOLATION',
+        message: 'Cannot receive expired batch into sellable location.',
+        trace_id: 'tr-exp-422',
+        details: [
+          {
+            field: 'lines[0].expires_on',
+            issue: 'Batch is already expired.',
+          },
+        ],
+      },
+      422
+    );
+    expect(applyAdjustmentFormApiError(errExpiry, expirySetError)).toBe(
+      'Cannot receive expired batch into sellable location. (Trace: tr-exp-422)'
+    );
+    expect(expirySetError).toHaveBeenCalledWith('lines.0.expires_on', {
+      type: 'server',
+      message: 'Batch is already expired.',
+    });
+
+    const errForbidden = new ApiClientError(
+      {
+        code: 'FORBIDDEN',
+        message: 'Cashiers cannot post inventory adjustments.',
+        trace_id: 'tr-adj-403',
+        details: [],
+      },
+      403
+    );
+    expect(applyAdjustmentFormApiError(errForbidden, setError)).toBe(
+      'Cashiers cannot post inventory adjustments. (Trace: tr-adj-403)'
+    );
+
+    const errMalformed = new ApiClientError(
+      {
+        code: 'MALFORMED_REQUEST',
+        message: 'Invalid JSON request payload.',
+        trace_id: 'tr-adj-400',
+        details: [],
+      },
+      400
+    );
+    expect(applyAdjustmentFormApiError(errMalformed, setError)).toBe(
+      'Invalid JSON request payload. (Trace: tr-adj-400)'
+    );
 
     const unmappedErr = new ApiClientError(
       {

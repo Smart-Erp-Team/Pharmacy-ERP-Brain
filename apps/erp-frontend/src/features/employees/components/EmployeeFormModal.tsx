@@ -1,14 +1,15 @@
 import { Alert } from '../../../components/ui/Alert';
 import { Button } from '../../../components/ui/Button';
 import { Modal } from '../../../components/ui/Modal';
-import type { BranchDto, EmployeeDto } from '../../../types/api';
+import type { Branch } from '../../../features/branches';
+import type { Employee } from '../../../types/api';
 import { useEmployeeForm } from '../hooks/useEmployeeForm';
 import { EmployeeFormFields } from './EmployeeFormFields';
 
 export interface EmployeeFormModalProps {
   open: boolean;
-  employee: EmployeeDto | null;
-  branches: readonly BranchDto[];
+  employee: Employee | null;
+  branches: readonly Branch[];
   isBranchesLoading: boolean;
   isBranchesError: boolean;
   isRetryingBranches?: boolean;

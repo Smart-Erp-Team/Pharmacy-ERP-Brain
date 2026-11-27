@@ -1,4 +1,4 @@
-import { Badge, type BadgeVariant } from '../../../components/ui/Badge';
+import { Badge } from '../../../components/ui/Badge';
 import {
   Table,
   TableBody,
@@ -7,74 +7,31 @@ import {
   TableHeader,
   TableRow,
 } from '../../../components/ui/Table';
-import type {
-  BatchQualityStatus,
-  InventoryBalanceDto,
-  InventoryBatchDto,
-  InventoryLocationDto,
-  LocationType,
-} from '../../../types/api';
+import {
+  BATCH_QUALITY_BADGE_VARIANT,
+  isNonLotBatchNumber,
+  LOCATION_TYPE_BADGE_VARIANT,
+  sortBalancesFefo,
+  utcDateOffset,
+  type GroupedBalanceItem,
+} from '../hooks/useInventoryBranchState';
 import { formatNumericDisplay } from '../schemas/inventoryAdjustmentSchema';
 
-export interface StockBalanceBatchItem {
-  balance: InventoryBalanceDto;
-  batch: InventoryBatchDto | undefined;
-  location: InventoryLocationDto | undefined;
-}
+export type StockBalanceBatchItem = GroupedBalanceItem;
 
 export interface StockBalanceBatchTableProps {
   items: readonly StockBalanceBatchItem[];
   expiryAlertDays?: number;
 }
 
-const LOCATION_TYPE_VARIANT: Record<LocationType, BadgeVariant> = {
-  SELLABLE: 'success',
-  QUARANTINE: 'warning',
-  SCRAP: 'danger',
-};
-
-const QUALITY_VARIANT: Record<BatchQualityStatus, BadgeVariant> = {
-  AVAILABLE: 'success',
-  QUARANTINED: 'warning',
-  EXPIRED: 'danger',
-  RECALLED: 'danger',
-};
-
-function addUtcDays(days: number): string {
-  const now = new Date();
-  return new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + days)
-  )
-    .toISOString()
-    .slice(0, 10);
-}
-
-function compareFefo(
-  a: StockBalanceBatchItem,
-  b: StockBalanceBatchItem
-): number {
-  const expA = a.batch?.is_non_lot ? null : (a.batch?.expires_on ?? null);
-  const expB = b.batch?.is_non_lot ? null : (b.batch?.expires_on ?? null);
-  if (expA && expB) {
-    const cmp = expA.localeCompare(expB);
-    if (cmp !== 0) return cmp;
-  } else if (expA && !expB) {
-    return -1;
-  } else if (!expA && expB) {
-    return 1;
-  }
-  const batchIdA = a.batch?.batch_id ?? a.balance.batch_id;
-  const batchIdB = b.batch?.batch_id ?? b.balance.batch_id;
-  return batchIdA.localeCompare(batchIdB);
-}
-
 export function StockBalanceBatchTable({
   items,
   expiryAlertDays = 0,
 }: StockBalanceBatchTableProps) {
-  const todayUtc = addUtcDays(0);
-  const alertCutoff = expiryAlertDays > 0 ? addUtcDays(expiryAlertDays) : null;
-  const sorted = items.slice().sort(compareFefo);
+  const todayUtc = utcDateOffset(0);
+  const alertCutoff =
+    expiryAlertDays > 0 ? utcDateOffset(expiryAlertDays) : null;
+  const sorted = sortBalancesFefo(items);
 
   return (
     <Table>
@@ -92,8 +49,10 @@ export function StockBalanceBatchTable({
       </TableHeader>
       <TableBody>
         {sorted.map(({ balance, batch, location }) => {
-          const isNonLot = Boolean(batch?.is_non_lot);
-          const expiresOn = isNonLot ? null : (batch?.expires_on ?? null);
+          const isNonLot = isNonLotBatchNumber(balance.batch_number);
+          const expiresOn = isNonLot
+            ? null
+            : (balance.expires_on ?? batch?.expires_on ?? null);
           const isExpired = Boolean(expiresOn && expiresOn < todayUtc);
           const isNearing = Boolean(
             !isExpired && expiresOn && alertCutoff && expiresOn <= alertCutoff
@@ -107,27 +66,32 @@ export function StockBalanceBatchTable({
               <TableCell>
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="font-medium">
-                    {location?.name ??
-                      `Location ${balance.location_id.slice(0, 8)}`}
+                    {location?.name ?? balance.location_code}
                   </span>
-                  {location ? (
-                    <Badge
-                      variant={LOCATION_TYPE_VARIANT[location.location_type]}
-                    >
-                      {location.location_type}
-                    </Badge>
-                  ) : null}
+                  <span className="text-caption text-text-muted font-mono">
+                    {balance.location_code}
+                  </span>
+                  <Badge
+                    variant={LOCATION_TYPE_BADGE_VARIANT[balance.location_type]}
+                  >
+                    {balance.location_type}
+                  </Badge>
                 </div>
               </TableCell>
               <TableCell>
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="font-mono">
-                    {batch?.batch_number ?? balance.batch_id.slice(0, 8)}
-                  </span>
+                  <span className="font-mono">{balance.batch_number}</span>
                   {isNonLot ? <Badge variant="neutral">NON-LOT</Badge> : null}
+                  <span className="text-caption text-text-muted tabular-nums">
+                    v{balance.row_version}
+                  </span>
                 </div>
               </TableCell>
-              <TableCell>{batch?.manufactured_on ?? 'Unavailable'}</TableCell>
+              <TableCell>
+                {balance.manufactured_on ??
+                  batch?.manufactured_on ??
+                  'Unavailable'}
+              </TableCell>
               <TableCell>
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span>{expiresOn ?? 'Unavailable'}</span>
@@ -138,13 +102,11 @@ export function StockBalanceBatchTable({
                 </div>
               </TableCell>
               <TableCell>
-                {batch ? (
-                  <Badge variant={QUALITY_VARIANT[batch.quality_status]}>
-                    {batch.quality_status}
-                  </Badge>
-                ) : (
-                  'Unavailable'
-                )}
+                <Badge
+                  variant={BATCH_QUALITY_BADGE_VARIANT[balance.quality_status]}
+                >
+                  {balance.quality_status}
+                </Badge>
               </TableCell>
               <TableCell numeric>
                 {formatNumericDisplay(balance.on_hand_qty_base)}

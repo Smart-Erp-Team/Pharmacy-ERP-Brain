@@ -6,7 +6,7 @@ import {
   useWatch,
 } from 'react-hook-form';
 import { toast } from 'react-toastify';
-import type { ProductUomDto } from '../../../types/api';
+import type { ProductUom } from '../../../types/api';
 import {
   useCreateProductUomMutation,
   usePatchProductUomMutation,
@@ -19,8 +19,8 @@ import {
   createUomFormSchema,
   DEFAULT_CREATE_UOM_FORM_VALUES,
   editUomFormSchema,
-  toCreateUomPayload,
-  toUomPatchPayload,
+  toCreateProductUomPayload,
+  toPatchProductUomPayload,
   uomDtoToEditFormValues,
   type CreateUomFormValues,
   type EditUomFormValues,
@@ -57,20 +57,20 @@ const uomResolver =
     return { values: {}, errors };
   };
 
-const getDefaults = (uom: ProductUomDto | null): UomFormValues =>
+const getDefaults = (uom: ProductUom | null): UomFormValues =>
   uom
     ? {
         ...DEFAULT_CREATE_UOM_FORM_VALUES,
         ...uomDtoToEditFormValues(uom),
         uom_code: uom.uom_code,
-        conversion_to_base: uom.conversion_to_base,
+        conversion_to_base: String(uom.conversion_to_base),
         is_base: uom.is_base,
       }
     : { ...DEFAULT_CREATE_UOM_FORM_VALUES, is_active: true };
 
 export function useProductUomForm(
   productId: string,
-  uom: ProductUomDto | null,
+  uom: ProductUom | null,
   onClose: () => void
 ) {
   const isEdit = uom !== null;
@@ -121,11 +121,11 @@ export function useProductUomForm(
         ? patchMut.mutateAsync({
             productId,
             uomId: uom.product_uom_id,
-            payload: toUomPatchPayload(values),
+            payload: toPatchProductUomPayload(values),
           })
         : createMut.mutateAsync({
             productId,
-            payload: toCreateUomPayload(values),
+            payload: toCreateProductUomPayload(values),
           }));
       toast.success(
         uom

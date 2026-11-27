@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'react-toastify';
 import { ApiClientError } from '../../../lib/api/client';
-import type { BranchDto, EnrollmentTokenDto } from '../../../types/api';
+import { DEFAULT_PAGE, DEFAULT_PAGE_SIZE } from '../../../lib/api/pagination';
+import type { Branch, EnrollmentToken } from '../../../types/api';
 import type { BranchStatusFilter } from '../components/BranchesFilterBar';
 import {
   useBranchesQuery,
@@ -9,80 +10,61 @@ import {
   usePatchBranchMutation,
 } from './useBranches';
 
-export const BRANCHES_PAGE_SIZE = 20;
+export const BRANCHES_PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
 export function useBranchesPageState() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] =
     useState<BranchStatusFilter>('active');
-  const [cursorStack, setCursorStack] = useState<(string | undefined)[]>([
-    undefined,
-  ]);
-  const [pageIndex, setPageIndex] = useState(0);
+  const [page, setPage] = useState(DEFAULT_PAGE);
   const [formModalState, setFormModalState] = useState<{
     open: boolean;
-    branch: BranchDto | null;
+    branch: Branch | null;
   }>({ open: false, branch: null });
   const [tokenModalState, setTokenModalState] = useState<{
     open: boolean;
-    branch: BranchDto | null;
-    tokenData: EnrollmentTokenDto | null;
+    branch: Branch | null;
+    tokenData: EnrollmentToken | null;
     errorMessage: string | null;
   }>({ open: false, branch: null, tokenData: null, errorMessage: null });
   const [togglingBranchId, setTogglingBranchId] = useState<string | null>(null);
 
+  const trimmedSearch = searchTerm.trim();
   const branchesQuery = useBranchesQuery({
-    cursor: cursorStack[pageIndex],
-    limit: BRANCHES_PAGE_SIZE,
-    includeInactive: statusFilter !== 'active',
+    page,
+    page_size: BRANCHES_PAGE_SIZE,
+    include_inactive: statusFilter === 'all',
+    ...(trimmedSearch.length > 0 ? { search: trimmedSearch } : {}),
   });
   const patchBranchMutation = usePatchBranchMutation();
   const enrollmentTokenMutation = useCreateEnrollmentTokenMutation();
 
-  const filteredBranches = useMemo(() => {
-    const items = branchesQuery.data?.items ?? [];
-    const normalizedSearch = searchTerm.trim().toLowerCase();
-    return items.filter((branch) => {
-      if (statusFilter === 'inactive' && branch.is_active) {
-        return false;
-      }
-      if (!normalizedSearch) {
-        return true;
-      }
-      const city = branch.address?.city ?? '';
-      return (
-        branch.code.toLowerCase().includes(normalizedSearch) ||
-        branch.name.toLowerCase().includes(normalizedSearch) ||
-        city.toLowerCase().includes(normalizedSearch)
-      );
-    });
-  }, [branchesQuery.data?.items, searchTerm, statusFilter]);
+  const handleSearchChange = (nextSearch: string) => {
+    setSearchTerm(nextSearch);
+    setPage(DEFAULT_PAGE);
+  };
 
   const handleStatusChange = (nextValue: string) => {
     const nextFilter: BranchStatusFilter =
-      nextValue === 'all' || nextValue === 'inactive' ? nextValue : 'active';
+      nextValue === 'all' ? 'all' : 'active';
     setStatusFilter(nextFilter);
-    setCursorStack([undefined]);
-    setPageIndex(0);
+    setPage(DEFAULT_PAGE);
+  };
+
+  const resetFilters = () => {
+    setSearchTerm('');
+    setStatusFilter('active');
+    setPage(DEFAULT_PAGE);
   };
 
   const handlePageChange = (nextPage: number) => {
-    const nextIndex = nextPage - 1;
-    if (nextIndex < 0) {
+    if (nextPage < DEFAULT_PAGE) {
       return;
     }
-    if (nextIndex < cursorStack.length) {
-      setPageIndex(nextIndex);
-      return;
-    }
-    const nextCursor = branchesQuery.data?.nextCursor;
-    if (nextCursor) {
-      setCursorStack((prev) => [...prev, nextCursor]);
-      setPageIndex(nextIndex);
-    }
+    setPage(nextPage);
   };
 
-  const handleToggleActive = async (branch: BranchDto, nextActive: boolean) => {
+  const handleToggleActive = async (branch: Branch, nextActive: boolean) => {
     setTogglingBranchId(branch.branch_id);
     try {
       await patchBranchMutation.mutateAsync({
@@ -92,7 +74,7 @@ export function useBranchesPageState() {
       toast.success(
         `${branch.name} marked ${nextActive ? 'active' : 'inactive'}`
       );
-    } catch (error) {
+    } catch (error: unknown) {
       toast.error(
         error instanceof ApiClientError
           ? error.message
@@ -103,7 +85,7 @@ export function useBranchesPageState() {
     }
   };
 
-  const requestEnrollmentToken = async (branch: BranchDto) => {
+  const requestEnrollmentToken = async (branch: Branch) => {
     setTokenModalState({
       open: true,
       branch,
@@ -120,7 +102,7 @@ export function useBranchesPageState() {
         tokenData,
         errorMessage: null,
       });
-    } catch (error) {
+    } catch (error: unknown) {
       const message =
         error instanceof ApiClientError
           ? error.message
@@ -137,10 +119,9 @@ export function useBranchesPageState() {
 
   return {
     searchTerm,
-    setSearchTerm,
     statusFilter,
-    pageIndex,
-    filteredBranches,
+    page,
+    branches: branchesQuery.data?.items ?? [],
     branchesQuery,
     formModalState,
     setFormModalState,
@@ -148,7 +129,9 @@ export function useBranchesPageState() {
     setTokenModalState,
     togglingBranchId,
     isGeneratingToken: enrollmentTokenMutation.isPending,
+    handleSearchChange,
     handleStatusChange,
+    resetFilters,
     handlePageChange,
     handleToggleActive,
     requestEnrollmentToken,

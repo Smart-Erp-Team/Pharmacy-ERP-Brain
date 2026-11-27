@@ -61,8 +61,8 @@ export function StockOverviewTab({
           ) : data.hasPreviewError ? (
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <Alert variant="danger" title="Could not load inventory overview">
-                Unable to load branch stock balances, batch status, or product
-                alert rules.
+                Unable to load branch stock balances, locations, batch status,
+                or product alert rules.
               </Alert>
               <Button variant="secondary" onClick={data.retry}>
                 Retry
@@ -79,6 +79,7 @@ export function StockOverviewTab({
                 <TableRow>
                   <TableHead>Product</TableHead>
                   <TableHead>Batch</TableHead>
+                  <TableHead>Location</TableHead>
                   <TableHead>Expiry</TableHead>
                   <TableHead>Flag</TableHead>
                   <TableHead numeric>On-hand</TableHead>
@@ -86,18 +87,20 @@ export function StockOverviewTab({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.flaggedRows.map(({ balance, batch, product, reason }) => (
+                {data.flaggedRows.map(({ balance, product, reason }) => (
                   <TableRow
                     key={`${balance.product_id}-${balance.location_id}-${balance.batch_id}`}
                   >
                     <TableCell className="font-medium">
-                      {product?.name ??
-                        `Product ${balance.product_id.slice(0, 8)}`}
+                      {product?.name ?? balance.product_name}
                     </TableCell>
                     <TableCell className="font-mono">
-                      {batch?.batch_number ?? balance.batch_id.slice(0, 8)}
+                      {balance.batch_number}
                     </TableCell>
-                    <TableCell>{batch?.expires_on ?? 'Unavailable'}</TableCell>
+                    <TableCell className="font-mono">
+                      {balance.location_code}
+                    </TableCell>
+                    <TableCell>{balance.expires_on ?? 'Unavailable'}</TableCell>
                     <TableCell>
                       <Badge
                         variant={

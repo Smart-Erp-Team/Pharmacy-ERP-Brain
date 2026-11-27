@@ -3,14 +3,14 @@ import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { TableCell, TableRow } from '../../../components/ui/Table';
 import { Toggle } from '../../../components/ui/Toggle';
-import type { BranchDto } from '../../../types/api';
+import type { Branch } from '../../../types/api';
 
 export interface BranchTableRowProps {
-  branch: BranchDto;
+  branch: Branch;
   isToggling: boolean;
-  onEdit: (branch: BranchDto) => void;
-  onToggleActive: (branch: BranchDto, nextActive: boolean) => void;
-  onGenerateToken: (branch: BranchDto) => void;
+  onEdit: (branch: Branch) => void;
+  onToggleActive: (branch: Branch, nextActive: boolean) => void;
+  onGenerateToken: (branch: Branch) => void;
 }
 
 export function BranchTableRow({
@@ -20,19 +20,17 @@ export function BranchTableRow({
   onToggleActive,
   onGenerateToken,
 }: BranchTableRowProps) {
-  const locationText = branch.address
-    ? `${branch.address.city}, ${branch.address.country_code}`
-    : 'No address';
+  const locationText = `${branch.address.city}, ${branch.address.country_code}`;
 
   return (
     <TableRow>
       <TableCell className="text-text font-mono font-semibold">
-        {branch.code}
+        {branch.branch_code}
       </TableCell>
       <TableCell>
         <div className="flex flex-col">
           <span className="text-text font-semibold">{branch.name}</span>
-          {branch.address?.line1 ? (
+          {branch.address.line1 ? (
             <span className="text-body-sm text-text-muted">
               {branch.address.line1}
             </span>

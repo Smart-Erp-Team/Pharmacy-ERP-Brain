@@ -1,27 +1,27 @@
-import { Alert } from '../../../components/ui/Alert';
 import { Select } from '../../../components/ui/Select';
-import type { BranchDto, BranchScope, Role } from '../../../types/api';
+import type { Branch } from '../../../features/branches';
+import type { BranchScope, UserRole } from '../../../types/api';
 import type { DirectoryQueryStatus } from '../hooks/useUsersPageState';
 import { BRANCH_SCOPES, USER_ROLES } from '../schemas/userSchema';
 import { BranchAccessSelector } from './BranchAccessSelector';
 
 export interface UserAccessPatch {
-  role?: Role;
+  role?: UserRole;
   branch_scope?: BranchScope;
   branch_ids?: string[];
 }
 
 export interface UserFormFieldsProps {
-  role: Role;
+  role: UserRole;
   branchScope: BranchScope;
   branchIds: readonly string[];
-  branches: readonly BranchDto[];
+  branches: readonly Branch[];
   branchesDirectory: DirectoryQueryStatus;
   disabled: boolean;
+  lockRoleAndScope?: boolean;
   roleError?: string;
   branchScopeError?: string;
   branchIdsError?: string;
-  showPreservedGrantsNotice?: boolean;
   onAccessChange: (patch: UserAccessPatch) => void;
 }
 
@@ -36,7 +36,7 @@ const RESTRICTED_SCOPE_OPTIONS = [
   { value: 'ASSIGNED', label: 'ASSIGNED — Selected branches only' },
 ] as const;
 
-function isRole(value: string): value is Role {
+function isUserRole(value: string): value is UserRole {
   return USER_ROLES.some((role) => role === value);
 }
 
@@ -51,14 +51,15 @@ export function UserFormFields({
   branches,
   branchesDirectory,
   disabled,
+  lockRoleAndScope = false,
   roleError,
   branchScopeError,
   branchIdsError,
-  showPreservedGrantsNotice = false,
   onAccessChange,
 }: UserFormFieldsProps) {
   const isAdmin = role === 'Admin';
   const scopeOptions = isAdmin ? ADMIN_SCOPE_OPTIONS : RESTRICTED_SCOPE_OPTIONS;
+  const roleAndScopeDisabled = disabled || lockRoleAndScope;
 
   const handleToggleBranch = (branchId: string) => {
     const nextIds = branchIds.includes(branchId)
@@ -74,10 +75,10 @@ export function UserFormFields({
           label="Role"
           options={ROLE_OPTIONS}
           value={role}
-          disabled={disabled}
+          disabled={roleAndScopeDisabled}
           error={roleError}
           onChange={(event) => {
-            if (isRole(event.target.value)) {
+            if (isUserRole(event.target.value)) {
               const forcedScope =
                 event.target.value !== 'Admin' && branchScope === 'ALL'
                   ? 'ASSIGNED'
@@ -93,7 +94,7 @@ export function UserFormFields({
           label="Branch scope"
           options={scopeOptions}
           value={branchScope}
-          disabled={disabled}
+          disabled={roleAndScopeDisabled}
           hint={
             isAdmin
               ? undefined
@@ -109,23 +110,15 @@ export function UserFormFields({
       </div>
 
       {branchScope === 'ASSIGNED' ? (
-        <div className="flex flex-col gap-3">
-          {showPreservedGrantsNotice ? (
-            <Alert variant="info">
-              Current branch grants are unavailable from GET /users. Existing
-              assignments are preserved unless you select new branches below.
-            </Alert>
-          ) : null}
-          <BranchAccessSelector
-            branches={branches}
-            selectedBranchIds={branchIds}
-            isLoading={branchesDirectory.isLoading}
-            isError={branchesDirectory.isError}
-            disabled={disabled}
-            error={branchIdsError}
-            onToggleBranch={handleToggleBranch}
-          />
-        </div>
+        <BranchAccessSelector
+          branches={branches}
+          selectedBranchIds={branchIds}
+          isLoading={branchesDirectory.isLoading}
+          isError={branchesDirectory.isError}
+          disabled={disabled}
+          error={branchIdsError}
+          onToggleBranch={handleToggleBranch}
+        />
       ) : null}
     </>
   );

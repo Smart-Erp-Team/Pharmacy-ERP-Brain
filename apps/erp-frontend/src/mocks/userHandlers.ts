@@ -1,74 +1,90 @@
 import { http, HttpResponse } from 'msw';
+import currentUserContext from '@contracts/fixtures/current-user-context.json';
+import {
+  DEFAULT_PAGE,
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+} from '../lib/api/pagination';
 import type {
-  BranchAccessGrant,
+  ApiErrorEnvelopeDto,
   BranchScope,
-  Role,
-  UserDto,
+  ErrorCode,
+  NormalizedApiErrorDetail,
+  PagedResult,
+  User,
+  UserRole,
 } from '../types/api';
 
-const DEFAULT_BRANCH_ID = 'd4e5f6a7-3333-4c44-9d55-bbccddeeffaa';
+export const ORGANIZATION_ID = currentUserContext.organization_id;
 
-export const INITIAL_USERS: readonly UserDto[] = [
+export const INITIAL_USERS: readonly User[] = [
   {
-    user_id: 'b2222222-2222-4222-8222-222222222201',
-    employee_id: 'a1111111-1111-4111-8111-111111111101',
-    username: 'admin.omar',
+    user_id: '11111111-4444-4111-8111-000000000001',
+    employee_id: '11111111-3333-4111-8111-000000000001',
+    organization_id: ORGANIZATION_ID,
+    username: 'admin@medcare.test',
     role: 'Admin',
     branch_scope: 'ALL',
+    branch_ids: [],
     is_active: true,
     access_failed_count: 0,
     lockout_end: null,
-    last_login_at: '2026-11-14T08:15:00.000Z',
+    last_login_at: '2026-11-25T08:15:00.000Z',
   },
   {
-    user_id: 'b2222222-2222-4222-8222-222222222202',
-    employee_id: 'a1111111-1111-4111-8111-111111111102',
-    username: 'ph.mona',
+    user_id: '11111111-4444-4111-8111-000000000002',
+    employee_id: '11111111-3333-4111-8111-000000000002',
+    organization_id: ORGANIZATION_ID,
+    username: 'ph.mona@medcare.test',
     role: 'Pharmacist',
     branch_scope: 'ASSIGNED',
+    branch_ids: ['11111111-2222-4111-8111-000000000001'],
     is_active: true,
     access_failed_count: 5,
     lockout_end: '2099-01-01T12:00:00.000Z',
-    last_login_at: '2026-11-13T17:40:00.000Z',
+    last_login_at: '2026-11-24T17:40:00.000Z',
+  },
+  {
+    user_id: '11111111-4444-4111-8111-000000000003',
+    employee_id: '11111111-3333-4111-8111-000000000004',
+    organization_id: ORGANIZATION_ID,
+    username: 'cashier.salma@medcare.test',
+    role: 'Cashier',
+    branch_scope: 'ASSIGNED',
+    branch_ids: ['11111111-2222-4111-8111-000000000002'],
+    is_active: false,
+    access_failed_count: 0,
+    lockout_end: null,
+    last_login_at: null,
   },
 ];
 
-const INITIAL_USER_BRANCH_ACCESS: ReadonlyArray<
-  readonly [string, BranchAccessGrant[]]
-> = [
-  [
-    'b2222222-2222-4222-8222-222222222202',
-    [{ branch_id: DEFAULT_BRANCH_ID, branch_code: 'CAI-01' }],
-  ],
-];
+const MIN_PASSWORD_LENGTH = 12;
+const MAX_PASSWORD_LENGTH = 128;
 
-const VALID_ROLES: ReadonlySet<string> = new Set<Role>([
+const VALID_ROLES = [
   'Admin',
   'Pharmacist',
   'Cashier',
-]);
+] as const satisfies readonly UserRole[];
 
-const VALID_BRANCH_SCOPES: ReadonlySet<string> = new Set<BranchScope>([
+const VALID_BRANCH_SCOPES = [
   'ALL',
   'ASSIGNED',
-]);
+] as const satisfies readonly BranchScope[];
 
-let mockUsers: UserDto[] = INITIAL_USERS.map((user) => ({ ...user }));
-let mockUserBranchAccess = createInitialBranchAccessMap();
-let createdUserCounter = 0;
-
-function createInitialBranchAccessMap(): Map<string, BranchAccessGrant[]> {
-  return new Map(
-    INITIAL_USER_BRANCH_ACCESS.map(([userId, grants]) => [
-      userId,
-      grants.map((grant) => ({ ...grant })),
-    ])
-  );
+function cloneUser(user: User): User {
+  return {
+    ...user,
+    branch_ids: [...user.branch_ids],
+  };
 }
 
+let mockUsers: User[] = INITIAL_USERS.map(cloneUser);
+let createdUserCounter = 0;
+
 export function resetMockUsers(): void {
-  mockUsers = INITIAL_USERS.map((user) => ({ ...user }));
-  mockUserBranchAccess = createInitialBranchAccessMap();
+  mockUsers = INITIAL_USERS.map(cloneUser);
   createdUserCounter = 0;
 }
 
@@ -76,129 +92,259 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isRole(value: unknown): value is Role {
-  return typeof value === 'string' && VALID_ROLES.has(value);
+function isRole(value: unknown): value is UserRole {
+  return typeof value === 'string' && VALID_ROLES.some((r) => r === value);
 }
 
 function isBranchScope(value: unknown): value is BranchScope {
-  return typeof value === 'string' && VALID_BRANCH_SCOPES.has(value);
+  return (
+    typeof value === 'string' && VALID_BRANCH_SCOPES.some((s) => s === value)
+  );
 }
 
-function parseBranchAccessGrants(value: unknown): BranchAccessGrant[] | null {
+function parseBranchIds(value: unknown): string[] | null {
   if (!Array.isArray(value)) {
     return null;
   }
 
-  const grants: BranchAccessGrant[] = [];
+  const branchIds: string[] = [];
   const seen = new Set<string>();
 
   for (const item of value) {
-    if (!isRecord(item) || typeof item.branch_id !== 'string') {
+    if (typeof item !== 'string') {
       return null;
     }
-    const branchId = item.branch_id.trim();
-    if (branchId.length === 0 || seen.has(branchId)) {
-      continue;
+    const trimmed = item.trim();
+    if (trimmed.length === 0) {
+      return null;
     }
-    seen.add(branchId);
-    grants.push(
-      typeof item.branch_code === 'string'
-        ? { branch_id: branchId, branch_code: item.branch_code }
-        : { branch_id: branchId }
-    );
+    if (!seen.has(trimmed)) {
+      seen.add(trimmed);
+      branchIds.push(trimmed);
+    }
   }
 
-  return grants;
+  return branchIds;
+}
+
+function parseStrictPositiveInt(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    return null;
+  }
+  const parsed = Number(trimmed);
+  return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : null;
 }
 
 function nextMockUserId(): string {
   createdUserCounter += 1;
-  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
-    return globalThis.crypto.randomUUID();
-  }
-  const suffix = String(createdUserCounter + 2).padStart(12, '0');
-  return `b2222222-2222-4222-8222-${suffix}`;
+  const suffix = String(createdUserCounter + 3).padStart(12, '0');
+  return `11111111-4444-4111-8111-${suffix}`;
+}
+
+function errorResponse(
+  status: number,
+  code: ErrorCode,
+  message: string,
+  traceId: string,
+  details: NormalizedApiErrorDetail[] = []
+) {
+  const envelope: ApiErrorEnvelopeDto = {
+    error: {
+      code,
+      message,
+      details,
+      trace_id: traceId,
+    },
+  };
+  return HttpResponse.json(envelope, { status });
 }
 
 function userNotFoundResponse() {
-  return HttpResponse.json(
-    {
-      error: {
-        code: 'NOT_FOUND',
-        message: 'User account was not found.',
-        trace_id: 'mock-trace-user-not-found',
-      },
-    },
-    { status: 404 }
+  return errorResponse(
+    404,
+    'NOT_FOUND',
+    'User account was not found.',
+    'mock-trace-user-not-found'
+  );
+}
+
+function malformedBodyResponse() {
+  return errorResponse(
+    400,
+    'MALFORMED_REQUEST',
+    'Request body must be a valid JSON object.',
+    'mock-trace-user-malformed'
   );
 }
 
 function validationErrorResponse(
   message: string,
-  details: Array<{ field: string; issue: string }>
+  details: NormalizedApiErrorDetail[]
 ) {
-  return HttpResponse.json(
-    {
-      error: {
-        code: 'VALIDATION_ERROR',
-        message,
-        trace_id: 'mock-trace-user-validation',
-        details,
-      },
-    },
-    { status: 422 }
+  return errorResponse(
+    422,
+    'VALIDATION_ERROR',
+    message,
+    'mock-trace-user-validation',
+    details
   );
+}
+
+async function handleResetPassword(
+  userId: string | undefined,
+  request: Request
+) {
+  const index = mockUsers.findIndex((item) => item.user_id === userId);
+  if (index === -1) {
+    return userNotFoundResponse();
+  }
+
+  const current = mockUsers[index];
+  if (!current) {
+    return userNotFoundResponse();
+  }
+
+  const body: unknown = await request.json().catch(() => null);
+  if (!isRecord(body)) {
+    return malformedBodyResponse();
+  }
+
+  const newPassword =
+    typeof body.new_password === 'string' ? body.new_password : '';
+
+  if (newPassword.length < MIN_PASSWORD_LENGTH) {
+    return validationErrorResponse('Invalid password reset request.', [
+      {
+        field: 'new_password',
+        issue: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
+      },
+    ]);
+  }
+
+  if (newPassword.length > MAX_PASSWORD_LENGTH) {
+    return validationErrorResponse('Invalid password reset request.', [
+      {
+        field: 'new_password',
+        issue: `Password must be at most ${MAX_PASSWORD_LENGTH} characters.`,
+      },
+    ]);
+  }
+
+  const updated: User = {
+    ...current,
+    branch_ids: [...current.branch_ids],
+    lockout_end: null,
+    access_failed_count: 0,
+  };
+  mockUsers = mockUsers.map((item, idx) => (idx === index ? updated : item));
+
+  return new HttpResponse(null, { status: 204 });
 }
 
 export const userHandlers = [
   http.get('*/api/v1/users', ({ request }) => {
     const url = new URL(request.url);
-    const rawLimit = Number(url.searchParams.get('limit') ?? '20');
-    const parsedLimit = Math.floor(rawLimit);
-    const limit =
-      Number.isFinite(rawLimit) && parsedLimit > 0
-        ? Math.min(parsedLimit, 200)
-        : 20;
-    const rawCursor = Number(url.searchParams.get('cursor') ?? '0');
-    const parsedCursor = Math.floor(rawCursor);
-    const start =
-      Number.isFinite(rawCursor) && parsedCursor >= 0 ? parsedCursor : 0;
+    const details: NormalizedApiErrorDetail[] = [];
 
-    const items = mockUsers.slice(start, start + limit).map((user) => ({
-      ...user,
-    }));
-    const nextOffset = start + limit;
-    const nextCursor =
-      nextOffset < mockUsers.length ? String(nextOffset) : null;
+    const rawPage = url.searchParams.get('page');
+    let page = DEFAULT_PAGE;
+    if (rawPage !== null) {
+      const parsedPage = parseStrictPositiveInt(rawPage);
+      if (parsedPage === null) {
+        details.push({
+          field: 'page',
+          issue: 'Page must be an integer greater than or equal to 1.',
+        });
+      } else {
+        page = parsedPage;
+      }
+    }
 
-    return HttpResponse.json({ items, nextCursor }, { status: 200 });
+    const rawPageSize = url.searchParams.get('page_size');
+    let pageSize = DEFAULT_PAGE_SIZE;
+    if (rawPageSize !== null) {
+      const parsedPageSize = parseStrictPositiveInt(rawPageSize);
+      if (parsedPageSize === null || parsedPageSize > MAX_PAGE_SIZE) {
+        details.push({
+          field: 'page_size',
+          issue: `Page size must be an integer between 1 and ${MAX_PAGE_SIZE}.`,
+        });
+      } else {
+        pageSize = parsedPageSize;
+      }
+    }
+
+    const rawRole = url.searchParams.get('role');
+    let roleFilter: UserRole | null = null;
+    if (rawRole !== null && rawRole.trim().length > 0) {
+      if (isRole(rawRole)) {
+        roleFilter = rawRole;
+      } else {
+        details.push({
+          field: 'role',
+          issue: 'Role must be Admin, Pharmacist, or Cashier.',
+        });
+      }
+    }
+
+    if (details.length > 0) {
+      return validationErrorResponse('Invalid user list parameters.', details);
+    }
+
+    const includeInactive = url.searchParams.get('include_inactive') === 'true';
+    const branchId = url.searchParams.get('branch_id')?.trim() ?? '';
+
+    const filtered = mockUsers.filter((user) => {
+      if (!includeInactive && !user.is_active) {
+        return false;
+      }
+      if (roleFilter !== null && user.role !== roleFilter) {
+        return false;
+      }
+      if (
+        branchId.length > 0 &&
+        user.branch_scope !== 'ALL' &&
+        !user.branch_ids.includes(branchId)
+      ) {
+        return false;
+      }
+      return true;
+    });
+
+    const totalCount = filtered.length;
+    const start = (page - 1) * pageSize;
+    const items = filtered.slice(start, start + pageSize).map(cloneUser);
+    const nextCursor = start + pageSize < totalCount ? String(page + 1) : null;
+
+    const responseBody: PagedResult<User> = {
+      items,
+      page,
+      page_size: pageSize,
+      total_count: totalCount,
+      next_cursor: nextCursor,
+    };
+
+    return HttpResponse.json(responseBody, { status: 200 });
   }),
 
-  http.get('*/api/v1/users/:userId', ({ params }) => {
-    const user = mockUsers.find((item) => item.user_id === params.userId);
+  http.get('*/api/v1/users/:id', ({ params }) => {
+    const id = typeof params.id === 'string' ? params.id : '';
+    const user = mockUsers.find((item) => item.user_id === id);
     if (!user) {
       return userNotFoundResponse();
     }
 
-    return HttpResponse.json({ ...user }, { status: 200 });
+    return HttpResponse.json(cloneUser(user), { status: 200 });
   }),
 
   http.post('*/api/v1/users', async ({ request }) => {
     const body: unknown = await request.json().catch(() => null);
     if (!isRecord(body)) {
-      return HttpResponse.json(
-        {
-          error: {
-            code: 'MALFORMED_REQUEST',
-            message: 'Request body must be a valid JSON object.',
-            trace_id: 'mock-trace-user-malformed',
-          },
-        },
-        { status: 400 }
-      );
+      return malformedBodyResponse();
     }
 
-    const details: Array<{ field: string; issue: string }> = [];
+    const details: NormalizedApiErrorDetail[] = [];
 
     const employeeId =
       typeof body.employee_id === 'string' ? body.employee_id.trim() : '';
@@ -209,10 +355,8 @@ export const userHandlers = [
     const branchScope = isBranchScope(body.branch_scope)
       ? body.branch_scope
       : null;
-    const branchAccess =
-      body.branch_access === undefined
-        ? []
-        : parseBranchAccessGrants(body.branch_access);
+    const parsedBranchIds =
+      body.branch_ids === undefined ? [] : parseBranchIds(body.branch_ids);
 
     if (!employeeId) {
       details.push({ field: 'employee_id', issue: 'Employee is required.' });
@@ -227,15 +371,15 @@ export const userHandlers = [
       });
     }
 
-    if (password.length < 8) {
+    if (password.length < MIN_PASSWORD_LENGTH) {
       details.push({
         field: 'password',
-        issue: 'Password must be at least 8 characters.',
+        issue: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
       });
-    } else if (password.length > 128) {
+    } else if (password.length > MAX_PASSWORD_LENGTH) {
       details.push({
         field: 'password',
-        issue: 'Password must be at most 128 characters.',
+        issue: `Password must be at most ${MAX_PASSWORD_LENGTH} characters.`,
       });
     }
 
@@ -260,22 +404,22 @@ export const userHandlers = [
       });
     }
 
-    if (body.branch_access !== undefined && branchAccess === null) {
+    if (body.branch_ids !== undefined && parsedBranchIds === null) {
       details.push({
-        field: 'branch_access',
-        issue: 'Branch access grants must be a valid array.',
+        field: 'branch_ids',
+        issue: 'Branch IDs must be a valid array of branch IDs.',
       });
     } else if (
       branchScope === 'ASSIGNED' &&
-      (!branchAccess || branchAccess.length === 0)
+      (!parsedBranchIds || parsedBranchIds.length === 0)
     ) {
       details.push({
-        field: 'branch_access',
+        field: 'branch_ids',
         issue: 'Select at least one branch for ASSIGNED scope.',
       });
     }
 
-    if (details.length > 0 || !role || !branchScope) {
+    if (details.length > 0 || !role || !branchScope || !parsedBranchIds) {
       return validationErrorResponse('Invalid user account details.', details);
     }
 
@@ -284,21 +428,17 @@ export const userHandlers = [
       (item) => item.employee_id.toLowerCase() === normalizedEmployeeId
     );
     if (duplicateEmployee) {
-      return HttpResponse.json(
-        {
-          error: {
-            code: 'CONFLICT',
-            message: 'This employee already has a user account.',
-            trace_id: 'mock-trace-user-employee-conflict',
-            details: [
-              {
-                field: 'employee_id',
-                issue: 'An account already exists for this employee.',
-              },
-            ],
+      return errorResponse(
+        409,
+        'CONFLICT',
+        'This employee already has a user account.',
+        'mock-trace-user-employee-conflict',
+        [
+          {
+            field: 'employee_id',
+            issue: 'An account already exists for this employee.',
           },
-        },
-        { status: 409 }
+        ]
       );
     }
 
@@ -307,49 +447,41 @@ export const userHandlers = [
       (item) => item.username.toLowerCase() === normalizedUsername
     );
     if (duplicateUsername) {
-      return HttpResponse.json(
-        {
-          error: {
-            code: 'CONFLICT',
-            message: `Username "${username}" is already taken in this organization.`,
-            trace_id: 'mock-trace-user-username-conflict',
-            details: [
-              {
-                field: 'username',
-                issue: 'Username must be unique within the organization.',
-              },
-            ],
+      return errorResponse(
+        409,
+        'CONFLICT',
+        `Username "${username}" is already taken in this organization.`,
+        'mock-trace-user-username-conflict',
+        [
+          {
+            field: 'username',
+            issue: 'Username must be unique within the organization.',
           },
-        },
-        { status: 409 }
+        ]
       );
     }
 
-    const created: UserDto = {
+    const created: User = {
       user_id: nextMockUserId(),
       employee_id: employeeId,
+      organization_id: ORGANIZATION_ID,
       username,
       role,
       branch_scope: branchScope,
+      branch_ids: branchScope === 'ALL' ? [] : [...parsedBranchIds],
       is_active: true,
       access_failed_count: 0,
       lockout_end: null,
       last_login_at: null,
     };
 
-    if (branchScope === 'ASSIGNED' && branchAccess) {
-      mockUserBranchAccess.set(
-        created.user_id,
-        branchAccess.map((grant) => ({ ...grant }))
-      );
-    }
-
     mockUsers = [created, ...mockUsers];
-    return HttpResponse.json({ ...created }, { status: 201 });
+    return HttpResponse.json(cloneUser(created), { status: 201 });
   }),
 
-  http.patch('*/api/v1/users/:userId', async ({ params, request }) => {
-    const index = mockUsers.findIndex((item) => item.user_id === params.userId);
+  http.patch('*/api/v1/users/:id', async ({ params, request }) => {
+    const id = typeof params.id === 'string' ? params.id : '';
+    const index = mockUsers.findIndex((item) => item.user_id === id);
     if (index === -1) {
       return userNotFoundResponse();
     }
@@ -361,22 +493,13 @@ export const userHandlers = [
 
     const body: unknown = await request.json().catch(() => null);
     if (!isRecord(body)) {
-      return HttpResponse.json(
-        {
-          error: {
-            code: 'MALFORMED_REQUEST',
-            message: 'Request body must be a valid JSON object.',
-            trace_id: 'mock-trace-user-malformed',
-          },
-        },
-        { status: 400 }
-      );
+      return malformedBodyResponse();
     }
 
-    const details: Array<{ field: string; issue: string }> = [];
+    const details: NormalizedApiErrorDetail[] = [];
 
     let nextRole = current.role;
-    if (body.role !== undefined) {
+    if (body.role !== undefined && body.role !== null) {
       if (isRole(body.role)) {
         nextRole = body.role;
       } else {
@@ -388,7 +511,7 @@ export const userHandlers = [
     }
 
     let nextScope = current.branch_scope;
-    if (body.branch_scope !== undefined) {
+    if (body.branch_scope !== undefined && body.branch_scope !== null) {
       if (isBranchScope(body.branch_scope)) {
         nextScope = body.branch_scope;
       } else {
@@ -400,7 +523,7 @@ export const userHandlers = [
     }
 
     let nextIsActive = current.is_active;
-    if (body.is_active !== undefined) {
+    if (body.is_active !== undefined && body.is_active !== null) {
       if (typeof body.is_active === 'boolean') {
         nextIsActive = body.is_active;
       } else {
@@ -418,107 +541,67 @@ export const userHandlers = [
       });
     }
 
-    const hasBranchAccessField = body.branch_access !== undefined;
-    const parsedBranchAccess = hasBranchAccessField
-      ? parseBranchAccessGrants(body.branch_access)
-      : null;
+    const parsedBranchIds =
+      body.branch_ids !== undefined && body.branch_ids !== null
+        ? parseBranchIds(body.branch_ids)
+        : undefined;
 
-    if (hasBranchAccessField && parsedBranchAccess === null) {
+    if (parsedBranchIds === null) {
       details.push({
-        field: 'branch_access',
-        issue: 'Branch access grants must be a valid array.',
+        field: 'branch_ids',
+        issue: 'Branch IDs must be a valid array of branch IDs.',
       });
     } else if (nextScope === 'ASSIGNED') {
-      if (hasBranchAccessField && parsedBranchAccess?.length === 0) {
+      const candidateBranchIds =
+        parsedBranchIds !== undefined ? parsedBranchIds : current.branch_ids;
+      if (candidateBranchIds.length === 0) {
         details.push({
-          field: 'branch_access',
-          issue: 'Select at least one branch for ASSIGNED scope.',
-        });
-      } else if (
-        !hasBranchAccessField &&
-        current.branch_scope === 'ALL' &&
-        (mockUserBranchAccess.get(current.user_id)?.length ?? 0) === 0
-      ) {
-        details.push({
-          field: 'branch_access',
+          field: 'branch_ids',
           issue: 'Select at least one branch for ASSIGNED scope.',
         });
       }
     }
 
-    if (details.length > 0) {
+    if (details.length > 0 || parsedBranchIds === null) {
       return validationErrorResponse('Invalid user update details.', details);
     }
 
-    if (nextScope === 'ALL') {
-      mockUserBranchAccess.delete(current.user_id);
-    } else if (hasBranchAccessField && parsedBranchAccess) {
-      mockUserBranchAccess.set(
-        current.user_id,
-        parsedBranchAccess.map((grant) => ({ ...grant }))
-      );
-    }
+    const nextBranchIds =
+      nextScope === 'ALL'
+        ? []
+        : parsedBranchIds !== undefined
+          ? [...parsedBranchIds]
+          : [...current.branch_ids];
 
-    const updated: UserDto = {
+    const updated: User = {
       ...current,
       role: nextRole,
       branch_scope: nextScope,
+      branch_ids: nextBranchIds,
       is_active: nextIsActive,
     };
 
     mockUsers = mockUsers.map((item, idx) => (idx === index ? updated : item));
-    return HttpResponse.json({ ...updated }, { status: 200 });
+    return HttpResponse.json(cloneUser(updated), { status: 200 });
   }),
 
-  http.post(
-    '*/api/v1/users/:userId/password-reset',
-    async ({ params, request }) => {
-      const user = mockUsers.find((item) => item.user_id === params.userId);
-      if (!user) {
-        return userNotFoundResponse();
-      }
-
-      const body: unknown = await request.json().catch(() => null);
-      if (!isRecord(body)) {
-        return HttpResponse.json(
-          {
-            error: {
-              code: 'MALFORMED_REQUEST',
-              message: 'Request body must be a valid JSON object.',
-              trace_id: 'mock-trace-user-malformed',
-            },
-          },
-          { status: 400 }
-        );
-      }
-
-      const newPassword =
-        typeof body.new_password === 'string' ? body.new_password : '';
-
-      if (newPassword.length < 8) {
-        return validationErrorResponse('Invalid password reset request.', [
-          {
-            field: 'new_password',
-            issue: 'Password must be at least 8 characters.',
-          },
-        ]);
-      }
-
-      if (newPassword.length > 128) {
-        return validationErrorResponse('Invalid password reset request.', [
-          {
-            field: 'new_password',
-            issue: 'Password must be at most 128 characters.',
-          },
-        ]);
-      }
-
-      return new HttpResponse(null, { status: 204 });
-    }
+  http.post('*/api/v1/users/:id/password-reset', ({ params, request }) =>
+    handleResetPassword(
+      typeof params.id === 'string' ? params.id : undefined,
+      request
+    )
   ),
 
-  http.post('*/api/v1/users/:userId/revoke-sessions', ({ params }) => {
-    const user = mockUsers.find((item) => item.user_id === params.userId);
+  http.post('*/api/v1/users/:id/reset-password', ({ params, request }) =>
+    handleResetPassword(
+      typeof params.id === 'string' ? params.id : undefined,
+      request
+    )
+  ),
+
+  http.post('*/api/v1/users/:id/revoke-sessions', ({ params }) => {
+    const id = typeof params.id === 'string' ? params.id : '';
+    const user = mockUsers.find((item) => item.user_id === id);
     if (!user) {
       return userNotFoundResponse();
     }

@@ -4,15 +4,14 @@ import { Button } from '../../../components/ui/Button';
 import { Card, CardHeader } from '../../../components/ui/Card';
 import { EmptyState } from '../../../components/ui/EmptyState';
 import { Skeleton } from '../../../components/ui/Skeleton';
-import type { InventoryTxnDto } from '../../../types/api';
+import type { InventoryTxn } from '../../../types/api';
 import { useAdjustmentForm } from '../hooks/useAdjustmentForm';
 import { AdjustmentFormHeader } from './AdjustmentFormHeader';
 import { AdjustmentLineRow } from './AdjustmentLineRow';
-import { DraftAdjustmentsList } from './DraftAdjustmentsList';
 
 export interface StockAdjustmentsTabProps {
   branchId: string;
-  initialReversalTxn?: InventoryTxnDto | null;
+  initialReversalTxn?: InventoryTxn | null;
   onClearReversal?: () => void;
 }
 
@@ -41,43 +40,25 @@ export function StockAdjustmentsTab({
         ) : (
           <EmptyState
             title="Select a branch"
-            description="Choose an active branch to view draft adjustments or post stock movements."
+            description="Choose an active branch to post stock adjustments or reversals."
           />
         )}
       </Card>
     );
   }
 
-  const linesError =
-    form.errors.lines?.root?.message ??
-    (typeof form.errors.lines?.message === 'string'
-      ? form.errors.lines.message
-      : undefined);
-
   return (
     <div className="flex flex-col gap-4">
-      {form.runtime !== 'BranchLocal' ? (
-        <Alert variant="info" title="BranchLocal runtime required">
-          Stock adjustments and opening balances must be posted on the
-          BranchLocal runtime.
-        </Alert>
-      ) : !form.canWriteAdjustments ? (
-        <Alert variant="info" title="Read-only access">
-          Posting or editing stock adjustments requires the inventory:write
-          permission.
+      {form.readOnlyNotice ? (
+        <Alert variant="info" title={form.readOnlyNotice.title}>
+          {form.readOnlyNotice.body}
         </Alert>
       ) : null}
 
-      <DraftAdjustmentsList {...form.draftListProps} />
-
       <Card>
         <CardHeader
-          title={
-            form.editingDraftTxn
-              ? `Edit Draft ${form.editingDraftTxn.transaction_no}`
-              : 'Stock Adjustments & Opening Balance'
-          }
-          description="Record opening stock, authorized adjustments, or reversals of posted ledger transactions."
+          title="Stock Adjustments & Opening Balance"
+          description="Post atomic opening balances, stock adjustments, or reversals of posted ledger transactions."
         />
         <div className="p-4">
           {form.hasLookupsError ? (
@@ -105,78 +86,55 @@ export function StockAdjustmentsTab({
               className="flex flex-col gap-4"
               noValidate
             >
-              {form.submitError && (
+              {form.submitError ? (
                 <Alert variant="danger" title="Adjustment submission failed">
                   {form.submitError}
                 </Alert>
-              )}
-              {form.editingDraftTxn && (
-                <Alert variant="info">
-                  Editing draft {form.editingDraftTxn.transaction_no}.
-                  Transaction type and reversal target cannot be changed.
-                </Alert>
-              )}
+              ) : null}
               <AdjustmentFormHeader {...form.headerProps} />
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="text-card-title text-text">Adjustment lines</h3>
-                <Button
-                  variant="secondary"
-                  disabled={form.isFormDisabled}
-                  leadingIcon={<Plus className="h-4 w-4" aria-hidden="true" />}
-                  onClick={form.handleAddLine}
-                >
-                  Add line
-                </Button>
-              </div>
-              {linesError && <Alert variant="danger">{linesError}</Alert>}
-              <div className="flex flex-col gap-3">
-                {form.fields.map((field, index) => (
-                  <AdjustmentLineRow
-                    key={field.id}
-                    index={index}
-                    totalLines={form.fields.length}
-                    transactionType={form.transactionType}
-                    disabled={form.isFormDisabled}
-                    products={form.products}
-                    locations={form.locations}
-                    batches={form.batches}
-                    control={form.control}
-                    lineErrors={form.errors.lines?.[index]}
-                    onProductChange={form.handleLineProductChange}
-                    onRemove={form.handleRemoveLine}
-                  />
-                ))}
-              </div>
-              {form.canWriteAdjustments && (
-                <div className="border-border flex flex-wrap items-center justify-end gap-2 border-t pt-4">
-                  {form.editingDraftTxn ? (
-                    <>
-                      <Button
-                        variant="secondary"
-                        disabled={form.isSubmittingForm}
-                        onClick={form.handleCancelEditDraft}
-                      >
-                        Cancel editing
-                      </Button>
-                      <Button
-                        type="submit"
-                        disabled={form.isSubmittingForm || !form.isDirty}
-                        isLoading={form.isSubmittingForm}
-                      >
-                        Save draft changes
-                      </Button>
-                    </>
-                  ) : (
+              {form.transactionType !== 'REVERSAL' ? (
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-card-title text-text">
+                      Adjustment lines
+                    </h3>
                     <Button
-                      type="submit"
-                      disabled={form.isSubmittingForm}
-                      isLoading={form.isSubmittingForm}
+                      variant="secondary"
+                      disabled={form.isFormDisabled}
+                      leadingIcon={
+                        <Plus className="h-4 w-4" aria-hidden="true" />
+                      }
+                      onClick={form.handleAddLine}
                     >
-                      Submit adjustment
+                      Add line
                     </Button>
-                  )}
+                  </div>
+                  {form.linesError ? (
+                    <Alert variant="danger">{form.linesError}</Alert>
+                  ) : null}
+                  <div className="flex flex-col gap-3">
+                    {form.fields.map((field, index) => (
+                      <AdjustmentLineRow
+                        key={field.id}
+                        index={index}
+                        lineErrors={form.errors.lines?.[index]}
+                        {...form.lineRowBaseProps}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : null}
+              {form.canWriteAdjustments ? (
+                <div className="border-border flex flex-wrap items-center justify-end gap-2 border-t pt-4">
+                  <Button
+                    type="submit"
+                    disabled={form.isSubmittingForm}
+                    isLoading={form.isSubmittingForm}
+                  >
+                    Submit adjustment
+                  </Button>
                 </div>
-              )}
+              ) : null}
             </form>
           )}
         </div>

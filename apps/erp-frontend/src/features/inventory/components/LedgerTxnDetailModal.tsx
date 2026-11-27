@@ -3,7 +3,6 @@ import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { EmptyState } from '../../../components/ui/EmptyState';
 import { Modal } from '../../../components/ui/Modal';
-import { Skeleton } from '../../../components/ui/Skeleton';
 import {
   Table,
   TableBody,
@@ -12,54 +11,42 @@ import {
   TableHeader,
   TableRow,
 } from '../../../components/ui/Table';
-import type { InventoryTxnDto } from '../../../types/api';
+import type { InventoryTxn } from '../../../types/api';
 import {
   buildLedgerTxnMetaRows,
-  formatSignedDelta,
+  formatLedgerTxnLines,
   getTxnStatusBadgeVariant,
   getTxnTypeBadgeVariant,
+  NUMERIC_LINE_HEADERS,
   type LedgerLookupFormatters,
 } from '../hooks/useLedgerHistoryState';
-import { formatNumericDisplay } from '../schemas/inventoryAdjustmentSchema';
-
-const NUMERIC_LINE_HEADERS = [
-  'Entered qty',
-  'Conversion',
-  'Delta (base)',
-  'Unit cost (base)',
-] as const;
 
 export interface LedgerTxnDetailModalProps {
   open: boolean;
-  txn: InventoryTxnDto | undefined;
-  isLoading: boolean;
-  isError: boolean;
-  errorMessage?: string;
-  isRetrying: boolean;
+  txn: InventoryTxn | null;
   canWriteAdjustments: boolean;
   lookups: LedgerLookupFormatters;
-  onRetry: () => void;
   onClose: () => void;
-  onReverseTransaction: (txn: InventoryTxnDto) => void;
+  onReverseTransaction: (txn: InventoryTxn) => void;
 }
 
 export function LedgerTxnDetailModal({
   open,
   txn,
-  isLoading,
-  isError,
-  errorMessage,
-  isRetrying,
   canWriteAdjustments,
   lookups,
-  onRetry,
   onClose,
   onReverseTransaction,
 }: LedgerTxnDetailModalProps) {
-  const canReverse = txn?.status === 'POSTED' && canWriteAdjustments;
+  const canReverse =
+    txn !== null &&
+    txn.status === 'POSTED' &&
+    txn.transaction_type !== 'REVERSAL' &&
+    canWriteAdjustments;
   const metaRows = txn
     ? buildLedgerTxnMetaRows(txn, lookups.getEmployeeLabel)
     : [];
+  const lineRows = txn ? formatLedgerTxnLines(txn, lookups) : [];
 
   return (
     <Modal
@@ -72,50 +59,27 @@ export function LedgerTxnDetailModal({
           <Button variant="secondary" onClick={onClose}>
             Close
           </Button>
-          {canReverse && (
+          {canReverse ? (
             <Button variant="primary" onClick={() => onReverseTransaction(txn)}>
               Reverse transaction
             </Button>
-          )}
+          ) : null}
         </>
       }
     >
-      {isLoading ? (
-        <div
-          role="status"
-          aria-busy="true"
-          aria-label="Loading transaction details"
-          className="flex flex-col gap-3"
-        >
-          <Skeleton className="h-16 w-full" />
-          <Skeleton className="h-28 w-full" />
-        </div>
-      ) : isError ? (
-        <Alert variant="danger" title="Could not load transaction details">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span>{errorMessage ?? 'Unable to load transaction details.'}</span>
-            <Button
-              variant="secondary"
-              isLoading={isRetrying}
-              onClick={onRetry}
-            >
-              Retry
-            </Button>
-          </div>
-        </Alert>
-      ) : !txn ? (
+      {!txn ? (
         <EmptyState
           title="Transaction not found"
           description="Select a ledger transaction to inspect its lines."
         />
       ) : (
         <div className="flex flex-col gap-4">
-          {txn.status === 'POSTED' && (
+          {txn.status === 'POSTED' ? (
             <Alert variant="info" title="Immutable posted record">
-              Posted ledger transactions are append-only and cannot be edited or
-              deleted. Corrections require a REVERSAL transaction.
+              Posted ledger transactions are append-only. Corrections require a
+              REVERSAL transaction.
             </Alert>
-          )}
+          ) : null}
           <dl className="border-border bg-background grid grid-cols-2 gap-3 rounded-md border p-3">
             <div>
               <dt className="text-caption text-text-muted uppercase">Type</dt>
@@ -134,23 +98,13 @@ export function LedgerTxnDetailModal({
               </dd>
             </div>
             {metaRows.map((row) => (
-              <div key={row.label}>
+              <div key={row.label} className={row.wrapClass}>
                 <dt className="text-caption text-text-muted uppercase">
                   {row.label}
                 </dt>
-                <dd className="text-body-sm text-text mt-1">{row.value}</dd>
+                <dd className={row.valueClass}>{row.value}</dd>
               </div>
             ))}
-            {txn.reverses_inventory_txn_id && (
-              <div className="col-span-2">
-                <dt className="text-caption text-text-muted uppercase">
-                  Reverses transaction
-                </dt>
-                <dd className="text-body-sm text-text mt-1 font-mono">
-                  {txn.reverses_inventory_txn_id}
-                </dd>
-              </div>
-            )}
           </dl>
           <Table>
             <TableHeader>
@@ -166,28 +120,17 @@ export function LedgerTxnDetailModal({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {txn.lines.map((line) => (
-                <TableRow key={line.inventory_txn_line_id}>
-                  <TableCell>
-                    {lookups.getProductLabel(line.product_id)}
-                  </TableCell>
-                  <TableCell>
-                    {lookups.getLocationLabel(line.location_id)}
-                  </TableCell>
-                  <TableCell>{lookups.getBatchLabel(line.batch_id)}</TableCell>
-                  <TableCell numeric>
-                    {formatNumericDisplay(line.entered_qty)}{' '}
-                    {lookups.getUomLabel(line.product_id, line.product_uom_id)}
-                  </TableCell>
-                  <TableCell numeric>
-                    {formatNumericDisplay(line.conversion_snapshot)}
-                  </TableCell>
+              {lineRows.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell>{row.product}</TableCell>
+                  <TableCell>{row.location}</TableCell>
+                  <TableCell className="font-mono">{row.batch}</TableCell>
+                  <TableCell numeric>{row.entered}</TableCell>
+                  <TableCell numeric>{row.conversion}</TableCell>
                   <TableCell numeric className="font-mono font-semibold">
-                    {formatSignedDelta(line.quantity_delta_base)}
+                    {row.delta}
                   </TableCell>
-                  <TableCell numeric>
-                    {formatNumericDisplay(line.unit_cost_base)}
-                  </TableCell>
+                  <TableCell numeric>{row.cost}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
