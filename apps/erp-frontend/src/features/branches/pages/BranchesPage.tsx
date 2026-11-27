@@ -1,3 +1,4 @@
+import { hasNextNumberedPage } from '../../../lib/api/pagination';
 import { Plus } from 'lucide-react';
 import { Alert } from '../../../components/ui/Alert';
 import { Button } from '../../../components/ui/Button';
@@ -26,7 +27,7 @@ export function BranchesPage() {
     : null;
 
   const pageData = branchesQuery.data;
-  const hasNextPage = (pageData?.next_cursor ?? null) !== null;
+  const hasNextPage = hasNextNumberedPage(pageData);
   const showPagination =
     !branchesQuery.isLoading &&
     !branchesQuery.isError &&

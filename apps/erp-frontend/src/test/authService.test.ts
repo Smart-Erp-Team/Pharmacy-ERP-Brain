@@ -34,6 +34,11 @@ describe('authService & MSW integration (Stage 1)', () => {
   });
 
   it('getCurrentUser() retrieves flat Stage 1 CurrentUserDto fixture', async () => {
+    await authService.login({
+      organization_code: 'MEDCARE',
+      username: 'admin@medcare.test',
+      password: 'password123',
+    });
     const ctx = await authService.getCurrentUser();
 
     expect(ctx.username).toBe('admin@medcare.test');

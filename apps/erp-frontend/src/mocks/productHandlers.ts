@@ -1,8 +1,8 @@
+import { createMockWrites } from './mockWrites';
 import { http, HttpResponse } from 'msw';
 import inventoryBalanceFixture from '@contracts/fixtures/inventory-balance.json';
 import productFixture from '@contracts/fixtures/product.json';
 import { normalizeProduct } from '../lib/api/catalogInventoryNormalizers';
-import { IDEMPOTENCY_KEY_MAX_LENGTH } from '../lib/api/idempotency';
 import { isPlainRecord } from '../lib/api/normalizers';
 import type {
   ErrorCode,
@@ -279,7 +279,10 @@ let mockProducts: Product[] = INITIAL_PRODUCTS.map(cloneProduct);
 let mockReorderRules = createInitialReorderMap();
 let idCounter = 100;
 
+const writes = createMockWrites();
+
 export function resetMockCatalog(): void {
+  writes.reset();
   mockCategories = INITIAL_CATEGORIES.map(cloneCategory);
   mockProducts = INITIAL_PRODUCTS.map(cloneProduct);
   mockReorderRules = createInitialReorderMap();
@@ -378,31 +381,6 @@ function conflictResponse(
     ),
     { status: 409 }
   );
-}
-
-function validateIdempotencyKeyHeader(
-  request: Request,
-  body: Record<string, unknown>
-): Response | null {
-  const headerKey = request.headers.get('Idempotency-Key')?.trim() ?? '';
-  const bodyKey =
-    typeof body.idempotency_key === 'string' ? body.idempotency_key.trim() : '';
-  const effectiveKey = headerKey || bodyKey;
-
-  if (!effectiveKey) {
-    return malformedRequestResponse('The idempotency key is required.', [
-      { field: 'Idempotency-Key', issue: 'The idempotency key is required.' },
-    ]);
-  }
-  if (effectiveKey.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
-    return validationErrorResponse('Invalid idempotency key.', [
-      {
-        field: 'idempotency_key',
-        issue: `Idempotency key must be at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`,
-      },
-    ]);
-  }
-  return null;
 }
 
 function parsePositiveIntegerParam(raw: string | null, fallback: number) {
@@ -750,17 +728,12 @@ export const productHandlers = [
     return HttpResponse.json(cloneCategory(category), { status: 200 });
   }),
 
-  http.post('*/api/v1/product-categories', async ({ request }) => {
+  writes.post('*/api/v1/product-categories', async ({ request }) => {
     const body: unknown = await request.json().catch(() => null);
     if (!isPlainRecord(body)) {
       return malformedRequestResponse(
         'Request body must be a valid JSON object.'
       );
-    }
-
-    const idempotencyError = validateIdempotencyKeyHeader(request, body);
-    if (idempotencyError) {
-      return idempotencyError;
     }
 
     const details: NormalizedApiErrorDetail[] = [];
@@ -852,7 +825,7 @@ export const productHandlers = [
     return HttpResponse.json(cloneCategory(created), { status: 201 });
   }),
 
-  http.patch(
+  writes.patch(
     '*/api/v1/product-categories/:categoryId',
     async ({ params, request }) => {
       const categoryId =
@@ -868,11 +841,6 @@ export const productHandlers = [
       const body: unknown = await request.json().catch(() => null);
       if (!isPlainRecord(body)) {
         return malformedRequestResponse('Malformed category patch payload.');
-      }
-
-      const idempotencyError = validateIdempotencyKeyHeader(request, body);
-      if (idempotencyError) {
-        return idempotencyError;
       }
 
       const details: NormalizedApiErrorDetail[] = [];
@@ -1042,17 +1010,12 @@ export const productHandlers = [
     return HttpResponse.json(cloneProduct(product), { status: 200 });
   }),
 
-  http.post('*/api/v1/products', async ({ request }) => {
+  writes.post('*/api/v1/products', async ({ request }) => {
     const body: unknown = await request.json().catch(() => null);
     if (!isPlainRecord(body)) {
       return malformedRequestResponse(
         'Request body must be a valid JSON object.'
       );
-    }
-
-    const idempotencyError = validateIdempotencyKeyHeader(request, body);
-    if (idempotencyError) {
-      return idempotencyError;
     }
 
     const details: NormalizedApiErrorDetail[] = [];
@@ -1292,7 +1255,7 @@ export const productHandlers = [
     return HttpResponse.json(cloneProduct(created), { status: 201 });
   }),
 
-  http.patch('*/api/v1/products/:productId', async ({ params, request }) => {
+  writes.patch('*/api/v1/products/:productId', async ({ params, request }) => {
     const productId =
       typeof params.productId === 'string' ? params.productId : '';
     const index = mockProducts.findIndex(
@@ -1308,18 +1271,16 @@ export const productHandlers = [
       return malformedRequestResponse('Malformed product patch payload.');
     }
 
-    const idempotencyError = validateIdempotencyKeyHeader(request, body);
-    if (idempotencyError) {
-      return idempotencyError;
-    }
-
     const details: NormalizedApiErrorDetail[] = [];
 
     let nextCategoryId = current.category_id;
     if (body.category_id !== undefined && body.category_id !== null) {
       const candidate = readTrimmedString(body.category_id);
       if (!candidate) {
-        details.push({ field: 'category_id', issue: 'Category is required.' });
+        details.push({
+          field: 'category_id',
+          issue: 'Category is required.',
+        });
       } else {
         nextCategoryId = candidate;
       }
@@ -1618,7 +1579,7 @@ export const productHandlers = [
     return HttpResponse.json(visibleUoms.map(cloneUom), { status: 200 });
   }),
 
-  http.post(
+  writes.post(
     '*/api/v1/products/:productId/uoms',
     async ({ params, request }) => {
       const productId =
@@ -1637,11 +1598,6 @@ export const productHandlers = [
         return malformedRequestResponse(
           'Request body must be a valid JSON object.'
         );
-      }
-
-      const idempotencyError = validateIdempotencyKeyHeader(request, body);
-      if (idempotencyError) {
-        return idempotencyError;
       }
 
       const details: NormalizedApiErrorDetail[] = [];
@@ -1695,7 +1651,7 @@ export const productHandlers = [
     }
   ),
 
-  http.patch(
+  writes.patch(
     '*/api/v1/products/:productId/uoms/:uomId',
     async ({ params, request }) => {
       const productId =
@@ -1721,11 +1677,6 @@ export const productHandlers = [
       const body: unknown = await request.json().catch(() => null);
       if (!isPlainRecord(body)) {
         return malformedRequestResponse('Malformed UOM patch payload.');
-      }
-
-      const idempotencyError = validateIdempotencyKeyHeader(request, body);
-      if (idempotencyError) {
-        return idempotencyError;
       }
 
       if (body.is_active === false && currentUom.is_base) {
@@ -1950,7 +1901,7 @@ export const productHandlers = [
     }
   ),
 
-  http.put(
+  writes.put(
     '*/api/v1/branches/:branchId/products/:productId/reorder-rule',
     async ({ params, request }) => {
       const branchId =
@@ -1970,11 +1921,6 @@ export const productHandlers = [
         return malformedRequestResponse(
           'Request body must be a valid JSON object.'
         );
-      }
-
-      const idempotencyError = validateIdempotencyKeyHeader(request, body);
-      if (idempotencyError) {
-        return idempotencyError;
       }
 
       const details: NormalizedApiErrorDetail[] = [];

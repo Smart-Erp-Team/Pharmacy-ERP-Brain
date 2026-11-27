@@ -7,7 +7,10 @@ import { useAllProductsQuery, type Product } from '../../../features/products';
 import { useAuth } from '../../../hooks/useAuth';
 import { isInventoryTransactionType } from '../../../lib/api/catalogInventoryNormalizers';
 import { ApiClientError } from '../../../lib/api/client';
-import { DEFAULT_PAGE_SIZE } from '../../../lib/api/pagination';
+import {
+  hasNextNumberedPage,
+  DEFAULT_PAGE_SIZE,
+} from '../../../lib/api/pagination';
 import type {
   InventoryLocation,
   InventoryTransactionStatus,
@@ -389,7 +392,7 @@ export function useLedgerHistoryState({
   };
 
   const totalCount = transactionsQuery.data?.total_count ?? null;
-  const hasNextPage = (transactionsQuery.data?.next_cursor ?? null) !== null;
+  const hasNextPage = hasNextNumberedPage(transactionsQuery.data);
 
   const handlePageChange = (nextPage: number) => {
     if (nextPage < 1) {

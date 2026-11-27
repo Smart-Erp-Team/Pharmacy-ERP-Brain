@@ -1,6 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { MEDCARE_ORG_CODE, mockAuthMe } from './helpers/authContext.ts';
-import { mockApiError } from './helpers/mswBridge.ts';
+import {
+  currentUserFixture,
+  MEDCARE_ORG_CODE,
+  mockAuthMe,
+} from './helpers/authContext.ts';
+import { mockApiError, mockApiResponse } from './helpers/mswBridge.ts';
 import {
   loginAsWorkspaceUser,
   submitLoginForm,
@@ -55,8 +59,8 @@ test.describe('@smoke Auth, Service Worker & Session Lifecycle', () => {
     context,
   }) => {
     const pageErrors = trackUncaughtErrors(page);
-    await mockAuthMe(page);
-    await loginAsWorkspaceUser(page);
+    const username = 'sarah.pharm@medcare.test';
+    await loginAsWorkspaceUser(page, '/login', { username });
 
     const storageAudit = await page.evaluate(() => ({
       hasAccessToken: Boolean(
@@ -77,6 +81,21 @@ test.describe('@smoke Auth, Service Worker & Session Lifecycle', () => {
     await expect(page.getByRole('button', { name: 'Logout' })).toBeVisible();
     await expect(
       page.getByRole('banner').getByText(MEDCARE_ORG_CODE, { exact: true })
+    ).toBeVisible();
+
+    await expect(
+      page.getByRole('complementary').getByText(username)
+    ).toBeVisible();
+    await page.evaluate(() =>
+      sessionStorage.setItem('erp_access_token', 'stale')
+    );
+    const refreshed = page.waitForResponse(
+      (res) => res.url().endsWith('/auth/refresh') && res.status() === 200
+    );
+    await page.reload();
+    await refreshed;
+    await expect(
+      page.getByRole('complementary').getByText(username)
     ).toBeVisible();
 
     const newTab = await context.newPage();
@@ -134,4 +153,38 @@ test.describe('@smoke Auth, Service Worker & Session Lifecycle', () => {
     ).toBeVisible();
     expect(pageErrors).toEqual([]);
   });
+});
+
+test('retries the first session hydration without sending credentials again', async ({
+  page,
+}) => {
+  await mockApiError(page, {
+    method: 'GET',
+    path: '/api/v1/auth/me',
+    status: 503,
+    code: 'INTERNAL_SERVER_ERROR',
+    message: 'Temporarily offline',
+  });
+  let logins = 0;
+  page.on('request', (req) => {
+    if (
+      req.method() === 'POST' &&
+      new URL(req.url()).pathname.endsWith('/auth/login')
+    )
+      logins++;
+  });
+  await page.goto('/products');
+  await waitForMswReady(page);
+  await submitLoginForm(page);
+  await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Products' })).toBeHidden();
+  await mockApiResponse(page, {
+    method: 'GET',
+    path: '/api/v1/auth/me',
+    status: 200,
+    body: currentUserFixture,
+  });
+  await page.getByRole('button', { name: 'Retry' }).click();
+  await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible();
+  expect(logins).toBe(1);
 });

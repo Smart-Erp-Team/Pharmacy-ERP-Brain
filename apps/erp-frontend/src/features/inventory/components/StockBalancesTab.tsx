@@ -84,6 +84,15 @@ export function StockBalancesTab({ branchId }: StockBalancesTabProps) {
           </p>
         ) : null}
 
+        {state.hasLookupError ? (
+          <Alert variant="warning" title="Some lookup details are unavailable">
+            Balances are available. Barcode search, expiry alerts or location
+            choices may be incomplete.
+            <Button variant="secondary" onClick={state.retry}>
+              Retry lookups
+            </Button>
+          </Alert>
+        ) : null}
         {state.isLoading ? (
           <div className="flex flex-col gap-2">
             <Skeleton className="h-10 w-full" />
@@ -92,8 +101,7 @@ export function StockBalancesTab({ branchId }: StockBalancesTabProps) {
         ) : state.isError ? (
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <Alert variant="danger" title="Could not load stock balances">
-              Unable to retrieve balances, locations, or product details for
-              this branch.
+              Unable to retrieve balances for this branch.
             </Alert>
             <Button variant="secondary" onClick={state.retry}>
               Retry
@@ -126,9 +134,9 @@ export function StockBalancesTab({ branchId }: StockBalancesTabProps) {
               <TableHeader>
                 <TableRow>
                   <TableHead>Product</TableHead>
-                  <TableHead numeric>On-hand (base)</TableHead>
-                  <TableHead numeric>Available (base)</TableHead>
-                  <TableHead numeric>Avg unit cost</TableHead>
+                  <TableHead numeric>On-hand (shown rows)</TableHead>
+                  <TableHead numeric>Available (shown rows)</TableHead>
+                  <TableHead numeric>Avg cost (shown rows)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

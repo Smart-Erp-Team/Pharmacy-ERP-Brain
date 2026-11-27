@@ -1,9 +1,6 @@
+import { createMockWrites } from './mockWrites';
 import { http, HttpResponse } from 'msw';
 import currentUserContext from '@contracts/fixtures/current-user-context.json';
-import {
-  IDEMPOTENCY_KEY_HEADER,
-  IDEMPOTENCY_KEY_MAX_LENGTH,
-} from '../lib/api/idempotency';
 import {
   DEFAULT_PAGE,
   DEFAULT_PAGE_SIZE,
@@ -88,7 +85,10 @@ function cloneUser(user: User): User {
 let mockUsers: User[] = INITIAL_USERS.map(cloneUser);
 let createdUserCounter = 0;
 
+const writes = createMockWrites();
+
 export function resetMockUsers(): void {
+  writes.reset();
   mockUsers = INITIAL_USERS.map(cloneUser);
   createdUserCounter = 0;
 }
@@ -196,39 +196,6 @@ function validationErrorResponse(
   );
 }
 
-function requireIdempotencyKey(request: Request): Response | null {
-  const key = request.headers.get(IDEMPOTENCY_KEY_HEADER)?.trim() ?? '';
-  if (key.length === 0) {
-    return errorResponse(
-      400,
-      'MALFORMED_REQUEST',
-      'The idempotency key is required.',
-      'mock-trace-user-idempotency-missing',
-      [
-        {
-          field: IDEMPOTENCY_KEY_HEADER,
-          issue: 'The idempotency key is required.',
-        },
-      ]
-    );
-  }
-  if (key.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
-    return errorResponse(
-      400,
-      'MALFORMED_REQUEST',
-      `The idempotency key must be at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`,
-      'mock-trace-user-idempotency-length',
-      [
-        {
-          field: IDEMPOTENCY_KEY_HEADER,
-          issue: `The idempotency key must be at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`,
-        },
-      ]
-    );
-  }
-  return null;
-}
-
 function getAssignedAdminActor(): CurrentUser | null {
   const actor = useAuthStore.getState().currentUser;
   if (actor && actor.role === 'Admin' && actor.branch_scope === 'ASSIGNED') {
@@ -268,11 +235,6 @@ async function handleResetPassword(
   userId: string | undefined,
   request: Request
 ) {
-  const idempotencyError = requireIdempotencyKey(request);
-  if (idempotencyError) {
-    return idempotencyError;
-  }
-
   const index = mockUsers.findIndex((item) => item.user_id === userId);
   if (index === -1) {
     return userNotFoundResponse();
@@ -428,12 +390,7 @@ export const userHandlers = [
     return HttpResponse.json(cloneUser(user), { status: 200 });
   }),
 
-  http.post('*/api/v1/users', async ({ request }) => {
-    const idempotencyError = requireIdempotencyKey(request);
-    if (idempotencyError) {
-      return idempotencyError;
-    }
-
+  writes.post('*/api/v1/users', async ({ request }) => {
     const body: unknown = await request.json().catch(() => null);
     if (!isRecord(body)) {
       return malformedBodyResponse();
@@ -591,12 +548,7 @@ export const userHandlers = [
     return HttpResponse.json(cloneUser(created), { status: 201 });
   }),
 
-  http.patch('*/api/v1/users/:id', async ({ params, request }) => {
-    const idempotencyError = requireIdempotencyKey(request);
-    if (idempotencyError) {
-      return idempotencyError;
-    }
-
+  writes.patch('*/api/v1/users/:id', async ({ params, request }) => {
     const id = typeof params.id === 'string' ? params.id : '';
     const index = mockUsers.findIndex((item) => item.user_id === id);
     if (index === -1) {
@@ -726,26 +678,21 @@ export const userHandlers = [
     return HttpResponse.json(cloneUser(updated), { status: 200 });
   }),
 
-  http.post('*/api/v1/users/:id/password-reset', ({ params, request }) =>
+  writes.post('*/api/v1/users/:id/password-reset', ({ params, request }) =>
     handleResetPassword(
       typeof params.id === 'string' ? params.id : undefined,
       request
     )
   ),
 
-  http.post('*/api/v1/users/:id/reset-password', ({ params, request }) =>
+  writes.post('*/api/v1/users/:id/reset-password', ({ params, request }) =>
     handleResetPassword(
       typeof params.id === 'string' ? params.id : undefined,
       request
     )
   ),
 
-  http.post('*/api/v1/users/:id/revoke-sessions', ({ params, request }) => {
-    const idempotencyError = requireIdempotencyKey(request);
-    if (idempotencyError) {
-      return idempotencyError;
-    }
-
+  writes.post('*/api/v1/users/:id/revoke-sessions', ({ params }) => {
     const id = typeof params.id === 'string' ? params.id : '';
     const user = mockUsers.find((item) => item.user_id === id);
     if (!user) {

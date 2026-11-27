@@ -67,6 +67,39 @@ export interface AuthState {
   resetSession: () => void;
 }
 
+async function hydrateSession(set: (state: Partial<AuthState>) => void) {
+  try {
+    const user = await authService.getCurrentUser();
+    set({
+      currentUser: user,
+      organizationCode: tokenStorage.getOrganizationCode(),
+      activeBranchId: resolveInitialBranchId(user),
+      isAuthenticated: true,
+      isInitializing: false,
+      initError: null,
+    });
+  } catch (error) {
+    const rejected = isDefinitiveAuthRejection(error);
+    if (rejected) {
+      tokenStorage.clearTokens();
+      queryClient.clear();
+    }
+    set({
+      currentUser: null,
+      organizationCode: null,
+      activeBranchId: null,
+      isAuthenticated: false,
+      isInitializing: false,
+      initError: rejected
+        ? null
+        : error instanceof Error && error.message.trim()
+          ? error.message
+          : DEFAULT_SESSION_INIT_ERROR,
+    });
+    throw error;
+  }
+}
+
 export const useAuthStore = create<AuthState>()((set, get) => ({
   currentUser: null,
   organizationCode: null,
@@ -79,23 +112,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     // 1. Authenticate with credentials and store tokens + organization code
     await authService.login(credentials);
 
-    // 2. Fetch authoritative flat CurrentUserDto; roll back stored session if
-    //    context hydration fails so storage and UI session state stay aligned.
-    try {
-      const userContext = await authService.getCurrentUser();
-
-      set({
-        currentUser: userContext,
-        organizationCode: tokenStorage.getOrganizationCode(),
-        activeBranchId: resolveInitialBranchId(userContext),
-        isAuthenticated: true,
-        isInitializing: false,
-        initError: null,
-      });
-    } catch (error: unknown) {
-      get().resetSession();
-      throw error;
-    }
+    await hydrateSession(set);
   },
 
   logout: async () => {
@@ -132,46 +149,14 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     }
 
     try {
-      const userContext = await authService.getCurrentUser();
-      set({
-        currentUser: userContext,
-        organizationCode: tokenStorage.getOrganizationCode(),
-        activeBranchId: resolveInitialBranchId(userContext),
-        isAuthenticated: true,
-        isInitializing: false,
-        initError: null,
-      });
-    } catch (error: unknown) {
+      await hydrateSession(set);
+    } catch (error) {
       console.warn('Failed to restore auth session from storage', error);
-
-      if (isDefinitiveAuthRejection(error)) {
-        tokenStorage.clearTokens();
-        set({
-          currentUser: null,
-          organizationCode: null,
-          activeBranchId: null,
-          isAuthenticated: false,
-          isInitializing: false,
-          initError: null,
-        });
-        return;
-      }
-
-      set({
-        currentUser: null,
-        organizationCode: null,
-        activeBranchId: null,
-        isAuthenticated: false,
-        isInitializing: false,
-        initError:
-          error instanceof Error && error.message.trim().length > 0
-            ? error.message
-            : DEFAULT_SESSION_INIT_ERROR,
-      });
     }
   },
 
   syncCurrentUser: (user: CurrentUser) => {
+    if (!get().isAuthenticated) return;
     set((state) => ({
       currentUser: user,
       activeBranchId: reconcileActiveBranchId(user, state.activeBranchId),

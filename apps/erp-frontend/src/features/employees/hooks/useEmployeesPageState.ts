@@ -3,7 +3,11 @@ import { toast } from 'react-toastify';
 import { useAllBranchesQuery, type Branch } from '../../../features/branches';
 import { useAuth } from '../../../hooks/useAuth';
 import { ApiClientError } from '../../../lib/api/client';
-import { DEFAULT_PAGE, DEFAULT_PAGE_SIZE } from '../../../lib/api/pagination';
+import {
+  hasNextNumberedPage,
+  DEFAULT_PAGE,
+  DEFAULT_PAGE_SIZE,
+} from '../../../lib/api/pagination';
 import type { Employee } from '../../../types/api';
 import type { EmployeeStatusFilter } from '../components/EmployeesFilterBar';
 import { useEmployeesQuery, usePatchEmployeeMutation } from './useEmployees';
@@ -65,11 +69,7 @@ export function useEmployeesPageState() {
   const employees = employeesQuery.data?.items ?? [];
   const totalCount = employeesQuery.data?.total_count ?? null;
   const pageSize = employeesQuery.data?.page_size ?? DEFAULT_PAGE_SIZE;
-  const hasNextPage = employeesQuery.data
-    ? employeesQuery.data.next_cursor !== null ||
-      employeesQuery.data.page * employeesQuery.data.page_size <
-        employeesQuery.data.total_count
-    : false;
+  const hasNextPage = hasNextNumberedPage(employeesQuery.data);
 
   const handleSearchChange = (nextSearch: string) => {
     setSearchTerm(nextSearch);

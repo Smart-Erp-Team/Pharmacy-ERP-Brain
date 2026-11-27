@@ -1,5 +1,10 @@
 import { useRef } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import {
   getStableAttemptKey,
   type AttemptKeyRecord,
@@ -39,17 +44,51 @@ export function useUsersQuery(
   });
 }
 
-export function useAllUsersQuery(
-  params: AllUsersKeyParams = {},
-  options: UseUsersQueryOptions = {}
-) {
-  return useQuery({
+function usersDirectoryOptions(params: AllUsersKeyParams) {
+  return {
     queryKey: usersKeys.allList(params),
     queryFn: () =>
       fetchAllPages((page, pageSize) =>
         listUsers({ ...params, page, page_size: pageSize })
       ),
+  };
+}
+
+export function useAllUsersQuery(
+  params: AllUsersKeyParams = {},
+  options: UseUsersQueryOptions = {}
+) {
+  return useQuery({
+    ...usersDirectoryOptions(params),
     enabled: options.enabled ?? true,
+  });
+}
+
+export function useScopedUsersDirectory(
+  branchIds: readonly string[] | null,
+  enabled: boolean
+) {
+  const scopes =
+    branchIds === null
+      ? [{}]
+      : [...new Set(branchIds)].map((branch_id) => ({ branch_id }));
+  return useQueries({
+    queries: enabled
+      ? scopes.map((scope) =>
+          usersDirectoryOptions({ ...scope, include_inactive: true })
+        )
+      : [],
+    combine: (results) => ({
+      data:
+        results.length > 0 && results.every((r) => r.isSuccess)
+          ? results.flatMap((r) => r.data ?? [])
+          : undefined,
+      isPending: results.some((r) => r.isPending),
+      isFetching: results.some((r) => r.isFetching),
+      isError: results.some((r) => r.isError),
+      refetch: () =>
+        Promise.all(results.filter((r) => r.isError).map((r) => r.refetch())),
+    }),
   });
 }
 

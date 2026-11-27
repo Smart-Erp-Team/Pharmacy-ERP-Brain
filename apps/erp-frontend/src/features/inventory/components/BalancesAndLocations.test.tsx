@@ -12,6 +12,7 @@ import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter } from 'react-router-dom';
 import {
+  onTestFinished,
   afterAll,
   afterEach,
   beforeAll,
@@ -54,6 +55,8 @@ import {
   localDateOffset,
   useInventoryBranchState,
 } from '../hooks/useInventoryBranchState';
+import { getInventorySummary } from '../api/inventoryApi';
+import { apiClient } from '../../../lib/api/client';
 import { InventoryBranchBar } from './InventoryBranchBar';
 import { StockBalancesTab } from './StockBalancesTab';
 import { StockOverviewTab } from './StockOverviewTab';
@@ -160,6 +163,26 @@ afterEach(() => {
 afterAll(() => server.close());
 
 describe('InventoryBranchBar & useInventoryBranchState', () => {
+  it('validates summary IDs before sending a request and trims both valid IDs', async () => {
+    const get = vi.spyOn(apiClient, 'get');
+    const ids = {
+      branch_id: DOWNTOWN_BRANCH_ID,
+      product_id: INITIAL_BALANCES[0].product_id,
+    };
+    await expect(
+      getInventorySummary({ ...ids, branch_id: '' })
+    ).rejects.toThrow('branch_id is required');
+    await expect(
+      getInventorySummary({ ...ids, product_id: '   ' })
+    ).rejects.toThrow('product_id is required');
+    expect(get).not.toHaveBeenCalled();
+    await getInventorySummary({
+      branch_id: ' ' + ids.branch_id,
+      product_id: ids.product_id + ' ',
+    });
+    expect(get).toHaveBeenCalledWith('/inventory/summary', { params: ids });
+  });
+
   it('loads active MEDCARE branches with branch_code (MED-DT, MED-ALX) and switches active branch', async () => {
     const user = userEvent.setup();
     renderWithProviders(<BranchSelectorHarness />);
@@ -472,8 +495,19 @@ describe('StockBalancesTab', () => {
 
     server.resetHandlers();
     let failProductsOnce = true;
+    let directoryReads = 0;
     server.use(
       http.get('*/api/v1/products', () => {
+        directoryReads++;
+        return HttpResponse.json({
+          items: [],
+          page: 1,
+          page_size: 200,
+          total_count: 10001,
+          next_cursor: null,
+        });
+      }),
+      http.get('*/api/v1/products/:id', () => {
         if (failProductsOnce) {
           failProductsOnce = false;
           return HttpResponse.json(
@@ -492,21 +526,41 @@ describe('StockBalancesTab', () => {
 
     renderWithProviders(<StockBalancesTab branchId={DOWNTOWN_BRANCH_ID} />);
     await waitFor(() => {
-      expect(screen.getByText('Could not load stock balances')).toBeDefined();
-    });
-
-    await user.click(screen.getByRole('button', { name: 'Retry' }));
-    await waitFor(() => {
       expect(
-        screen.getByText('Augmentin 1g Film-Coated Tablets')
+        screen.getByText('Some lookup details are unavailable')
       ).toBeDefined();
     });
+
+    expect(screen.getByText('Augmentin 1g Film-Coated Tablets')).toBeDefined();
+    await user.click(screen.getByRole('button', { name: 'Retry lookups' }));
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Some lookup details are unavailable')
+      ).toBeNull()
+    );
+    expect(directoryReads).toBe(0);
   });
 
   it('paginates multi-page PagedResult responses on the server and filters by Storage location', async () => {
     const user = userEvent.setup();
     const seenUrls: string[] = [];
+    const summaryCalls: URL[] = [];
     server.use(
+      http.get('*/api/v1/inventory/summary', ({ request }) => {
+        summaryCalls.push(new URL(request.url));
+        const { organization_id, branch_id, product_id, base_uom_code } =
+          INITIAL_BALANCES[0];
+        return HttpResponse.json({
+          organization_id,
+          branch_id,
+          product_id,
+          base_uom_code,
+          total_on_hand_qty_base: 20,
+          total_available_qty_base: 20,
+          weighted_average_unit_cost_base: 3,
+          locations_and_lots: [],
+        });
+      }),
       http.get('*/api/v1/inventory/balances', ({ request }) => {
         seenUrls.push(request.url);
         const url = new URL(request.url);
@@ -521,7 +575,7 @@ describe('StockBalancesTab', () => {
                 location_code: 'QUAR-01',
                 location_type: 'QUARANTINE',
                 is_location_sellable: false,
-                on_hand_qty_base: 300,
+                on_hand_qty_base: 12,
                 available_qty_base: 0,
               },
             ],
@@ -538,8 +592,8 @@ describe('StockBalancesTab', () => {
                 ...INITIAL_BALANCES[0],
                 location_id: MOCK_LOCATION_IDS.QUAR_01,
                 location_code: 'QUAR-01',
-                on_hand_qty_base: 300,
-                available_qty_base: 300,
+                on_hand_qty_base: 12,
+                available_qty_base: 12,
               },
             ],
             page: 2,
@@ -552,34 +606,53 @@ describe('StockBalancesTab', () => {
           items: [
             {
               ...INITIAL_BALANCES[0],
-              on_hand_qty_base: 5000,
-              available_qty_base: 5000,
+              on_hand_qty_base: 8,
+              available_qty_base: 8,
             },
           ],
           page: 1,
           page_size: 1,
           total_count: 2,
-          next_cursor: '2',
+          next_cursor: null,
         });
       })
     );
 
     renderWithProviders(<StockBalancesTab branchId={DOWNTOWN_BRANCH_ID} />);
     await waitFor(() => {
-      expect(screen.getAllByText('5,000').length).toBeGreaterThanOrEqual(2);
+      expect(screen.getAllByText('8').length).toBeGreaterThanOrEqual(2);
     });
     expect(
       seenUrls.map((raw) => new URL(raw).searchParams.get('page'))
     ).toEqual(['1']);
 
+    expect(summaryCalls).toHaveLength(0);
+    await user.click(
+      screen.getByRole('button', { name: /Toggle batch breakdown/ })
+    );
+    expect(
+      await screen.findByText(/across all locations and lots.*On-hand 20/i)
+    ).toBeDefined();
+    expect(summaryCalls[0]?.searchParams.get('branch_id')).toBe(
+      DOWNTOWN_BRANCH_ID
+    );
+    expect(summaryCalls[0]?.searchParams.get('product_id')).toBe(
+      INITIAL_BALANCES[0].product_id
+    );
     await user.click(screen.getByRole('button', { name: 'Next page' }));
     await waitFor(() => {
-      expect(screen.getAllByText('300').length).toBeGreaterThanOrEqual(2);
+      expect(screen.getAllByText('12').length).toBeGreaterThanOrEqual(2);
     });
     expect(
       seenUrls.map((raw) => new URL(raw).searchParams.get('page'))
     ).toEqual(['1', '2']);
 
+    expect(
+      await screen.findByText(/across all locations and lots.*On-hand 20/i)
+    ).toBeDefined();
+    expect(
+      screen.getByRole('columnheader', { name: 'On-hand (shown rows)' })
+    ).toBeDefined();
     await user.selectOptions(
       screen.getByLabelText('Storage location'),
       MOCK_LOCATION_IDS.QUAR_01
@@ -593,7 +666,12 @@ describe('StockBalancesTab', () => {
     });
   });
 
-  it('flags same-day expiry (expires_on === today) and backend zero-availability sellable lots as Expired across KPI cards, Overview, and Balances', async () => {
+  it('flags same-day expiry (expires_on === today) without marking future zero-availability lots Expired across KPI cards, Overview, and Balances', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 10, 27, 12));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const user = userEvent.setup();
     const today = localDateOffset(0);
     const tomorrow = localDateOffset(1);
@@ -632,14 +710,13 @@ describe('StockBalancesTab', () => {
       available_qty_base: 0,
     };
     expect(
-      isBalanceExpired(sellableZeroAvailableBalance, tomorrow, today, true)
-    ).toBe(true);
+      isBalanceExpired(sellableZeroAvailableBalance, tomorrow, today)
+    ).toBe(false);
     expect(
       isBalanceExpired(
         { ...sellableZeroAvailableBalance, is_location_sellable: false },
         tomorrow,
-        today,
-        true
+        today
       )
     ).toBe(false);
 
@@ -702,7 +779,7 @@ describe('StockBalancesTab', () => {
       .getByText('Batches flagged')
       .closest('div')?.parentElement;
     expect(batchesFlaggedCard?.textContent).toContain('1');
-    expect(screen.getAllByText('Expired')).toHaveLength(2);
+    expect(screen.getAllByText('Expired')).toHaveLength(1);
     unmount();
 
     renderWithProviders(<StockBalancesTab branchId={DOWNTOWN_BRANCH_ID} />);
@@ -719,12 +796,11 @@ describe('StockBalancesTab', () => {
     );
     expect(screen.getByText('LOT-SAME-DAY')).toBeDefined();
     expect(screen.getByText('LOT-TZ-SYNC')).toBeDefined();
-    // 2 Expired badges in table rows (+ 1 option in Expiry status select)
-    expect(screen.getAllByText('Expired').length).toBeGreaterThanOrEqual(3);
+    expect(screen.getAllByText('Expired')).toHaveLength(2);
 
     await user.selectOptions(screen.getByLabelText('Expiry status'), 'EXPIRED');
     expect(screen.getByText('LOT-SAME-DAY')).toBeDefined();
-    expect(screen.getByText('LOT-TZ-SYNC')).toBeDefined();
+    expect(screen.queryByText('LOT-TZ-SYNC')).toBeNull();
   });
 
   it('renders 10,001 balance rows cleanly with server pagination and bounded overview notice without INVALID_RESPONSE', async () => {

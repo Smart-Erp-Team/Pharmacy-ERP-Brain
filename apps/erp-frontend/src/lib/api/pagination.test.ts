@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ApiClientError } from './client';
 import { ContractValidationError, requireString } from './normalizers';
 import {
+  hasNextNumberedPage,
   MAX_PAGE_SIZE,
   buildPaginationQueryParams,
   fetchAllPages,
@@ -22,6 +23,20 @@ function expectInvalidResponseError(fn: () => unknown): void {
 }
 
 describe('Stage 1 pagination helpers', () => {
+  it.each([
+    [1, 0, false],
+    [1, 25, false],
+    [1, 26, true],
+    [1, 50, true],
+    [2, 50, false],
+  ] as const)(
+    'page %i of %i records hasNext=%s',
+    (page, total_count, expected) => {
+      expect(hasNextNumberedPage({ page, page_size: 25, total_count })).toBe(
+        expected
+      );
+    }
+  );
   it('parsePagedResult accepts valid Stage 1 PagedResult envelopes', () => {
     const page = parsePagedResult<{ id: string }>(
       {

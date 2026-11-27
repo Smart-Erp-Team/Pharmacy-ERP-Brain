@@ -1,3 +1,4 @@
+import { mockPayloadSignature } from './mockWrites';
 import { http, HttpResponse } from 'msw';
 import inventoryBalanceFixture from '@contracts/fixtures/inventory-balance.json';
 import {
@@ -785,13 +786,6 @@ function buildPagedPayload<TItem>(
   };
 }
 
-function computePayloadSignature(body: Record<string, unknown>): string {
-  const entries = Object.entries(body)
-    .filter(([key]) => key !== 'idempotency_key')
-    .sort(([left], [right]) => left.localeCompare(right));
-  return JSON.stringify(Object.fromEntries(entries));
-}
-
 function resolveIdempotency(
   request: Request,
   body: Record<string, unknown>
@@ -809,7 +803,12 @@ function resolveIdempotency(
     } {
   const headerKey = request.headers.get('Idempotency-Key')?.trim() ?? '';
 
-  if (!headerKey) {
+  const effectiveKey =
+    headerKey ||
+    (typeof body.idempotency_key === 'string'
+      ? body.idempotency_key.trim()
+      : '');
+  if (!effectiveKey) {
     return {
       ok: false,
       errorResponse: malformedRequestResponse(
@@ -823,8 +822,6 @@ function resolveIdempotency(
       ),
     };
   }
-
-  const effectiveKey = headerKey;
 
   if (effectiveKey.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
     return {
@@ -840,7 +837,7 @@ function resolveIdempotency(
 
   const url = new URL(request.url);
   const compositeKey = `${request.method.toUpperCase()}:${url.pathname}:${effectiveKey}`;
-  const payloadSignature = computePayloadSignature(body);
+  const payloadSignature = mockPayloadSignature(body);
   const existing = idempotencyStore.get(compositeKey);
 
   if (!existing) {

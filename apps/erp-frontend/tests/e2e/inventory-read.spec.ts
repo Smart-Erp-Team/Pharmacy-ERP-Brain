@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { BRANCH_DT_ID } from './helpers/authContext.ts';
-import { loginWithUserContext } from './helpers/session.ts';
+import { BRANCH_ALX_ID, BRANCH_DT_ID } from './helpers/authContext.ts';
+import {
+  loginAsWorkspaceUser,
+  loginWithUserContext,
+} from './helpers/session.ts';
 
 test('Admin on Cloud inspects MEDCARE FEFO batches, filters & creates DAMAGED location, and views inline ledger modal', async ({
   page,
@@ -143,4 +146,54 @@ test('Cashier on BranchLocal sees 3 tabs with read-only locations while write an
   await expect(page.getByText('Read-only access')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add Location' })).toBeHidden();
   expect(errors).toEqual([]);
+});
+
+test('branch controls agree and every balance request uses a location from its own branch', async ({
+  page,
+}) => {
+  await loginAsWorkspaceUser(page, '/inventory');
+  const urls: URL[] = [];
+  page.on('request', (req) => {
+    const url = new URL(req.url());
+    if (url.pathname.endsWith('/inventory/balances')) urls.push(url);
+  });
+  const top = page.getByLabel('Active branch', { exact: true });
+  const local = page.getByLabel('Branch', { exact: true });
+  const location = page.getByLabel('Storage location', { exact: true });
+  await local.selectOption(BRANCH_ALX_ID);
+  await expect(top).toHaveValue(BRANCH_ALX_ID);
+  const alxLocation = '11111111-9999-4111-8111-000000000006';
+  await location.selectOption(alxLocation);
+  await expect
+    .poll(() =>
+      urls.some((u) => u.searchParams.get('location_id') === alxLocation)
+    )
+    .toBe(true);
+  await top.selectOption(BRANCH_DT_ID);
+  await expect(local).toHaveValue(BRANCH_DT_ID);
+  await expect(location).toHaveValue('');
+  const dtLocation = '11111111-9999-4111-8111-000000000003';
+  await location.selectOption(dtLocation);
+  await expect
+    .poll(() =>
+      urls.some((u) => u.searchParams.get('location_id') === dtLocation)
+    )
+    .toBe(true);
+  await local.selectOption(BRANCH_ALX_ID);
+  await expect(top).toHaveValue(BRANCH_ALX_ID);
+  await expect(location).toHaveValue('');
+  for (const url of urls) {
+    const branch = url.searchParams.get('branch_id');
+    expect([
+      null,
+      branch === BRANCH_ALX_ID ? alxLocation : dtLocation,
+    ]).toContain(url.searchParams.get('location_id'));
+  }
+  const ledger = page.waitForRequest((req) =>
+    new URL(req.url()).pathname.endsWith('/inventory/transactions')
+  );
+  await page.getByRole('tab', { name: 'Inventory Ledger History' }).click();
+  expect(new URL((await ledger).url()).searchParams.get('branch_id')).toBe(
+    BRANCH_ALX_ID
+  );
 });

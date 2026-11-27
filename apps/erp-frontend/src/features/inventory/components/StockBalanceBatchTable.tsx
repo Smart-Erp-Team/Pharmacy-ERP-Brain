@@ -54,12 +54,7 @@ export function StockBalanceBatchTable({
           const expiresOn = isNonLot
             ? null
             : (balance.expires_on ?? batch?.expires_on ?? null);
-          const isExpired = isBalanceExpired(
-            balance,
-            expiresOn,
-            today,
-            location?.is_active ?? true
-          );
+          const isExpired = isBalanceExpired(balance, expiresOn, today);
           const isNearing = Boolean(
             !isExpired && expiresOn && alertCutoff && expiresOn <= alertCutoff
           );

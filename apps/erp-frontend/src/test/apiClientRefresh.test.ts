@@ -123,7 +123,7 @@ describe('401 refresh interceptor', () => {
     server.use(
       http.get('*/api/v1/protected-resource', async ({ request }) => {
         const authorization = request.headers.get('Authorization');
-        if (authorization?.startsWith('Bearer eyJ')) {
+        if (authorization && authorization !== 'Bearer stale_access_token') {
           return HttpResponse.json({ ok: true });
         }
 
@@ -131,15 +131,23 @@ describe('401 refresh interceptor', () => {
       })
     );
 
-    tokenStorage.setTokens('stale_access_token', 'valid_refresh_token');
+    const login = await apiClient.post<{ refresh_token: string }>(
+      '/auth/login',
+      {
+        organization_code: 'MEDCARE',
+        username: 'sarah.pharm@medcare.test',
+        password: 'password123',
+      }
+    );
+    tokenStorage.setTokens('stale_access_token', login.data.refresh_token);
 
     const response = await apiClient.get<{ ok: boolean }>(
       '/protected-resource'
     );
 
     expect(response.data.ok).toBe(true);
-    expect(tokenStorage.getAccessToken()?.endsWith('.rotated')).toBe(true);
-    expect(tokenStorage.getRefreshToken()?.endsWith('.rotated')).toBe(true);
+    expect(tokenStorage.getAccessToken()).not.toBe('stale_access_token');
+    expect(tokenStorage.getRefreshToken()).not.toBe(login.data.refresh_token);
   });
 
   it('ends the session when the refresh is rejected with 401', async () => {
@@ -496,18 +504,26 @@ describe('Stage 1 auth and canonical mock handlers', () => {
   });
 
   it('tracks rotated refresh tokens so reusing a rotated token fails with 401', async () => {
+    const login = await apiClient.post<{ refresh_token: string }>(
+      '/auth/login',
+      {
+        organization_code: 'MEDCARE',
+        username: 'sarah.pharm@medcare.test',
+        password: 'password123',
+      }
+    );
     const firstRotation = await apiClient.post<{
       access_token: string;
       refresh_token: string;
     }>('/auth/refresh', {
-      refresh_token: 'fresh_session_refresh_token',
+      refresh_token: login.data.refresh_token,
     });
 
-    expect(firstRotation.data.refresh_token.endsWith('.rotated')).toBe(true);
+    expect(firstRotation.data.refresh_token).not.toBe(login.data.refresh_token);
 
     await expect(
       apiClient.post('/auth/refresh', {
-        refresh_token: 'fresh_session_refresh_token',
+        refresh_token: login.data.refresh_token,
       })
     ).rejects.toMatchObject({
       status: 401,
@@ -521,7 +537,9 @@ describe('Stage 1 auth and canonical mock handlers', () => {
     }>('/auth/refresh', {
       refresh_token: firstRotation.data.refresh_token,
     });
-    expect(secondRotation.data.refresh_token.endsWith('.rotated')).toBe(true);
+    expect(secondRotation.data.refresh_token).not.toBe(
+      firstRotation.data.refresh_token
+    );
   });
 
   it('enforces non-empty refresh_token on POST /auth/logout and serves GET /canonical/capabilities', async () => {
@@ -658,6 +676,21 @@ describe('Transient refresh resilience & user sync (Audit #12)', () => {
     );
   });
 
+  it('applies the client timeout to token rotation and retains the session on timeout', async () => {
+    const refresh = vi
+      .spyOn(axios, 'post')
+      .mockRejectedValueOnce(new axios.AxiosError('Timeout', 'ECONNABORTED'));
+    server.use(http.get('*/api/v1/protected-resource', unauthorized));
+    tokenStorage.setTokens('stale', 'saved');
+    await expect(apiClient.get('/protected-resource')).rejects.toThrow();
+    expect(refresh).toHaveBeenCalledWith(
+      expect.stringContaining('/auth/refresh'),
+      { refresh_token: 'saved' },
+      expect.objectContaining({ timeout: apiClient.defaults.timeout })
+    );
+    expect(tokenStorage.getRefreshToken()).toBe('saved');
+  });
+
   it('preserves tokens and does not end session when /auth/refresh fails with a network error', async () => {
     const sessionEndHandler = vi.fn();
     registerSessionEndHandler(sessionEndHandler);
@@ -730,12 +763,40 @@ describe('MSW mandatory Idempotency-Key enforcement on branch mutations (Audit #
             issue: 'The idempotency key is required.',
           },
         ],
-        trace_id: 'mock-trace-branch-idempotency-missing',
+        trace_id: expect.any(String),
       },
     });
   });
 
-  it('rejects blank or >100-char Idempotency-Key headers on POST /branches and PATCH /branches/:id with 400 MALFORMED_REQUEST', async () => {
+  it('replays enrollment tokens and distinguishes repeated from conflicting branch patches', async () => {
+    const base =
+      apiClient.defaults.baseURL + '/branches/' + MOCK_BRANCH_IDS.DOWNTOWN;
+    const config = { headers: { 'Idempotency-Key': 'issue-once' } };
+    const [first, replay] = await Promise.all([
+      axios.post(base + '/enrollment-tokens', null, config),
+      axios.post(base + '/enrollment-tokens', null, config),
+    ]);
+    expect(replay.status).toBe(201);
+    expect(replay.data).toEqual(first.data);
+    const patch = { name: 'Renamed', idempotency_key: 'patch-once' };
+    const changed = await axios.patch(base, patch);
+    const again = await axios.patch(
+      base,
+      { ...patch, idempotency_key: 'ignored' },
+      { headers: { 'Idempotency-Key': 'patch-once' } }
+    );
+    expect(again.data).toEqual(changed.data);
+    await expect(
+      axios.patch(base, { ...patch, name: 'Different' })
+    ).rejects.toMatchObject({
+      response: {
+        status: 409,
+        data: { error: { code: 'IDEMPOTENCY_MISMATCH' } },
+      },
+    });
+  });
+
+  it('rejects blank or >100-char Idempotency-Key headers on POST /branches and PATCH /branches/:id with the contract status', async () => {
     const baseUrl = apiClient.defaults.baseURL ?? 'http://localhost/api/v1';
 
     const blankHeaderResponse = await axios.post<unknown>(
@@ -756,6 +817,6 @@ describe('MSW mandatory Idempotency-Key enforcement on branch mutations (Audit #
         validateStatus: () => true,
       }
     );
-    expect(oversizedHeaderResponse.status).toBe(400);
+    expect(oversizedHeaderResponse.status).toBe(422);
   });
 });

@@ -120,6 +120,7 @@ export function CreateUserFormModal({
       onClose={handleClose}
       onSubmit={onSubmit}
     >
+      {!isOrgAdmin && <p>Employees in your assigned branches</p>}
       <CreateUserIdentityFields
         eligibleEmployees={eligibleEmployees}
         employeesDirectory={employeesDirectory}

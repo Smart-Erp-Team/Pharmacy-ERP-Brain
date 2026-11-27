@@ -217,6 +217,8 @@ export async function getInventorySummary(
   params: GetInventorySummaryParams
 ): Promise<InventorySummary> {
   const endpoint = '/inventory/summary';
+  if (!params.branch_id.trim()) throw new Error('branch_id is required.');
+  if (!params.product_id.trim()) throw new Error('product_id is required.');
   const queryParams: GetInventorySummaryParams = {
     branch_id: params.branch_id.trim(),
     product_id: params.product_id.trim(),

@@ -241,6 +241,7 @@ const requestRefreshedAccessToken = async (): Promise<string> => {
     `${apiClient.defaults.baseURL ?? ''}/auth/refresh`,
     payload,
     {
+      timeout: apiClient.defaults.timeout,
       headers: {
         'Content-Type': 'application/json',
         [TRACEPARENT_HEADER]: createTraceparent(),

@@ -14,7 +14,6 @@ import { setupServer } from 'msw/node';
 import { cleanup, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'react-toastify';
-import authTokenPair from '@contracts/fixtures/auth-token-pair.json';
 import { handlers, resetMockAuth } from '../../../mocks/handlers';
 import { tokenStorage } from '../../../lib/auth/tokenStorage';
 import { useAuthStore } from '../../../stores/authStore';
@@ -134,7 +133,7 @@ describe('LoginForm', () => {
     server.use(
       http.post('*/api/v1/auth/login', async () => {
         await delay(50);
-        return HttpResponse.json(authTokenPair, { status: 200 });
+        // Fall through to the issuer after the simulated network delay.
       })
     );
     renderWithProviders(<LoginForm onSuccess={onSuccess} />);
