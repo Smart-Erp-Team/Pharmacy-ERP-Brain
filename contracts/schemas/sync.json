@@ -1,0 +1,1681 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pharmacy-erp.local/contracts/schemas/sync.json",
+  "title": "Pharmacy ERP — Offline Sync Engine Contract (Stage 2)",
+  "description": "Stage 2 BranchLocal-to-Cloud push ingestion, authorized conflict retry, Cloud-to-Branch bootstrap/changes pull feeds, sync enums, and versioned v1 immutable fact payloads derived verbatim from ahmed-hassan.md (AH-01, AH-07..AH-12). Strict snake_case, native JSON numbers, and string-only enums.",
+  "$defs": {
+    "SyncOperationType": {
+      "type": "string",
+      "description": "Closed Blueprint §8.9.11 DB CHECK vocabulary; Stage 2 handlers accept strictly COMPLETE_SALES_ORDER, POST_SALES_RETURN, and POST_INVENTORY_ADJUSTMENT.",
+      "enum": [
+        "COMPLETE_SALES_ORDER",
+        "POST_SALES_RETURN",
+        "POST_INVENTORY_ADJUSTMENT",
+        "RECEIVE_PURCHASE_ORDER",
+        "CANCEL_REMAINING_PURCHASE_ORDER",
+        "POST_VENDOR_RETURN"
+      ]
+    },
+    "SyncProcessingStatus": {
+      "type": "string",
+      "enum": [
+        "RECEIVED",
+        "APPLIED",
+        "CONFLICT",
+        "FAILED"
+      ]
+    },
+    "SyncResultCode": {
+      "type": "string",
+      "enum": [
+        "APPLIED",
+        "CONFLICT",
+        "FAILED"
+      ]
+    },
+    "SyncDeliveryOutcome": {
+      "type": "string",
+      "enum": [
+        "APPLIED",
+        "ALREADY_APPLIED",
+        "CONFLICT",
+        "FAILED"
+      ]
+    },
+    "AuditActorType": {
+      "type": "string",
+      "enum": [
+        "USER",
+        "SYSTEM",
+        "AI_ASSISTED"
+      ]
+    },
+    "SyncAuditFactDto": {
+      "type": "object",
+      "required": [
+        "audit_log_id",
+        "actor_type",
+        "action",
+        "entity_schema",
+        "entity_name",
+        "entity_id",
+        "trace_id",
+        "created_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "audit_log_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actor_user_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "actor_employee_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "actor_type": {
+          "$ref": "#/$defs/AuditActorType"
+        },
+        "action": {
+          "type": "string"
+        },
+        "entity_schema": {
+          "type": "string"
+        },
+        "entity_name": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "source_prompt_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trace_id": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "before_data": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "after_data": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "SyncInventoryTxnLineFactV1": {
+      "type": "object",
+      "required": [
+        "inventory_txn_line_id",
+        "product_id",
+        "location_id",
+        "batch_id",
+        "batch_number",
+        "product_uom_id",
+        "entered_qty",
+        "conversion_snapshot",
+        "quantity_delta_base",
+        "unit_cost_base"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "inventory_txn_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "location_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batch_number": {
+          "type": "string"
+        },
+        "expires_on": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "manufactured_on": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "product_uom_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "entered_qty": {
+          "type": "number",
+          "format": "double"
+        },
+        "conversion_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "quantity_delta_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "unit_cost_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "sales_order_line_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "sales_return_line_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        }
+      }
+    },
+    "SyncInventoryTxnFactV1": {
+      "type": "object",
+      "required": [
+        "inventory_txn_id",
+        "organization_id",
+        "branch_id",
+        "transaction_no",
+        "transaction_type",
+        "status",
+        "idempotency_key",
+        "created_by_employee_id",
+        "created_at",
+        "posted_at",
+        "lines"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "inventory_txn_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "transaction_no": {
+          "type": "string"
+        },
+        "transaction_type": {
+          "$ref": "inventory.json#/$defs/InventoryTransactionType"
+        },
+        "status": {
+          "$ref": "inventory.json#/$defs/InventoryTransactionStatus"
+        },
+        "reason_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "created_by_employee_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "reverses_inventory_txn_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "sales_order_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "sales_return_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "posted_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lines": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/SyncInventoryTxnLineFactV1"
+          }
+        }
+      }
+    },
+    "PostInventoryAdjustmentSyncPayloadV1": {
+      "type": "object",
+      "description": "Immutable v1 branch-to-cloud sync payload for POST_INVENTORY_ADJUSTMENT (AH-07).",
+      "required": [
+        "inventory_txn",
+        "audit"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "inventory_txn": {
+          "$ref": "#/$defs/SyncInventoryTxnFactV1"
+        },
+        "audit": {
+          "$ref": "#/$defs/SyncAuditFactDto"
+        }
+      }
+    },
+    "SyncSalesOrderLineFactV1": {
+      "type": "object",
+      "required": [
+        "order_line_id",
+        "product_id",
+        "product_uom_id",
+        "entered_qty",
+        "conversion_snapshot",
+        "quantity_base",
+        "unit_price_snapshot",
+        "discount_amount",
+        "tax_rate_snapshot",
+        "tax_amount_snapshot",
+        "line_total",
+        "created_at",
+        "updated_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "order_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_uom_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "entered_qty": {
+          "type": "number",
+          "format": "double"
+        },
+        "conversion_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "quantity_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "unit_price_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "discount_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "tax_rate_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "tax_amount_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "line_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "SyncSalesOrderFactV1": {
+      "type": "object",
+      "required": [
+        "sales_order_id",
+        "organization_id",
+        "branch_id",
+        "created_by_employee_id",
+        "order_no",
+        "channel",
+        "order_status",
+        "currency_code",
+        "idempotency_key",
+        "created_at",
+        "completed_at",
+        "lines"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sales_order_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "created_by_employee_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "order_no": {
+          "type": "string"
+        },
+        "channel": {
+          "$ref": "sales.json#/$defs/OrderChannel"
+        },
+        "order_status": {
+          "$ref": "sales.json#/$defs/SalesOrderStatus"
+        },
+        "currency_code": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lines": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/SyncSalesOrderLineFactV1"
+          }
+        }
+      }
+    },
+    "SyncSalesInvoiceLineFactV1": {
+      "type": "object",
+      "required": [
+        "invoice_line_id",
+        "source_order_line_id",
+        "product_id",
+        "product_uom_id",
+        "entered_qty",
+        "conversion_snapshot",
+        "quantity_base",
+        "unit_price_snapshot",
+        "discount_amount",
+        "tax_rate_snapshot",
+        "tax_amount",
+        "net_amount",
+        "line_total",
+        "unit_cost_snapshot"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "invoice_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "source_order_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_uom_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "entered_qty": {
+          "type": "number",
+          "format": "double"
+        },
+        "conversion_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "quantity_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "unit_price_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "discount_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "tax_rate_snapshot": {
+          "type": "number",
+          "format": "double"
+        },
+        "tax_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "net_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "line_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "unit_cost_snapshot": {
+          "type": "number",
+          "format": "double"
+        }
+      }
+    },
+    "SyncSalesInvoiceFactV1": {
+      "type": "object",
+      "required": [
+        "invoice_id",
+        "organization_id",
+        "branch_id",
+        "sales_order_id",
+        "invoice_no",
+        "status",
+        "currency_code",
+        "subtotal",
+        "discount_total",
+        "tax_total",
+        "grand_total",
+        "paid_amount",
+        "refunded_amount",
+        "payment_status",
+        "issued_at",
+        "created_at",
+        "updated_at",
+        "lines"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "invoice_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sales_order_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_no": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "sales.json#/$defs/SalesInvoiceStatus"
+        },
+        "currency_code": {
+          "type": "string"
+        },
+        "subtotal": {
+          "type": "number",
+          "format": "double"
+        },
+        "discount_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "tax_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "grand_total": {
+          "type": "number",
+          "format": "double"
+        },
+        "paid_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "refunded_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "payment_status": {
+          "$ref": "sales.json#/$defs/SalesPaymentStatus"
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lines": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/SyncSalesInvoiceLineFactV1"
+          }
+        }
+      }
+    },
+    "SyncSalesPaymentFactV1": {
+      "type": "object",
+      "required": [
+        "payment_id",
+        "organization_id",
+        "branch_id",
+        "invoice_id",
+        "received_by_employee_id",
+        "amount_due",
+        "cash_tendered_amount",
+        "change_amount",
+        "method",
+        "idempotency_key",
+        "paid_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "payment_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "received_by_employee_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "amount_due": {
+          "type": "number",
+          "format": "double"
+        },
+        "cash_tendered_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "change_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "method": {
+          "$ref": "sales.json#/$defs/PaymentMethod"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "paid_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "SyncSalesReturnLineFactV1": {
+      "type": "object",
+      "required": [
+        "return_line_id",
+        "invoice_line_id",
+        "product_id",
+        "batch_id",
+        "destination_location_id",
+        "quantity_base",
+        "refund_amount",
+        "disposition"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "return_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_line_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "destination_location_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "quantity_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "refund_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "disposition": {
+          "$ref": "sales.json#/$defs/ReturnDisposition"
+        }
+      }
+    },
+    "SyncSalesReturnFactV1": {
+      "type": "object",
+      "required": [
+        "return_id",
+        "organization_id",
+        "invoice_id",
+        "branch_id",
+        "received_by_employee_id",
+        "return_no",
+        "status",
+        "reason_code",
+        "refund_amount",
+        "refund_status",
+        "idempotency_key",
+        "received_at",
+        "lines"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "return_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "received_by_employee_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "approved_by_employee_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "return_no": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "sales.json#/$defs/SalesReturnStatus"
+        },
+        "reason_code": {
+          "type": "string"
+        },
+        "refund_amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "refund_status": {
+          "$ref": "sales.json#/$defs/SalesRefundStatus"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "received_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lines": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/SyncSalesReturnLineFactV1"
+          }
+        }
+      }
+    },
+    "SyncSalesRefundFactV1": {
+      "type": "object",
+      "required": [
+        "refund_id",
+        "organization_id",
+        "branch_id",
+        "sales_return_id",
+        "invoice_id",
+        "processed_by_employee_id",
+        "amount",
+        "method",
+        "idempotency_key",
+        "refunded_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "refund_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sales_return_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoice_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "processed_by_employee_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "method": {
+          "$ref": "sales.json#/$defs/PaymentMethod"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "refunded_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "CompleteSalesOrderSyncPayloadV1": {
+      "type": "object",
+      "description": "Immutable v1 branch-to-cloud sync payload for COMPLETE_SALES_ORDER carrying exact posted order, invoice, payment, SALE_ISSUE inventory ledger, and audit facts without recalculating FEFO (AH-07, AH-09).",
+      "required": [
+        "sales_order",
+        "sales_invoice",
+        "sales_payment",
+        "sale_issue_txn",
+        "audit"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sales_order": {
+          "$ref": "#/$defs/SyncSalesOrderFactV1"
+        },
+        "sales_invoice": {
+          "$ref": "#/$defs/SyncSalesInvoiceFactV1"
+        },
+        "sales_payment": {
+          "$ref": "#/$defs/SyncSalesPaymentFactV1"
+        },
+        "sale_issue_txn": {
+          "$ref": "#/$defs/SyncInventoryTxnFactV1"
+        },
+        "audit": {
+          "$ref": "#/$defs/SyncAuditFactDto"
+        }
+      }
+    },
+    "PostSalesReturnSyncPayloadV1": {
+      "type": "object",
+      "description": "Immutable v1 branch-to-cloud sync payload for POST_SALES_RETURN carrying exact posted return, optional cash refund, SALES_RETURN_IN and optional SCRAP_OUT inventory ledgers, and audit facts (AH-07, AH-09).",
+      "required": [
+        "sales_return",
+        "return_stock_txn",
+        "audit"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sales_return": {
+          "$ref": "#/$defs/SyncSalesReturnFactV1"
+        },
+        "sales_refund": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SyncSalesRefundFactV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "return_stock_txn": {
+          "$ref": "#/$defs/SyncInventoryTxnFactV1"
+        },
+        "scrap_out_txn": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SyncInventoryTxnFactV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "audit": {
+          "$ref": "#/$defs/SyncAuditFactDto"
+        }
+      }
+    },
+    "SyncOperationItemRequest": {
+      "type": "object",
+      "required": [
+        "operation_id",
+        "branch_sequence",
+        "operation_type",
+        "payload_version",
+        "payload_hash",
+        "payload",
+        "created_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_sequence": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 1
+        },
+        "operation_type": {
+          "$ref": "#/$defs/SyncOperationType"
+        },
+        "payload_version": {
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1
+        },
+        "payload_hash": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Versioned v1 canonical JSON payload (CompleteSalesOrderSyncPayloadV1, PostSalesReturnSyncPayloadV1, or PostInventoryAdjustmentSyncPayloadV1)."
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "SyncOperationBatchRequest": {
+      "type": "object",
+      "required": [
+        "organization_id",
+        "branch_id",
+        "operations"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/SyncOperationItemRequest"
+          }
+        }
+      }
+    },
+    "SyncOperationResultDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_sequence": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "status": {
+          "$ref": "#/$defs/SyncDeliveryOutcome"
+        },
+        "expected_next_sequence": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "conflict_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "common.json#/$defs/ApiErrorDetailDto"
+          }
+        }
+      }
+    },
+    "SyncOperationBatchResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "highest_contiguous_applied_sequence": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SyncOperationResultDto"
+          }
+        }
+      }
+    },
+    "RetrySyncOperationRequest": {
+      "type": "object",
+      "required": [
+        "reason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 500
+        }
+      }
+    },
+    "OrganizationBootstrapDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_code": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "base_currency": {
+          "type": "string"
+        },
+        "time_zone_id": {
+          "type": "string"
+        },
+        "address": {
+          "$ref": "common.json#/$defs/AddressDto"
+        },
+        "is_active": {
+          "type": "boolean"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "BranchBootstrapDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_code": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "address": {
+          "$ref": "common.json#/$defs/AddressDto"
+        },
+        "is_active": {
+          "type": "boolean"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "BootstrapEmployeeDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "employee_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "employee_no": {
+          "type": "string"
+        },
+        "full_name": {
+          "type": "string"
+        },
+        "email": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "phone": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "job_title": {
+          "type": "string"
+        },
+        "address": {
+          "$ref": "common.json#/$defs/AddressDto"
+        },
+        "hired_on": {
+          "type": "string",
+          "format": "date"
+        },
+        "is_active": {
+          "type": "boolean"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "BootstrapUserAccountDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "employee_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "username": {
+          "type": "string"
+        },
+        "password_hash": {
+          "type": "string"
+        },
+        "security_stamp": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "role": {
+          "$ref": "common.json#/$defs/UserRole"
+        },
+        "branch_scope": {
+          "$ref": "common.json#/$defs/BranchScope"
+        },
+        "is_active": {
+          "type": "boolean"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "BootstrapUserBranchAccessDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "BootstrapCategoryDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "category_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "parent_category_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "code": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "is_active": {
+          "type": "boolean"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "BootstrapProductDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "category_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sku": {
+          "type": "string"
+        },
+        "barcode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "generic_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "brand_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "base_uom_code": {
+          "type": "string"
+        },
+        "tax_rate": {
+          "type": "number",
+          "format": "double"
+        },
+        "image_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lot_tracking_required": {
+          "type": "boolean"
+        },
+        "expiry_alert_days": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "is_active": {
+          "type": "boolean"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "BootstrapProductUomDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "product_uom_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "uom_code": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "conversion_to_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "sale_unit_price": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "is_base": {
+          "type": "boolean"
+        },
+        "is_sellable": {
+          "type": "boolean"
+        },
+        "is_purchasable": {
+          "type": "boolean"
+        },
+        "is_active": {
+          "type": "boolean"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "BootstrapReorderRuleDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reorder_rule_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "reorder_point_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "reorder_quantity_base": {
+          "type": "number",
+          "format": "double"
+        },
+        "max_quantity_base": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "is_active": {
+          "type": "boolean"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "BootstrapLocationDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "location_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "location_code": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "location_type": {
+          "$ref": "inventory.json#/$defs/LocationType"
+        },
+        "is_sellable": {
+          "type": "boolean"
+        },
+        "is_active": {
+          "type": "boolean"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "SyncBootstrapCursorDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "last_issued_sequence": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "last_applied_sequence": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "last_applied_cloud_cursor": {
+          "type": "string"
+        },
+        "cloud_high_water_cursor": {
+          "type": "string"
+        }
+      }
+    },
+    "SyncBootstrapResponse": {
+      "type": "object",
+      "description": "Enrolled branch bootstrap snapshot. Explicitly excludes stock balances, inventory transactions, and opening balances.",
+      "additionalProperties": false,
+      "properties": {
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization": {
+          "$ref": "#/$defs/OrganizationBootstrapDto"
+        },
+        "branch": {
+          "$ref": "#/$defs/BranchBootstrapDto"
+        },
+        "employees": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BootstrapEmployeeDto"
+          }
+        },
+        "users": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BootstrapUserAccountDto"
+          }
+        },
+        "user_branch_accesses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BootstrapUserBranchAccessDto"
+          }
+        },
+        "categories": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BootstrapCategoryDto"
+          }
+        },
+        "products": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BootstrapProductDto"
+          }
+        },
+        "product_uoms": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BootstrapProductUomDto"
+          }
+        },
+        "reorder_rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BootstrapReorderRuleDto"
+          }
+        },
+        "locations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BootstrapLocationDto"
+          }
+        },
+        "cursors": {
+          "$ref": "#/$defs/SyncBootstrapCursorDto"
+        }
+      }
+    },
+    "SyncChangeItemDto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "event_sequence": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "event_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "branch_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "occurred_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "SyncChangesResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "branch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "next_cursor": {
+          "type": "string"
+        },
+        "has_more": {
+          "type": "boolean"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SyncChangeItemDto"
+          }
+        }
+      }
+    }
+  }
+}

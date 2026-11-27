@@ -1,40 +1,31 @@
 ---
 name: backend-security-audit
-description: Deep security audit checklist for PharmacyERP ASP.NET Core Web API and EF Core. Use when auditing controllers, auth endpoints, JWT/JWKS, multi-tenancy, PostgreSQL RLS, DTOs, logging, or raw SQL for authorization gaps, IDOR, mass assignment, secret exposure, or SQL injection.
+description: Deep security audit checklist for PharmacyERP ASP.NET Core Web API and EF Core across Stage 1, Stage 2 (Sales & Sync), and Stage 3 (Purchasing). Use when auditing controllers, auth/sync endpoints, JWT/JWKS, multi-tenancy, PostgreSQL RLS, least-privilege grants, immutability triggers, idempotency, DTOs, logging, or raw SQL.
 ---
 
-# Backend Security Audit (ASP.NET Core & EF Core)
+# Backend Security Audit (Stage 1 / Stage 2 / Stage 3)
 
-## 1. Authentication & Authorization (`[Authorize]` / Policies / Roles)
-- [ ] **Controller & Endpoint Attributes:** Every controller/action in `PharmacyERP.Api/Controllers/` has `[Authorize]` (or explicit policy `[Authorize(Policy = "AdminOnly")]` / `[Authorize(Policy = "PlatformProvisionerOnly")]`) unless it is intentionally anonymous (`POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`, `POST /api/v1/branch-enrollment`, `GET /.well-known/jwks.json`).
-- [ ] **No Missing Policy Enforcement:** Verify admin-only mutations (branch creation/update, enrollment token issuance, employee create/update, user management, password reset, session revocation) require `"AdminOnly"`, and organization provisioning requires `"PlatformProvisionerOnly"`.
-- [ ] **Runtime Mode Guard:** Verify `RuntimeModeGuardMiddleware` blocks Cloud-only endpoints in `BranchLocal` mode and BranchLocal-only mutations in `Cloud` mode, and `BranchLocal` tokens enforce `BranchScope.ASSIGNED` scoped to the enrolled branch.
-- [ ] **JWT Validation:** Confirm `PharmacyERP.Api/DependencyInjection.cs` validates `Issuer`, `Audience`, `Lifetime`, `RequireExpirationTime`, `RequireSignedTokens`, and restricts `ValidAlgorithms` to `SecurityAlgorithms.RsaSha256` with `MapInboundClaims = false`.
+## 1. Authentication, Authorization & Runtime Mode
+- [ ] **Controller & Endpoint Attributes:** Every controller/action in `PharmacyERP.Api/Controllers/` enforces `[Authorize]` or explicit policy (`AdminOnly`, `OrgAdminOnly`, `PlatformProvisionerOnly`, or approved Stage 2/3 Sales/Sync policies) unless intentionally anonymous (`login`, `refresh`, `branch-enrollment`, `/.well-known/jwks.json`, `/canonical/capabilities`).
+- [ ] **Runtime Mode Guard:** `RuntimeModeGuardMiddleware` blocks Cloud-only endpoints in `BranchLocal` mode (`404`) and BranchLocal-only mutations (stock adjustments, POS orders/checkout, sales returns, shift operations) in `Cloud` mode (`404`). `BranchLocal` tokens enforce `BranchScope.ASSIGNED` scoped to `EnrolledBranchId`.
+- [ ] **JWT, SecurityStamp & Branch Credentials:** `DependencyInjection.cs` validates `Issuer`, `Audience`, `Lifetime`, `RequireExpirationTime`, `RequireSignedTokens`, `SecurityAlgorithms.RsaSha256`, `MapInboundClaims = false`, and preserves `IUserSecurityStampValidator`. Branch runtime sync credentials are stored hashed only.
 
-## 2. Multi-Tenancy, Branch IDOR & PostgreSQL RLS Bypasses
-- [ ] **Never Trust Client-Sent `TenantId` / `OrganizationId` / `BranchId`:**
-  - All tenant-scoped queries and commands MUST derive `OrganizationId` from `ITenantContext.OrganizationId` (populated from the authenticated `"organization_id"` JWT claim in `TenantResolutionMiddleware`), NEVER from request body, route, or query string.
-  - All branch-scoped operations MUST validate branch access via `ICurrentUser.CanAccessBranch(branchId)` (checking `"branch_scope"` and `"branch_ids"` claims), returning `ErrorCode.FORBIDDEN_BRANCH` (`403`) on mismatch.
-- [ ] **`TenantResolutionMiddleware` Bypass Prefix Audit:**
-  - Verify `SystemBypassPathPrefixes` (`/api/v1/auth/login`, `/api/v1/auth/refresh`, `/api/v1/branch-enrollment`, `/api/v1/organizations`, `/api/v1/canonical/capabilities`) cannot be abused to bypass tenant binding on authenticated or tenant-scoped routes.
-- [ ] **`IsSystemBypassEnabled` & `IgnoreQueryFilters()` Audit:**
-  - Flag any usage of `IgnoreQueryFilters()` or `ITenantContext.AllowSystemBypass()` outside initial anonymous tenant discovery (`AuthService`, `BranchService` enrollment, `OrganizationProvisioningService`) or `OutboxPublisherWorker`.
-  - Confirm `ITenantContext.SetTenant(orgId)` is called immediately after discovery so `IsSystemBypassEnabled` is reset to `false` before any tenant-bound transaction begins.
-- [ ] **RLS Interceptor & Active Transaction:**
-  - Confirm `TenantRlsConnectionInterceptor` is attached to `PharmacyDbContext` and no code bypasses `UnitOfWork` (which sets `app.organization_id` / bypass config on the PostgreSQL transaction).
+## 2. Multi-Tenancy, Branch IDOR & PostgreSQL RLS
+- [ ] **Never Trust Client Tenant Identity:** Every tenant-scoped query/command derives `OrganizationId` exclusively from `ITenantContext.OrganizationId` (JWT claim). If a canonical/query parameter passes `organization_id`, verify exact equality with `ITenantContext.OrganizationId` or return `403 FORBIDDEN`.
+- [ ] **Branch Scope Enforcement:** Every branch-scoped read/write checks `_currentUser.CanAccessBranch(branchId)` and returns `403 FORBIDDEN_BRANCH` on mismatch.
+- [ ] **PostgreSQL RLS & Least-Privilege Grants (`erp_app`):** Every new tenant-owned table has:
+  - Non-null `organization_id` (`OrganizationId`).
+  - `ENABLE ROW LEVEL SECURITY`, `FORCE ROW LEVEL SECURITY`, and `tenant_isolation_policy` in both `RlsAndAuditProtectionSql.cs` and the EF Core migration.
+  - Coverage in `DatabaseRoleSecuritySql.cs` (`TableRlsStatusCheckSql`, `GenerateRoleProvisioningTemplateSql()`, `GenerateAppRoleGrantsSql()`).
+  - Composite tenant-scoped FKs (`(organization_id, <fk>)` -> composite AK) with `DeleteBehavior.Restrict`.
+- [ ] **Explicit RLS Transactions:** Every read and write runs inside `IUnitOfWork.BeginTransactionAsync(...)` with `RollbackTransactionAsync(CancellationToken.None)` on reads/errors and `CommitTransactionAsync` on writes (`TenantRlsConnectionInterceptor` active).
+- [ ] **Bypass Audit:** Flag any `IgnoreQueryFilters()` or `ITenantContext.AllowSystemBypass()` outside anonymous discovery (`login`, `refresh`, `branch-enrollment`, `organizations`) or `OutboxPublisherWorker` / authorized sync bootstrap; confirm `SetTenant(orgId)` immediately clears bypass.
 
-## 3. Mass Assignment & EF Entity Exposure
-- [ ] **No EF Entities in Controller Signatures:** Controllers must accept and return Application DTOs (`*RequestDto`, `*ResponseDto`), NEVER `PharmacyERP.Domain.Entities.*` directly.
-- [ ] **Over-Posting / Mass Assignment:** Verify request DTOs do not expose server-controlled fields (`OrganizationId`, `CreatedAt`, `RowVersion`, `PasswordHash`, `FailedLoginCount`, `LockedUntil`, `IsActive` where restricted).
-- [ ] **Domain Invariants Preserved:** Entity mutations must go through domain methods/constructors (which have `private set`), never via AutoMapper/reflection overwriting private state.
+## 3. Immutability, Idempotency & Mass Assignment
+- [ ] **Append-Only Immutability:** Posted financial/ledger/audit/sync records are protected by PostgreSQL `BEFORE UPDATE OR DELETE` immutability triggers (and `REVOKE UPDATE, DELETE` where applicable) in both migrations and `ThrowawayPostgresDatabaseProvisioner`.
+- [ ] **Idempotency Hardening:** Every mutating endpoint carries `[AllowHeaderIdempotencyKey]`, gives HTTP header `Idempotency-Key` precedence over trailing optional body `IdempotencyKey`, returns `400 MALFORMED_REQUEST` when both are missing, `422` when length `> 100`, and `409 IDEMPOTENCY_MISMATCH` on canonical payload hash mismatch.
+- [ ] **No EF Entities or Over-Posting:** Controllers never accept/return `PharmacyERP.Domain.Entities.*`. Request DTOs never accept server-computed financial totals (`Subtotal`, `TaxTotal`, `GrandTotal`, `AmountDue`, `ChangeAmount`), `OrganizationId`, `RowVersion`, or `PasswordHash`.
 
-## 4. Sensitive Data, Secrets & Token Exposure
-- [ ] **No Secrets in Logs or Error Responses:**
-  - Verify `ILogger` calls never log raw passwords, refresh tokens, enrollment tokens, JWTs, or `Authorization` headers.
-  - Verify `ExceptionHandlingMiddleware` maps unhandled exceptions to `ApiErrorEnvelopeDto` with generic `"An unexpected error occurred."` (no stack traces, SQL errors, or connection strings leaked in HTTP responses).
-- [ ] **Token Hashing:** Refresh tokens (`UserRefreshToken`) and enrollment tokens (`BranchEnrollment`) must be stored as SHA-256 hashes only; raw tokens are returned once at issuance and never persisted.
-- [ ] **JWKS Public Key Only:** `GET /.well-known/jwks.json` must expose only public RSA parameters (`n`, `e`, `kid`), never private key parameters.
-
-## 5. Raw SQL & Injection Safety
-- [ ] **Parameterized SQL Only:** Search all occurrences of `FromSqlRaw`, `ExecuteSqlRaw`, `ExecuteSqlRawAsync`, `DbCommand.CommandText`, or string-interpolated SQL (`$"..."`).
-- [ ] **Flag Unsafe Patterns:** Any raw SQL using string concatenation or unparameterized `$""` interpolation (instead of `FromSqlInterpolated` / `ExecuteSqlInterpolatedAsync` / `NpgsqlParameter`) is a critical finding.
+## 4. Secrets & Raw SQL Injection Safety
+- [ ] **No Secrets in Logs or Error Responses:** `ILogger` never logs passwords, JWTs, refresh/enrollment tokens, sync secrets, or connection strings. `ExceptionHandlingMiddleware` never leaks stack traces or SQL text in `ApiErrorEnvelopeDto`.
+- [ ] **Parameterized SQL Only:** Search all `FromSqlRaw`, `ExecuteSqlRaw`, `ExecuteSqlRawAsync`, `CommandText`, and interpolated SQL strings. Any unparameterized concatenation/interpolation is a **P0** finding.

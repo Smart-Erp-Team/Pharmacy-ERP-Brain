@@ -1,0 +1,17 @@
+{
+  "backend-safety-guard": {
+    "enabled": true,
+    "PreToolUse": [
+      {
+        "matcher": "run_command|write_file|edit_file|write_to_file|replace_file_content|multi_replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ./hooks/pre-tool-guard.ps1",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

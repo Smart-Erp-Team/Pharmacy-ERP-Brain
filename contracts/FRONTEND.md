@@ -1,8 +1,9 @@
-# PharmacyERP — Stage 1 Frontend ↔ Backend Integration Guide
+# PharmacyERP — Stage 1 (Live) + Stage 2 (Target) Frontend ↔ Backend Integration Guide
 
-> **Authoritative Source:** Generated to match the live Stage 1 backend contract in [`../contracts/openapi.v1.json`](../contracts/openapi.v1.json), [`../contracts/README.md`](../contracts/README.md), and [`../FRONTEND_TEST_DATA_GUIDE.md`](../FRONTEND_TEST_DATA_GUIDE.md) **100% verbatim**.
->
-> **Stage 1 Scope (48 Live Endpoints):** Covers Auth & JWKS, Organization Provisioning, Branches & Branch Enrollment, Users, Employees, Catalog (Categories, Products, Multi-UOM, Reorder Rules), Inventory (Locations, Batches, Paginated Balances, Summary, Ledger Transactions, BranchLocal Adjustments/Reversals), and Canonical Stage 1 Integration. Stage 2 (Sales / POS) and Stage 3 (Purchasing) will be added to this package only once implemented in the live backend.
+> **Authoritative Source:**
+> - **Stage 1 (`x-stage: 1`, 48 Live Endpoints):** Matches the live Stage 1 backend contract in [`../apps/erp-backend/contracts/openapi.v1.json`](../apps/erp-backend/contracts/openapi.v1.json), [`../apps/erp-backend/contracts/README.md`](../apps/erp-backend/contracts/README.md), and [`../apps/erp-backend/FRONTEND_TEST_DATA_GUIDE.md`](../apps/erp-backend/FRONTEND_TEST_DATA_GUIDE.md) **100% verbatim**.
+> - **Stage 2 (`x-stage: 2`, 18 Target Endpoints):** Appended verbatim from the 4 reconciled Stage 2 backend specs (`ahmed-hassan.md`, `el-hosseiny.md`, `yassin.md`, `ahmed-salah.md`) covering POS Sales Orders, Atomic Checkout, Invoices, Cash Payments, Sales Returns/Refunds, Offline Sync, and Stage 2 Canonical Read APIs (**66 total endpoints**: `48` live Stage 1 + `18` target Stage 2).
+> - **ZERO Stage 3 Purchasing Scope:** Stage 3 (`suppliers`, `purchase-orders`, `supplier-payments`, `vendor-returns`) is excluded.
 
 ---
 
@@ -10,9 +11,9 @@
 
 | Path | Contents |
 | --- | --- |
-| [`openapi.erp.yaml`](./openapi.erp.yaml) | Live Stage 1 OpenAPI 3.0.4 specification — **48 live endpoints** (47 controller actions + `GET /.well-known/jwks.json`) and **76 component schemas**, annotated with `x-stage: 1`, `x-runtime`, and `x-roles`. |
-| [`schemas/*.json`](./schemas/) | Draft 2020-12 JSON Schema definitions: `common.json`, `auth.json`, `identity.json`, `catalog.json`, `inventory.json`, `canonical.json`, plus exact synced `api-error-envelope.schema.json` and `canonical-capabilities.schema.json`. |
-| [`fixtures/*.json`](./fixtures/) | Stage 1 mock/test payloads matching live DTO shapes and `MEDCARE` seeded IDs from `FRONTEND_TEST_DATA_GUIDE.md`. |
+| [`openapi.erp.yaml`](./openapi.erp.yaml) | Combined Stage 1 (Live) + Stage 2 (Target) OpenAPI 3.0.4 specification — **66 total endpoints** (**48 live Stage 1** + **18 target Stage 2** [`11` `erp-pos`, `4` `sync`, `3` `canonical`]), annotated with `x-stage`, `x-surface` (on Stage 2), `x-runtime`, and `x-roles`. |
+| [`schemas/*.json`](./schemas/) | Draft 2020-12 JSON Schema definitions: Stage 1 (`common.json`, `auth.json`, `identity.json`, `catalog.json`, `inventory.json`, `canonical.json`, `api-error-envelope.schema.json`, `canonical-capabilities.schema.json`) + Stage 2 (`sales.json`, `sync.json`, and Stage 2 canonical read `$defs` appended in `canonical.json`). |
+| [`fixtures/*.json`](./fixtures/) | Mock/test payloads matching DTO shapes and `MEDCARE` seeded IDs from `FRONTEND_TEST_DATA_GUIDE.md`: 6 untouched Stage 1 fixtures + 3 Stage 2 fixtures (`sales-order-draft.json`, `sales-invoice-completed.json`, `sales-return.json`). |
 
 - Generate frontend TypeScript types into `apps/erp-frontend/src/types/generated` directly from `openapi.erp.yaml` and `schemas/*.json`. Never hand-write divergent DTO types.
 
@@ -192,4 +193,82 @@ Every error response returns `ApiErrorEnvelopeDto`:
 
 ## 7. Local QA & Seeded Test Data
 
-See [`../FRONTEND_TEST_DATA_GUIDE.md`](../FRONTEND_TEST_DATA_GUIDE.md) for deterministic multi-tenant seed credentials (`MEDCARE`, `ALNOUR`, `GREENLEAF`), branch IDs, enrollment tokens, location IDs, SKU/barcode/UOM test cases, and copy-paste `BranchLocal` adjustment and reversal payloads.
+See [`../apps/erp-backend/FRONTEND_TEST_DATA_GUIDE.md`](../apps/erp-backend/FRONTEND_TEST_DATA_GUIDE.md) for deterministic multi-tenant seed credentials (`MEDCARE`, `ALNOUR`, `GREENLEAF`), branch IDs, enrollment tokens, location IDs, SKU/barcode/UOM test cases, and copy-paste `BranchLocal` adjustment and reversal payloads.
+
+---
+
+## 8. Stage 2 — POS Sales, Checkout, Invoices, Returns, Offline Sync & Canonical Reads (`18` Endpoints)
+
+All Stage 2 endpoints follow the exact same Stage 1 wire conventions: strict `snake_case` JSON properties, query parameters, and `error.details[].field` paths; native JSON numbers for all prices, quantities, taxes, costs, and totals; string-only enums (`allowIntegerValues: false`); optional trailing `idempotency_key` body field + `Idempotency-Key` HTTP header precedence (`400 MALFORMED_REQUEST` if absent in both, `422` if `> 100` chars, `409 IDEMPOTENCY_MISMATCH` on hash conflict); and uniform ERP pagination (`page = 1`, `page_size = 25`, valid bounds `page >= 1` & `1 <= page_size <= 200`, `422 VALIDATION_ERROR` on out-of-range values).
+
+### 8.1 Stage 2 Runtime Split & RBAC Matrix
+
+| Endpoint (`x-stage: 2`) | Surface | `Cloud` | `BranchLocal` | Auth / Policy / Roles | Success |
+| --- | :---: | :---: | :---: | --- | --- |
+| `POST /api/v1/sales-orders` | `erp-pos` | ❌ (`404`) | ✅ | `PosCashierOrAdmin` (`Cashier`, `Admin`) + branch + `Idempotency-Key` | `201 Created` `SalesOrderDto` + `Location` |
+| `GET /api/v1/sales-orders` | `erp-pos` | ✅ | ✅ | `SalesReadAccess` (`Admin`, `Pharmacist`, `Cashier`) + branch | `200 OK` `PagedResult<SalesOrderSummaryDto>` |
+| `GET /api/v1/sales-orders/{id}` | `erp-pos` | ✅ | ✅ | `SalesReadAccess` + branch | `200 OK` `SalesOrderDto` |
+| `PUT /api/v1/sales-orders/{id}/lines` | `erp-pos` | ❌ (`404`) | ✅ | `PosCashierOrAdmin` + branch + `Idempotency-Key` | `200 OK` `SalesOrderDto` |
+| `POST /api/v1/sales-orders/{id}/complete` | `erp-pos` | ❌ (`404`) | ✅ | `PosCashierOrAdmin` + branch + `Idempotency-Key` | `200 OK` `CompleteSalesOrderResultDto` |
+| `POST /api/v1/sales-orders/{id}/cancel` | `erp-pos` | ❌ (`404`) | ✅ | `PosCashierOrAdmin` + branch + `Idempotency-Key` | `200 OK` `SalesOrderDto` |
+| `GET /api/v1/sales-invoices` | `erp-pos` | ✅ | ✅ | `SalesReadAccess` + branch | `200 OK` `PagedResult<SalesInvoiceSummaryDto>` |
+| `GET /api/v1/sales-invoices/{id}` | `erp-pos` | ✅ | ✅ | `SalesReadAccess` + branch | `200 OK` `SalesInvoiceDto` |
+| `POST /api/v1/sales-returns` | `erp-pos` | ❌ (`404`) | ✅ | `SalesReturnWriteAccess` (`Cashier`, `Pharmacist`, `Admin`) + branch + `Idempotency-Key` | `201 Created` `SalesReturnDto` + `Location` |
+| `GET /api/v1/sales-returns` | `erp-pos` | ✅ | ✅ | `SalesReadAccess` + branch | `200 OK` `PagedResult<SalesReturnSummaryDto>` |
+| `GET /api/v1/sales-returns/{id}` | `erp-pos` | ✅ | ✅ | `SalesReadAccess` + branch | `200 OK` `SalesReturnDetailDto` |
+| `POST /api/v1/sync/operations` | `sync` | ✅ | ❌ (`404`) | `security: []` + `X-Branch-Enrollment-Token` header | `200 OK` `SyncOperationBatchResponse` |
+| `POST /api/v1/sync/operations/{operationId}/retry` | `sync` | ✅ | ❌ (`404`) | `SyncAdminOnly` (`Admin` + `sync:retry` scope) + branch | `200 OK` `SyncOperationResultDto` |
+| `GET /api/v1/sync/bootstrap` | `sync` | ✅ | ❌ (`404`) | `security: []` + `X-Branch-Enrollment-Token` header | `200 OK` `SyncBootstrapResponse` |
+| `GET /api/v1/sync/changes` | `sync` | ✅ | ❌ (`404`) | `security: []` + `X-Branch-Enrollment-Token` header | `200 OK` `SyncChangesResponse` (`409 SYNC_CURSOR_EXPIRED`) |
+| `GET /api/v1/canonical/sales` | `canonical` | ✅ | ❌ (`404`) | `CanonicalRead` (`Admin`, `Pharmacist`, `CanonicalReader`) + branch | `200 OK` `PagedResult<CanonicalSaleDto>` |
+| `GET /api/v1/canonical/orders` | `canonical` | ✅ | ❌ (`404`) | `CanonicalRead` + branch | `200 OK` `PagedResult<CanonicalSalesOrderDto>` |
+| `GET /api/v1/canonical/returns` | `canonical` | ✅ | ❌ (`404`) | `CanonicalRead` + branch | `200 OK` `PagedResult<CanonicalSaleReturnDto>` |
+
+### 8.2 POS Draft Orders & Server-Authoritative Pricing
+- `POST /api/v1/sales-orders` and `PUT /api/v1/sales-orders/{id}/lines` accept only `product_id`, `product_uom_id`, and `entered_qty` per line (**never** client-supplied prices, discounts, tax rates, or totals).
+- The server loads authoritative `PRODUCT_UOM.sale_unit_price` (`is_sellable = true`) and `PRODUCT.tax_rate`, computing `quantity_base`, `tax_amount_snapshot`, and `line_total` using `MidpointRounding.AwayFromZero`.
+- Draft orders (`DRAFT`) are non-posting: they **never** reserve or deduct `STOCK_BALANCE` and never write `SYNC_OUTBOX`.
+- Calling `PUT .../lines` or `POST .../cancel` on a `COMPLETED` or `CANCELLED` order returns **`409 INVALID_STATE_TRANSITION`**.
+
+### 8.3 Atomic POS Checkout (`POST /api/v1/sales-orders/{id}/complete`)
+- Request body: `{ "cash_tendered_amount": number, "method": "CASH", "note": string | null, "idempotency_key"?: string | null }` + optional `Idempotency-Key` header.
+- **Full Cash Settlement Only:** `cash_tendered_amount` must be `>= grand_total` (max 2 decimal places); partial payments or unpaid credit return **`422 VALIDATION_ERROR`** (`field: "cash_tendered_amount"`).
+- **FEFO Allocation:** Server allocates eligible sellable batches (`quality_status == "AVAILABLE"`, `expires_on IS NULL OR expires_on > orgBusinessDate` in `Organization.TimeZoneId`) ordered by `expires_on ASC`, `batch_id ASC`, `location_id ASC` with `NULL`/`NON-LOT` batches last.
+- **Stock Shortage (`409 OUT_OF_STOCK`):** If any line lacks sufficient eligible sellable stock, the entire checkout rolls back and returns **`409 OUT_OF_STOCK`** with `error.details[]` listing every affected line using `field: "lines[i].quantity"`.
+- **Single Atomic Commit:** Marks order `COMPLETED`, issues immutable `SALES_INVOICE` (`ISSUED`/`PAID`), records `SALES_PAYMENT`, posts base-UOM `SALE_ISSUE` `INVENTORY_TXN`, logs audit, and enqueues outbox + `SYNC_OUTBOX` (`COMPLETE_SALES_ORDER`).
+
+### 8.4 Sales Invoices (`GET /api/v1/sales-invoices*`)
+- Filter query params: `branch_id`, `invoice_no`, `payment_status` (`PAID` | `PARTIALLY_REFUNDED` | `REFUNDED`), `from_date`, `to_date`, `page` (`1`), `page_size` (`25`, `1..200`).
+- Issued invoices are immutable except for settlement projections (`paid_amount`, `refunded_amount`, `payment_status`) updated when returns/refunds post. Detail view (`SalesInvoiceDto`) preserves deactivated products, UOMs, and employees.
+
+### 8.5 Sales Returns & Refunds (`POST /api/v1/sales-returns`, `GET /api/v1/sales-returns*`)
+- Request body: `{ "invoice_id", "reason_code", "lines": [{ "invoice_line_id", "quantity_base", "disposition": "RESTOCK" | "QUARANTINE" | "SCRAP" }], "approved_by_employee_id"?: uuid | null, "refund_method"?: "CASH", "issue_cash_refund"?: true, "idempotency_key"?: string | null }`.
+- **Never send `batch_id` or `destination_location_id`:** Server derives batch splits from the original posted `SALE_ISSUE` ledger lines and selects branch destination locations (`MAIN-SELLABLE` / original sellable location for `RESTOCK`, `MAIN-QUARANTINE` for `QUARANTINE`, `MAIN-SCRAP` for `SCRAP`).
+- **14-Day Return Window:** Evaluated in `Organization.TimeZoneId` (`currentBusinessDate <= issuedBusinessDate.AddDays(14)`); expired invoices fail with **`422 VALIDATION_ERROR`** (`field: "invoice_id"`). Must be processed at the original invoice branch (`403 FORBIDDEN_BRANCH` otherwise).
+- **Distinct Approver Policy:** When `approved_by_employee_id` is provided, it must differ from the receiving employee (`422` `field: "approved_by_employee_id"` on self-approval) and must reference an active `Admin` or `Pharmacist` authorized for the invoice branch (`403 FORBIDDEN` otherwise).
+- **Dispositions & §8.9.12 Cent-Residual Refunds:** `RESTOCK` restores stock at the original sale `unit_cost_base`; `QUARANTINE` receives into non-sellable quarantine; `SCRAP` atomically posts `SALES_RETURN_IN` (+qty) and `SCRAP_OUT` (-qty) so `MAIN-SCRAP` ending balance returns to `0`. Partial refunds are proportional to tax-inclusive `line_total`, assigning any cent residual to the final returned unit so cumulative refunds equal `line_total` exactly.
+- `GET /api/v1/sales-returns` filters by `branch_id`, `invoice_id`, `from_date`, `to_date`, `page` (`1`), `page_size` (`25`, `1..200`). `GET /api/v1/sales-returns/{id}` returns `SalesReturnDetailDto` (including `stock_movements[]` and `refunds[]`).
+
+### 8.6 Offline Sync (`POST/GET /api/v1/sync/*`, `Cloud`-only)
+- `POST /api/v1/sync/operations`, `GET /api/v1/sync/bootstrap`, and `GET /api/v1/sync/changes` use **`security: []`** and require the **`X-Branch-Enrollment-Token`** HTTP header (redeemed runtime credential verified against `identity."BRANCH_ENROLLMENT".runtime_credential_hash`; invalid/expired/inactive -> `401 UNAUTHORIZED`, branch mismatch -> `403 FORBIDDEN_BRANCH`).
+- `GET /api/v1/sync/bootstrap?branch_id=...` delivers reference/catalog/pricing/tax/authorized-branch-identity snapshots and **explicitly excludes stock balances, inventory transactions, and opening balances**.
+- `GET /api/v1/sync/changes?branch_id=...&since_cursor=...&limit=100` (`limit` `1..200`) streams commit-ordered `OUTBOX_EVENT.event_sequence` changes and returns **`409 SYNC_CURSOR_EXPIRED`** when `since_cursor` falls behind the retention floor (triggering controlled `/sync/bootstrap` resnapshot).
+- `POST /api/v1/sync/operations/{operationId}/retry` requires Bearer JWT with **`SyncAdminOnly`** (`Admin` role + `sync:retry` scope) + `reason` (`3..500` chars) to retry a head-of-line `CONFLICT` inbox item without editing its stored payload.
+
+### 8.7 Stage 2 Canonical Read Feeds (`GET /api/v1/canonical/sales|orders|returns`, `Cloud`-only)
+- Strictly **read-only** and **non-PII** (zero customer, delivery, reservation, terminal, or employee email/phone fields).
+- Query parameters: `organization_id` (must match token tenant or `403 FORBIDDEN`), `branch_id`, `from_date`, `to_date`, `updated_since`, `cursor` (opaque Base64Url `CanonicalOutboxCursor`; malformed -> `422` `field: "cursor"`), `limit` (default `100`, clamped `1..1000`).
+- Authorized via **`CanonicalRead`** (`Admin`, `Pharmacist`, or short-lived `.NET` `CanonicalReader` service token; `Cashier` receives `403 FORBIDDEN`).
+
+---
+
+## 9. Stage 2 Activation Deltas (Effective When `stage2-dev` Launches)
+
+All 48 Stage 1 endpoints, 76 Stage 1 schemas, and 6 Stage 1 fixtures in this package remain **100% compatible with the live Stage 1 backend (`main`) today**. When `stage2-dev` launches, the following 4 Stage 1 → Stage 2 evolutions take effect on the live API:
+
+| # | Contract Area | Live Stage 1 (`main`) Behavior | Effective When `stage2-dev` Launches |
+| :---: | :--- | :--- | :--- |
+| **1** | **Error Codes** (`ApiErrorEnvelopeDto.error.code`) | 11 `ErrorCode` values + `INTERNAL_SERVER_ERROR` | Adds **`"SYNC_CURSOR_EXPIRED"`** (`HTTP 409 Conflict`) for expired pull cursors on `GET /api/v1/sync/changes` (`AH-01`, `AH-06`). |
+| **2** | **`GET /api/v1/canonical/capabilities`** | `stage: 1`; `Cloud`: `2` reads (`products`, `inventory`), `2` writes (`configuration.products`, `configuration.reorder-rules`); `BranchLocal`: `[]` / `[]` | **`stage: 2`**; `Cloud`: **`5` reads** (`products`, `inventory`, `sales`, `orders`, `returns`), `2` writes (unchanged — zero Stage 2 canonical writes); `BranchLocal`: stays `[]` / `[]` (`AS-07`). |
+| **3** | **Stage 1 Canonical Unification** (`/canonical/products`, `/canonical/inventory`, `/canonical/configuration/*`) | `/products` returns `CanonicalProductFeedPageDto` (`limit=50`); `/inventory` takes `int64 cursor`; config writes return `status: "APPLIED"`; `Admin,Pharmacist` only | All 5 canonical reads unify onto **`OUTBOX_EVENT.event_sequence` `string? cursor` + `PagedResult<T>`** (`limit=100`, `1..1000`, `422` on malformed cursor) under `CanonicalRead` (`Admin`, `Pharmacist`, `CanonicalReader`); config writes return **`status: "succeeded"`** (`DTO-DIFF-034`) and remain `Admin,Pharmacist` only (`AS-05`..`AS-07`). |
+| **4** | **Emitted JWT `scopes[]`** (`LoginResponse.user.scopes` & `GET /api/v1/auth/me`) | `Admin` (5), `Pharmacist` (3), `Cashier` (3) | Adds **`"return:read"`** and **`"return:write"`** to `Admin`, `Pharmacist`, and `Cashier`, plus **`"sync:retry"`** exclusively for `Admin` (`BranchScope.ALL` on `Cloud` only) (`AH-06`). |
