@@ -18,6 +18,7 @@ import {
   normalizeApiErrorEnvelope,
   normalizeCurrentUser,
   normalizeLoginResponse,
+  requireNullableString,
 } from './normalizers';
 
 function expectInvalidResponse(fn: () => unknown, endpoint?: string): void {
@@ -293,8 +294,36 @@ describe('normalizeApiErrorEnvelope', () => {
   });
 });
 
+describe('requireNullableString', () => {
+  it('accepts strings and explicit null, rejects missing/undefined by default, and supports allowUndefined: true', () => {
+    expect(requireNullableString({ note: 'Dispensed' }, 'note', '/txns')).toBe(
+      'Dispensed'
+    );
+    expect(requireNullableString({ note: '' }, 'note', '/txns')).toBe('');
+    expect(requireNullableString({ note: null }, 'note', '/txns')).toBeNull();
+
+    expectInvalidResponse(
+      () => requireNullableString({}, 'note', '/txns'),
+      '/txns'
+    );
+    expectInvalidResponse(
+      () => requireNullableString({ note: undefined }, 'note', '/txns'),
+      '/txns'
+    );
+
+    expect(
+      requireNullableString({}, 'note', '/txns', { allowUndefined: true })
+    ).toBeNull();
+    expect(
+      requireNullableString({ note: undefined }, 'note', '/txns', {
+        allowUndefined: true,
+      })
+    ).toBeNull();
+  });
+});
+
 describe('normalizeAddress', () => {
-  it('normalizes required and nullable address fields', () => {
+  it('normalizes required and explicit null address fields', () => {
     const address = normalizeAddress(branchFixture.address, '/branches');
     expect(address).toEqual({
       line1: '24 Talaat Harb Street',
@@ -305,12 +334,15 @@ describe('normalizeAddress', () => {
       country_code: 'EG',
     });
 
-    const minimal = normalizeAddress({
+    const explicitNulls = normalizeAddress({
       line1: '10 Nile Corniche',
+      line2: null,
       city: 'Giza',
+      region: null,
+      postal_code: null,
       country_code: 'EG',
     });
-    expect(minimal).toEqual({
+    expect(explicitNulls).toEqual({
       line1: '10 Nile Corniche',
       line2: null,
       city: 'Giza',
@@ -320,7 +352,7 @@ describe('normalizeAddress', () => {
     });
   });
 
-  it('rejects malformed addresses with ContractValidationError', () => {
+  it('rejects missing nullable keys or malformed addresses with ContractValidationError', () => {
     expectInvalidResponse(
       () => normalizeAddress(null, '/branches'),
       '/branches'
@@ -328,7 +360,26 @@ describe('normalizeAddress', () => {
     expectInvalidResponse(
       () =>
         normalizeAddress(
-          { line1: '', city: 'Cairo', country_code: 'EG' },
+          {
+            line1: '10 Nile Corniche',
+            city: 'Giza',
+            country_code: 'EG',
+          },
+          '/branches'
+        ),
+      '/branches'
+    );
+    expectInvalidResponse(
+      () =>
+        normalizeAddress(
+          {
+            line1: '',
+            line2: null,
+            city: 'Cairo',
+            region: null,
+            postal_code: null,
+            country_code: 'EG',
+          },
           '/branches'
         ),
       '/branches'
@@ -340,6 +391,8 @@ describe('normalizeAddress', () => {
             line1: '24 Main St',
             line2: 123,
             city: 'Cairo',
+            region: null,
+            postal_code: null,
             country_code: 'EG',
           },
           '/branches'

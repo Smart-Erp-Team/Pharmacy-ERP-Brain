@@ -808,11 +808,8 @@ function resolveIdempotency(
       errorResponse: Response;
     } {
   const headerKey = request.headers.get('Idempotency-Key')?.trim() ?? '';
-  const bodyKey =
-    typeof body.idempotency_key === 'string' ? body.idempotency_key.trim() : '';
-  const effectiveKey = headerKey || bodyKey;
 
-  if (!effectiveKey) {
+  if (!headerKey) {
     return {
       ok: false,
       errorResponse: malformedRequestResponse(
@@ -826,6 +823,8 @@ function resolveIdempotency(
       ),
     };
   }
+
+  const effectiveKey = headerKey;
 
   if (effectiveKey.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
     return {
@@ -2108,7 +2107,11 @@ export const inventoryHandlers = [
         validated.batchNumberInput.toUpperCase() === NON_LOT_BATCH_NUMBER;
 
       if (!validated.product.lot_tracking_required) {
-        if (!isNonLotInput || validated.expiresOn !== null) {
+        if (
+          !isNonLotInput ||
+          validated.expiresOn !== null ||
+          validated.manufacturedOn !== null
+        ) {
           return validationErrorResponse('Invalid non-lot batch input.', [
             {
               field: `${prefix}.batch_number`,

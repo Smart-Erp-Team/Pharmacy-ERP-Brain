@@ -905,7 +905,7 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
     expect(screen.getByText('EGP 25.50')).toBeDefined();
   });
 
-  it('edits product with immutable SKU/Base UOM, !isDirty guard, 409 lot tracking lock inline on Augmentin, and Idempotency-Key stability on retry', async () => {
+  it('edits product with unlocked SKU/Base UOM, !isDirty guard, 409 conflict alerts (lot/base UOM/duplicate SKU), and Idempotency-Key stability on retry', async () => {
     const user = userEvent.setup();
     const seenKeys: Array<string | null> = [];
     const patchedBodies: Array<Record<string, unknown>> = [];
@@ -955,10 +955,12 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
     const baseUomInput = expectInputElement(
       within(dialog).getByLabelText('Base UOM')
     );
-    expect(skuInput.disabled).toBe(true);
-    expect(skuInput.readOnly).toBe(true);
-    expect(baseUomInput.disabled).toBe(true);
-    expect(baseUomInput.readOnly).toBe(true);
+    expect(skuInput.disabled).toBe(false);
+    expect(skuInput.readOnly).toBe(false);
+    expect(baseUomInput.disabled).toBe(false);
+    expect(baseUomInput.readOnly).toBe(false);
+    expect(skuInput.value).toBe('MED-AUG-1000');
+    expect(baseUomInput.value).toBe('TAB');
 
     const saveBtn = expectButtonElement(
       within(dialog).getByRole('button', { name: 'Save changes' })
@@ -983,8 +985,40 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
     );
     expect(inlineLotError.getAttribute('role')).toBe('alert');
 
-    // Revert lot toggle, edit name & tax %, fail 500 once then retry with identical Idempotency-Key
+    // Revert lot toggle, try changing Base UOM on Augmentin (has history) -> 409 inline + alert
     await user.click(lotToggle);
+    await user.clear(baseUomInput);
+    await user.type(baseUomInput, 'CAP');
+    await user.click(saveBtn);
+    expect(
+      await within(dialog).findByText(
+        /Base UOM code cannot be changed while stock or posted ledger history exists/i
+      )
+    ).toBeDefined();
+    expect(
+      within(dialog)
+        .getByText(
+          'Cannot change base UOM code while stock or posted ledger history exists.'
+        )
+        .getAttribute('role')
+    ).toBe('alert');
+
+    // Revert Base UOM, try duplicate SKU -> 409 inline + alert
+    await user.clear(baseUomInput);
+    await user.type(baseUomInput, 'TAB');
+    await user.clear(skuInput);
+    await user.type(skuInput, 'MED-PAN-500');
+    await user.click(saveBtn);
+    expect(
+      await within(dialog).findByText(/SKU "MED-PAN-500" already exists/i)
+    ).toBeDefined();
+    expect(
+      within(dialog).getByText('SKU must be unique.').getAttribute('role')
+    ).toBe('alert');
+
+    // Restore valid SKU, edit name & tax %, fail 500 once then retry with identical Idempotency-Key
+    await user.clear(skuInput);
+    await user.type(skuInput, 'MED-AUG-1000');
     const nameInput = within(dialog).getByLabelText('Product name');
     await user.clear(nameInput);
     await user.type(nameInput, 'Augmentin 1g Tablets Updated');
@@ -1009,6 +1043,8 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
     expect(seenKeys[0]).not.toBeNull();
     expect(seenKeys[0]).toBe(seenKeys[1]);
     expect(patchedBodies[1]).toMatchObject({
+      sku: 'MED-AUG-1000',
+      base_uom_code: 'TAB',
       name: 'Augmentin 1g Tablets Updated',
       tax_rate: 0.14,
     });
@@ -1018,6 +1054,36 @@ describe('ProductsTable, filters, pagination, and Create/Edit Product modals', (
     expect(inventoryBalanceFixture.product_id).toBe(
       MOCK_PRODUCT_IDS.AUGMENTIN_1G
     );
+
+    // Edit SKU and Base UOM on Panadol Extra (no history lock) -> sends both in PATCH and updates row
+    const panadolRow = screen.getByText('Panadol Extra 500mg').closest('tr');
+    if (!panadolRow) {
+      throw new Error('Expected Panadol row');
+    }
+    await user.click(within(panadolRow).getByRole('button', { name: 'Edit' }));
+    const panadolDialog = screen.getByRole('dialog');
+    const panadolSku = expectInputElement(
+      within(panadolDialog).getByLabelText('SKU')
+    );
+    const panadolBaseUom = expectInputElement(
+      within(panadolDialog).getByLabelText('Base UOM')
+    );
+    await user.clear(panadolSku);
+    await user.type(panadolSku, 'MED-PAN-500-V2');
+    await user.clear(panadolBaseUom);
+    await user.type(panadolBaseUom, 'CAP');
+    patchedBodies.length = 0;
+    await user.click(
+      within(panadolDialog).getByRole('button', { name: 'Save changes' })
+    );
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    expect(patchedBodies[0]).toMatchObject({
+      sku: 'MED-PAN-500-V2',
+      base_uom_code: 'CAP',
+    });
+    expect(await screen.findByText('MED-PAN-500-V2')).toBeDefined();
   });
 });
 

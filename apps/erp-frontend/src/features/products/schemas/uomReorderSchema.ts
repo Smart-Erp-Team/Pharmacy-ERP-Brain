@@ -55,6 +55,41 @@ function validateSellablePrice(
   }
 }
 
+function validateConversionToBase(
+  conversionToBase: string,
+  isBase: boolean,
+  ctx: z.RefinementCtx
+): void {
+  const rawConversion = conversionToBase.trim();
+  if (!rawConversion) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['conversion_to_base'],
+      message: 'Conversion factor is required',
+    });
+    return;
+  }
+
+  const parsedConversion = parseSignedDecimal(rawConversion);
+  if (
+    rawConversion.startsWith('-') ||
+    parsedConversion === null ||
+    parsedConversion <= 0
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['conversion_to_base'],
+      message: 'Conversion factor must be greater than 0',
+    });
+  } else if (isBase && parsedConversion !== 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['conversion_to_base'],
+      message: 'Base UOM conversion factor must equal 1',
+    });
+  }
+}
+
 export const createUomFormSchema = z
   .object({
     uom_code: z
@@ -74,34 +109,7 @@ export const createUomFormSchema = z
     sale_unit_price: z.string().trim(),
   })
   .superRefine((values, ctx) => {
-    const rawConversion = values.conversion_to_base.trim();
-    if (!rawConversion) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['conversion_to_base'],
-        message: 'Conversion factor is required',
-      });
-    } else {
-      const parsedConversion = parseSignedDecimal(rawConversion);
-      if (
-        rawConversion.startsWith('-') ||
-        parsedConversion === null ||
-        parsedConversion <= 0
-      ) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['conversion_to_base'],
-          message: 'Conversion factor must be greater than 0',
-        });
-      } else if (values.is_base && parsedConversion !== 1) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['conversion_to_base'],
-          message: 'Base UOM conversion factor must equal 1',
-        });
-      }
-    }
-
+    validateConversionToBase(values.conversion_to_base, values.is_base, ctx);
     validateSellablePrice(values.is_sellable, values.sale_unit_price, ctx);
   });
 
@@ -144,20 +152,31 @@ export const editUomFormSchema = z
       .trim()
       .min(1, 'Display name is required')
       .max(50, 'Display name must be at most 50 characters'),
+    conversion_to_base: z.string().trim(),
+    is_base: z.boolean().optional(),
     is_sellable: z.boolean(),
     is_purchasable: z.boolean(),
     sale_unit_price: z.string().trim(),
     is_active: z.boolean(),
   })
   .superRefine((values, ctx) => {
+    validateConversionToBase(
+      values.conversion_to_base,
+      values.is_base === true,
+      ctx
+    );
     validateSellablePrice(values.is_sellable, values.sale_unit_price, ctx);
   });
+
+export const updateProductUomFormSchema = editUomFormSchema;
 
 export type EditUomFormValues = z.infer<typeof editUomFormSchema>;
 
 export function uomDtoToEditFormValues(uom: ProductUom): EditUomFormValues {
   return {
     display_name: uom.display_name,
+    conversion_to_base: uom.is_base ? '1' : String(uom.conversion_to_base),
+    is_base: uom.is_base,
     is_sellable: uom.is_sellable,
     is_purchasable: uom.is_purchasable,
     sale_unit_price:
@@ -167,10 +186,15 @@ export function uomDtoToEditFormValues(uom: ProductUom): EditUomFormValues {
 }
 
 export function toPatchProductUomPayload(
-  values: EditUomFormValues
+  values: EditUomFormValues,
+  uom?: Pick<ProductUom, 'is_base'>
 ): UpdateProductUomRequest {
+  const isBase = uom ? uom.is_base : values.is_base === true;
   return {
     display_name: values.display_name.trim(),
+    conversion_to_base: isBase
+      ? 1
+      : (parseNonNegativeDecimal(values.conversion_to_base) ?? 0),
     sale_unit_price: values.is_sellable
       ? (parseNonNegativeDecimal(values.sale_unit_price) ?? 0)
       : null,
@@ -181,6 +205,7 @@ export function toPatchProductUomPayload(
 }
 
 export const toUomPatchPayload = toPatchProductUomPayload;
+export const toUpdateUomPayload = toPatchProductUomPayload;
 
 export const reorderRuleFormSchema = z
   .object({

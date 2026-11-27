@@ -11,10 +11,7 @@ export const loginSchema = z.object({
     .trim()
     .min(1, 'Username is required')
     .max(80, 'Username must be 80 characters or fewer'),
-  password: z
-    .string()
-    .min(1, 'Password is required')
-    .max(128, 'Password must be 128 characters or fewer'),
+  password: z.string().min(1, 'Password is required'),
 });
 
 export type LoginFormValues = z.infer<typeof loginSchema>;

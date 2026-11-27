@@ -103,7 +103,7 @@ describe('Navigation visibility', () => {
     ).toBe(false);
   });
 
-  it('shows all Stage 1 Cloud items for Admin and restricts BranchLocal to workspace and operations reads', () => {
+  it('shows all Stage 1 Cloud items for Admin and hides only Cloud-only Branch Enrollment on BranchLocal', () => {
     expect(getVisibleLabels(['Admin'], ADMIN_SCOPES, 'Cloud')).toEqual([
       'Overview',
       'Products',
@@ -118,38 +118,60 @@ describe('Navigation visibility', () => {
       'Overview',
       'Products',
       'Inventory',
+      'Branches',
+      'Employees',
+      'User Accounts',
     ]);
   });
 
   it('computes exact Stage 1 nav items for Pharmacist and Cashier across Cloud and BranchLocal', () => {
     expect(
       getVisibleLabels(['Pharmacist'], PHARMACIST_SCOPES, 'Cloud')
-    ).toEqual(['Overview', 'Products', 'Inventory', 'Branch Enrollment']);
+    ).toEqual([
+      'Overview',
+      'Products',
+      'Inventory',
+      'Branch Enrollment',
+      'Branches',
+    ]);
     expect(
       getVisibleLabels(['Pharmacist'], PHARMACIST_SCOPES, 'BranchLocal')
-    ).toEqual(['Overview', 'Products', 'Inventory']);
+    ).toEqual(['Overview', 'Products', 'Inventory', 'Branches']);
 
     expect(getVisibleLabels(['Cashier'], CASHIER_SCOPES, 'Cloud')).toEqual([
       'Overview',
       'Products',
       'Inventory',
       'Branch Enrollment',
+      'Branches',
     ]);
     expect(
       getVisibleLabels(['Cashier'], CASHIER_SCOPES, 'BranchLocal')
-    ).toEqual(['Overview', 'Products', 'Inventory']);
+    ).toEqual(['Overview', 'Products', 'Inventory', 'Branches']);
   });
 
-  it('drops groups that keep no visible entry on BranchLocal', () => {
-    const groups = getVisibleNavGroups(NAV_GROUPS, {
+  it('keeps Organization & Identity for Branches and drops groups with no visible entry', () => {
+    const pharmacistGroups = getVisibleNavGroups(NAV_GROUPS, {
       roles: ['Pharmacist'],
       scopes: PHARMACIST_SCOPES,
       runtime: 'BranchLocal',
     });
 
-    expect(groups.map((group) => group.title)).toEqual([
+    expect(pharmacistGroups.map((group) => group.title)).toEqual([
       'Workspace',
       'Operations',
+      'Organization & Identity',
+    ]);
+
+    const scopedOutGroups = getVisibleNavGroups(NAV_GROUPS, {
+      roles: ['Cashier'],
+      scopes: [],
+      runtime: 'BranchLocal',
+    });
+
+    expect(scopedOutGroups.map((group) => group.title)).toEqual([
+      'Workspace',
+      'Organization & Identity',
     ]);
   });
 });

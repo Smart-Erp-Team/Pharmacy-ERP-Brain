@@ -3,7 +3,10 @@ import { ADJUSTMENTS_TXN_TYPES } from '../../../lib/api/catalogInventoryNormaliz
 import type {
   CreateInventoryAdjustmentLineRequest,
   CreateInventoryAdjustmentRequest,
+  Product,
 } from '../../../types/api';
+
+export type ProductLotTrackingInfo = Pick<Product, 'lot_tracking_required'>;
 
 export { ADJUSTMENTS_TXN_TYPES };
 export const ADJUSTMENT_TXN_TYPES = ADJUSTMENTS_TXN_TYPES;
@@ -122,145 +125,215 @@ export function createEmptyAdjustmentLine(): InventoryAdjustmentLineFormValues {
   return { ...DEFAULT_ADJUSTMENT_LINE };
 }
 
-export const inventoryAdjustmentFormSchema = z
-  .object({
-    transaction_type: z.enum(ADJUSTMENTS_TXN_TYPES),
-    reason_code: z
-      .string()
-      .trim()
-      .max(40, 'Reason code must be at most 40 characters'),
-    note: z.string().trim().max(500, 'Note must be at most 500 characters'),
-    reverses_inventory_txn_id: z.string().trim(),
-    lines: z.array(inventoryAdjustmentLineSchema),
-  })
-  .superRefine((values, ctx) => {
-    if (values.transaction_type === 'REVERSAL') {
-      const targetId = values.reverses_inventory_txn_id.trim();
-      if (!targetId) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['reverses_inventory_txn_id'],
-          message: 'Original transaction ID is required for a reversal',
-        });
-      } else if (!UUID_SCHEMA.safeParse(targetId).success) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['reverses_inventory_txn_id'],
-          message: 'Original transaction ID must be a valid UUID',
-        });
+export function createInventoryAdjustmentFormSchema(
+  productsById: ReadonlyMap<string, ProductLotTrackingInfo> = new Map()
+) {
+  return z
+    .object({
+      transaction_type: z.enum(ADJUSTMENTS_TXN_TYPES),
+      reason_code: z
+        .string()
+        .trim()
+        .max(40, 'Reason code must be at most 40 characters'),
+      note: z.string().trim().max(500, 'Note must be at most 500 characters'),
+      reverses_inventory_txn_id: z.string().trim(),
+      lines: z.array(inventoryAdjustmentLineSchema),
+    })
+    .superRefine((values, ctx) => {
+      if (values.transaction_type === 'REVERSAL') {
+        const targetId = values.reverses_inventory_txn_id.trim();
+        if (!targetId) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['reverses_inventory_txn_id'],
+            message: 'Original transaction ID is required for a reversal',
+          });
+        } else if (!UUID_SCHEMA.safeParse(targetId).success) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['reverses_inventory_txn_id'],
+            message: 'Original transaction ID must be a valid UUID',
+          });
+        }
+        return;
       }
-      return;
-    }
 
-    if (!values.reason_code.trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['reason_code'],
-        message: 'Reason code is required',
-      });
-    }
-
-    if (values.lines.length === 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['lines'],
-        message: 'At least one adjustment line is required',
-      });
-      return;
-    }
-
-    const requiresUnitCost =
-      values.transaction_type === 'OPENING_BALANCE' ||
-      values.transaction_type === 'ADJUSTMENT_IN';
-
-    values.lines.forEach((line, index) => {
-      if (!line.product_id.trim()) {
+      if (!values.reason_code.trim()) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          path: ['lines', index, 'product_id'],
-          message: 'Product is required',
+          path: ['reason_code'],
+          message: 'Reason code is required',
         });
       }
 
-      if (!line.product_uom_id.trim()) {
+      if (values.lines.length === 0) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          path: ['lines', index, 'product_uom_id'],
-          message: 'Unit of measure is required',
+          path: ['lines'],
+          message: 'At least one adjustment line is required',
         });
+        return;
       }
 
-      if (!line.location_id.trim()) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['lines', index, 'location_id'],
-          message: 'Location is required',
-        });
-      }
+      const requiresUnitCost =
+        values.transaction_type === 'OPENING_BALANCE' ||
+        values.transaction_type === 'ADJUSTMENT_IN';
 
-      const manufacturedOn = line.manufactured_on.trim();
-      const expiresOn = line.expires_on.trim();
-      const manufacturedValid =
-        manufacturedOn.length === 0 || isValidIsoDate(manufacturedOn);
-      const expiresValid = expiresOn.length === 0 || isValidIsoDate(expiresOn);
+      values.lines.forEach((line, index) => {
+        const productId = line.product_id.trim();
+        if (!productId) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['lines', index, 'product_id'],
+            message: 'Product is required',
+          });
+        }
 
-      if (!manufacturedValid) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['lines', index, 'manufactured_on'],
-          message: 'Manufactured date must be a valid YYYY-MM-DD date',
-        });
-      }
+        if (!line.product_uom_id.trim()) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['lines', index, 'product_uom_id'],
+            message: 'Unit of measure is required',
+          });
+        }
 
-      if (!expiresValid) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['lines', index, 'expires_on'],
-          message: 'Expiry date must be a valid YYYY-MM-DD date',
-        });
-      }
+        if (!line.location_id.trim()) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['lines', index, 'location_id'],
+            message: 'Location is required',
+          });
+        }
 
-      if (
-        manufacturedOn.length > 0 &&
-        expiresOn.length > 0 &&
-        manufacturedValid &&
-        expiresValid &&
-        expiresOn < manufacturedOn
-      ) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['lines', index, 'expires_on'],
-          message: 'Expiry date cannot be earlier than manufactured date',
-        });
-      }
+        const batchNumber = line.batch_number.trim();
+        const manufacturedOn = line.manufactured_on.trim();
+        const expiresOn = line.expires_on.trim();
+        const manufacturedValid =
+          manufacturedOn.length === 0 || isValidIsoDate(manufacturedOn);
+        const expiresValid =
+          expiresOn.length === 0 || isValidIsoDate(expiresOn);
 
-      const qtyRaw = line.entered_qty.trim();
-      if (!qtyRaw) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['lines', index, 'entered_qty'],
-          message: 'Quantity is required',
-        });
-      } else {
-        const parsedQty = parseFiniteNumber(qtyRaw);
-        if (parsedQty === null || parsedQty <= 0) {
+        const product = productId ? productsById.get(productId) : undefined;
+        if (product?.lot_tracking_required === true) {
+          if (!batchNumber) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['lines', index, 'batch_number'],
+              message: 'Batch number is required for lot-tracked products',
+            });
+          } else if (batchNumber.toUpperCase() === 'NON-LOT') {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['lines', index, 'batch_number'],
+              message:
+                'NON-LOT is reserved and cannot be used for lot-tracked products',
+            });
+          }
+
+          if (!expiresOn) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['lines', index, 'expires_on'],
+              message: 'Expiry date is required for lot-tracked products',
+            });
+          }
+        } else if (product?.lot_tracking_required === false) {
+          if (
+            batchNumber.length > 0 &&
+            batchNumber.toUpperCase() !== 'NON-LOT'
+          ) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['lines', index, 'batch_number'],
+              message:
+                'Batch number must be empty or NON-LOT for non-lot products',
+            });
+          }
+
+          if (manufacturedOn.length > 0) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['lines', index, 'manufactured_on'],
+              message: 'Manufactured date must be empty for non-lot products',
+            });
+          }
+
+          if (expiresOn.length > 0) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['lines', index, 'expires_on'],
+              message: 'Expiry date must be empty for non-lot products',
+            });
+          }
+        }
+
+        if (!manufacturedValid) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['lines', index, 'manufactured_on'],
+            message: 'Manufactured date must be a valid YYYY-MM-DD date',
+          });
+        }
+
+        if (!expiresValid) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['lines', index, 'expires_on'],
+            message: 'Expiry date must be a valid YYYY-MM-DD date',
+          });
+        }
+
+        if (
+          manufacturedOn.length > 0 &&
+          expiresOn.length > 0 &&
+          manufacturedValid &&
+          expiresValid &&
+          expiresOn < manufacturedOn
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['lines', index, 'expires_on'],
+            message: 'Expiry date cannot be earlier than manufactured date',
+          });
+        }
+
+        const qtyRaw = line.entered_qty.trim();
+        if (!qtyRaw) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['lines', index, 'entered_qty'],
-            message: 'Quantity must be greater than 0',
-          });
-        }
-      }
-
-      const costRaw = line.unit_cost_entered.trim();
-      if (requiresUnitCost) {
-        if (!costRaw) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ['lines', index, 'unit_cost_entered'],
-            message: 'Unit cost is required for stock-in adjustments',
+            message: 'Quantity is required',
           });
         } else {
+          const parsedQty = parseFiniteNumber(qtyRaw);
+          if (parsedQty === null || parsedQty <= 0) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['lines', index, 'entered_qty'],
+              message: 'Quantity must be greater than 0',
+            });
+          }
+        }
+
+        const costRaw = line.unit_cost_entered.trim();
+        if (requiresUnitCost) {
+          if (!costRaw) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['lines', index, 'unit_cost_entered'],
+              message: 'Unit cost is required for stock-in adjustments',
+            });
+          } else {
+            const parsedCost = parseFiniteNumber(costRaw);
+            if (parsedCost === null || parsedCost < 0) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['lines', index, 'unit_cost_entered'],
+                message: 'Unit cost must be 0 or greater',
+              });
+            }
+          }
+        } else if (costRaw) {
           const parsedCost = parseFiniteNumber(costRaw);
           if (parsedCost === null || parsedCost < 0) {
             ctx.addIssue({
@@ -270,18 +343,12 @@ export const inventoryAdjustmentFormSchema = z
             });
           }
         }
-      } else if (costRaw) {
-        const parsedCost = parseFiniteNumber(costRaw);
-        if (parsedCost === null || parsedCost < 0) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ['lines', index, 'unit_cost_entered'],
-            message: 'Unit cost must be 0 or greater',
-          });
-        }
-      }
+      });
     });
-  });
+}
+
+export const inventoryAdjustmentFormSchema =
+  createInventoryAdjustmentFormSchema(new Map());
 
 export type InventoryAdjustmentFormValues = z.infer<
   typeof inventoryAdjustmentFormSchema

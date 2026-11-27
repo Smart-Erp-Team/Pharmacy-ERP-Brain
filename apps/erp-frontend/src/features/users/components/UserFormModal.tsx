@@ -16,6 +16,8 @@ export interface UserFormModalProps {
   employeesDirectory: DirectoryQueryStatus;
   branches: readonly Branch[];
   branchesDirectory: DirectoryQueryStatus;
+  isOrgAdmin: boolean;
+  allowedBranchIds: readonly string[];
   onClose: () => void;
 }
 
@@ -27,6 +29,8 @@ export function UserFormModal({
   employeesDirectory,
   branches,
   branchesDirectory,
+  isOrgAdmin,
+  allowedBranchIds,
   onClose,
 }: UserFormModalProps) {
   if (!open) {
@@ -41,6 +45,8 @@ export function UserFormModal({
         employeeDisplay={getEmployeeDisplay(user.employee_id)}
         branches={branches}
         branchesDirectory={branchesDirectory}
+        isOrgAdmin={isOrgAdmin}
+        allowedBranchIds={allowedBranchIds}
         onClose={onClose}
       />
     );
@@ -53,6 +59,8 @@ export function UserFormModal({
       employeesDirectory={employeesDirectory}
       branches={branches}
       branchesDirectory={branchesDirectory}
+      isOrgAdmin={isOrgAdmin}
+      allowedBranchIds={allowedBranchIds}
       onClose={onClose}
     />
   );

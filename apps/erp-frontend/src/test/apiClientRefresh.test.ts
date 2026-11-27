@@ -1,3 +1,4 @@
+import axios from 'axios';
 import {
   afterAll,
   afterEach,
@@ -10,16 +11,27 @@ import {
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import authTokenPair from '@contracts/fixtures/auth-token-pair.json';
+import { MOCK_BRANCH_IDS, resetMockBranches } from '../mocks/branchHandlers';
 import { handlers, resetMockAuth } from '../mocks/handlers';
-import { ApiClientError, apiClient } from '../lib/api/client';
+import {
+  ApiClientError,
+  apiClient,
+  createTraceparent,
+} from '../lib/api/client';
 import { IDEMPOTENCY_KEY_HEADER } from '../lib/api/idempotency';
-import { registerSessionEndHandler } from '../lib/auth/sessionEvents';
+import {
+  registerSessionEndHandler,
+  registerSessionUserUpdatedHandler,
+} from '../lib/auth/sessionEvents';
 import { tokenStorage } from '../lib/auth/tokenStorage';
 import type {
   CanonicalCapabilitiesDto,
   ErrorCode,
   NormalizedApiErrorEnvelope,
 } from '../types/api';
+
+const TRACEPARENT_PATTERN =
+  /^00-(?!0{32})[0-9a-f]{32}-(?!0{16})[0-9a-f]{16}-01$/;
 
 const server = setupServer(...handlers);
 
@@ -49,8 +61,11 @@ beforeAll(() => server.listen());
 afterEach(() => {
   server.resetHandlers();
   resetMockAuth();
+  resetMockBranches();
   registerSessionEndHandler(null);
+  registerSessionUserUpdatedHandler(null);
   tokenStorage.clearTokens();
+  vi.restoreAllMocks();
 });
 afterAll(() => server.close());
 
@@ -532,5 +547,215 @@ describe('Stage 1 auth and canonical mock handlers', () => {
         'canonical.configuration.reorder_rules',
       ],
     });
+  });
+});
+
+describe('W3C traceparent header injection (Audit #1)', () => {
+  it('generates valid W3C traceparent headers and prevents all-zero traceId or spanId', () => {
+    expect(createTraceparent()).toMatch(TRACEPARENT_PATTERN);
+
+    const cryptoSpy = vi
+      .spyOn(globalThis.crypto, 'getRandomValues')
+      .mockImplementation(<T extends ArrayBufferView>(array: T): T => {
+        const view = new Uint8Array(
+          array.buffer,
+          array.byteOffset,
+          array.byteLength
+        );
+        view.fill(0);
+        return array;
+      });
+
+    const zeroFallbackHeader = createTraceparent();
+    expect(zeroFallbackHeader).toMatch(TRACEPARENT_PATTERN);
+    expect(zeroFallbackHeader).toBe(
+      `00-${'0'.repeat(30)}01-${'0'.repeat(14)}01-01`
+    );
+    cryptoSpy.mockRestore();
+  });
+
+  it('attaches valid traceparent headers on regular apiClient requests and /auth/refresh while preserving explicit caller headers', async () => {
+    let regularTraceparent: string | null = null;
+    let refreshTraceparent: string | null = null;
+    let retryTraceparent: string | null = null;
+    let customTraceparentEcho: string | null = null;
+
+    server.use(
+      http.get('*/api/v1/protected-trace-test', ({ request }) => {
+        const authorization = request.headers.get('Authorization');
+        if (authorization === `Bearer ${ROTATED_ACCESS_TOKEN}`) {
+          retryTraceparent = request.headers.get('traceparent');
+          return HttpResponse.json({ ok: true });
+        }
+        regularTraceparent = request.headers.get('traceparent');
+        return unauthorized();
+      }),
+      http.post('*/api/v1/auth/refresh', ({ request }) => {
+        refreshTraceparent = request.headers.get('traceparent');
+        return HttpResponse.json({
+          ...authTokenPair,
+          access_token: ROTATED_ACCESS_TOKEN,
+          refresh_token: ROTATED_REFRESH_TOKEN,
+        });
+      }),
+      http.get('*/api/v1/custom-trace-test', ({ request }) => {
+        customTraceparentEcho = request.headers.get('traceparent');
+        return HttpResponse.json({ ok: true });
+      })
+    );
+
+    tokenStorage.setTokens('stale_access_token', 'valid_refresh_token');
+
+    await apiClient.get('/protected-trace-test');
+    expect(regularTraceparent).toMatch(TRACEPARENT_PATTERN);
+    expect(refreshTraceparent).toMatch(TRACEPARENT_PATTERN);
+    expect(retryTraceparent).toMatch(TRACEPARENT_PATTERN);
+
+    const callerHeader =
+      '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+    await apiClient.get('/custom-trace-test', {
+      headers: { traceparent: callerHeader },
+    });
+    expect(customTraceparentEcho).toBe(callerHeader);
+  });
+});
+
+describe('Transient refresh resilience & user sync (Audit #12)', () => {
+  it('notifies registerSessionUserUpdatedHandler with normalized user after silent /auth/refresh', async () => {
+    const userUpdatedHandler = vi.fn();
+    registerSessionUserUpdatedHandler(userUpdatedHandler);
+
+    server.use(
+      http.get('*/api/v1/protected-resource', ({ request }) => {
+        if (
+          request.headers.get('Authorization') ===
+          `Bearer ${ROTATED_ACCESS_TOKEN}`
+        ) {
+          return HttpResponse.json({ ok: true });
+        }
+        return unauthorized();
+      }),
+      http.post('*/api/v1/auth/refresh', () =>
+        HttpResponse.json({
+          ...authTokenPair,
+          access_token: ROTATED_ACCESS_TOKEN,
+          refresh_token: ROTATED_REFRESH_TOKEN,
+        })
+      )
+    );
+
+    tokenStorage.setTokens('stale_access_token', 'valid_refresh_token');
+
+    await apiClient.get('/protected-resource');
+
+    expect(userUpdatedHandler).toHaveBeenCalledTimes(1);
+    expect(userUpdatedHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        username: 'sarah.pharm@medcare.test',
+        role: 'Pharmacist',
+        branch_scope: 'ASSIGNED',
+      })
+    );
+  });
+
+  it('preserves tokens and does not end session when /auth/refresh fails with a network error', async () => {
+    const sessionEndHandler = vi.fn();
+    registerSessionEndHandler(sessionEndHandler);
+
+    server.use(
+      http.get('*/api/v1/protected-resource', unauthorized),
+      http.post('*/api/v1/auth/refresh', () => HttpResponse.error())
+    );
+
+    tokenStorage.setTokens('stale_access_token', 'preserved_refresh_token');
+
+    await expect(apiClient.get('/protected-resource')).rejects.toThrow();
+
+    expect(sessionEndHandler).not.toHaveBeenCalled();
+    expect(tokenStorage.getAccessToken()).toBe('stale_access_token');
+    expect(tokenStorage.getRefreshToken()).toBe('preserved_refresh_token');
+  });
+
+  it('preserves tokens and does not end session when /auth/refresh fails with 503', async () => {
+    const sessionEndHandler = vi.fn();
+    registerSessionEndHandler(sessionEndHandler);
+
+    server.use(
+      http.get('*/api/v1/protected-resource', unauthorized),
+      http.post('*/api/v1/auth/refresh', () =>
+        HttpResponse.json(
+          errorEnvelope(
+            'INTERNAL_SERVER_ERROR',
+            'Auth service temporarily unavailable.',
+            'trace-refresh-503'
+          ),
+          { status: 503 }
+        )
+      )
+    );
+
+    tokenStorage.setTokens('stale_access_token', 'preserved_refresh_token');
+
+    await expect(apiClient.get('/protected-resource')).rejects.toMatchObject({
+      name: 'ApiClientError',
+      code: 'INTERNAL_SERVER_ERROR',
+      status: 503,
+      trace_id: 'trace-refresh-503',
+    });
+
+    expect(sessionEndHandler).not.toHaveBeenCalled();
+    expect(tokenStorage.getAccessToken()).toBe('stale_access_token');
+    expect(tokenStorage.getRefreshToken()).toBe('preserved_refresh_token');
+  });
+});
+
+describe('MSW mandatory Idempotency-Key enforcement on branch mutations (Audit #9)', () => {
+  it('returns 400 MALFORMED_REQUEST when calling POST /api/v1/branches/:id/enrollment-tokens via raw axios.post without Idempotency-Key', async () => {
+    const baseUrl = apiClient.defaults.baseURL ?? 'http://localhost/api/v1';
+
+    const response = await axios.post<unknown>(
+      `${baseUrl}/branches/${MOCK_BRANCH_IDS.DOWNTOWN}/enrollment-tokens`,
+      null,
+      { validateStatus: () => true }
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.data).toEqual({
+      error: {
+        code: 'MALFORMED_REQUEST',
+        message: 'The idempotency key is required.',
+        details: [
+          {
+            field: 'Idempotency-Key',
+            issue: 'The idempotency key is required.',
+          },
+        ],
+        trace_id: 'mock-trace-branch-idempotency-missing',
+      },
+    });
+  });
+
+  it('rejects blank or >100-char Idempotency-Key headers on POST /branches and PATCH /branches/:id with 400 MALFORMED_REQUEST', async () => {
+    const baseUrl = apiClient.defaults.baseURL ?? 'http://localhost/api/v1';
+
+    const blankHeaderResponse = await axios.post<unknown>(
+      `${baseUrl}/branches`,
+      { branch_code: 'MED-TEST', name: 'Test Branch' },
+      {
+        headers: { 'Idempotency-Key': '   ' },
+        validateStatus: () => true,
+      }
+    );
+    expect(blankHeaderResponse.status).toBe(400);
+
+    const oversizedHeaderResponse = await axios.patch<unknown>(
+      `${baseUrl}/branches/${MOCK_BRANCH_IDS.DOWNTOWN}`,
+      { name: 'Updated Branch' },
+      {
+        headers: { 'Idempotency-Key': 'k'.repeat(101) },
+        validateStatus: () => true,
+      }
+    );
+    expect(oversizedHeaderResponse.status).toBe(400);
   });
 });

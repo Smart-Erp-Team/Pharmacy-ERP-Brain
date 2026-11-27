@@ -1,9 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import {
-  BRANCH_ALX_ID,
-  BRANCH_DT_ID,
-  mockAuthMe,
-} from './helpers/authContext.ts';
+import { BRANCH_ALX_ID, BRANCH_DT_ID } from './helpers/authContext.ts';
 import { submitSellableUomDialog } from './helpers/formFillers.ts';
 import {
   loginAsWorkspaceUser,
@@ -32,9 +28,11 @@ test('shows MEDCARE product details with numeric price/tax, persists edit, and r
 
   await btn('Edit product').click();
   const editDialog = page.getByRole('dialog', { name: /Edit Panadol/ });
+  await editDialog.getByLabel('SKU').fill('MED-PAN-500-ADV');
   await editDialog.getByLabel('Product name').fill('Panadol Advance 500mg');
   await editDialog.getByRole('button', { name: 'Save changes' }).click();
   await expect(hdg('Panadol Advance 500mg')).toBeVisible();
+  await expect(page.getByText('MED-PAN-500-ADV').first()).toBeVisible();
 
   await btn('Back to products').click();
   await expect(btn('Panadol Advance 500mg')).toBeVisible();
@@ -82,6 +80,17 @@ test('enforces base UOM lock, Sellable price clearing, numeric UOM creation, and
   await uomDlg.getByRole('button', { name: 'Add UOM' }).click();
   const packRow = page.getByRole('row', { name: /PACK28/ });
   await expect(packRow).toContainText('EGP 260.50');
+  await packRow.getByRole('button', { name: 'Edit' }).click();
+  const editUomDlg = page.getByRole('dialog', { name: 'Edit PACK28' });
+  await editUomDlg.getByLabel('Conversion factor').fill('30');
+  await editUomDlg.getByRole('button', { name: 'Save changes' }).click();
+  const historyError =
+    /cannot change conversion factor while stock or posted ledger history exists/i;
+  await expect(editUomDlg.getByText(historyError)).toBeVisible();
+  await editUomDlg.getByRole('button', { name: 'Cancel' }).click();
+  await expect(
+    packRow.getByRole('cell', { name: '28', exact: true })
+  ).toBeVisible();
 
   await btn('Add UOM').click();
   const dupDlg = page.getByRole('dialog', { name: 'Add UOM' });
@@ -99,9 +108,7 @@ test('manages native numeric Branch Reorder Settings, Unavailable AI forecast, a
   page,
   browser,
 }) => {
-  const errors = trackUncaughtErrors(page);
-  await mockAuthMe(page, { branch_scope: 'ALL' });
-  await loginAsWorkspaceUser(page);
+  const errors = await loginWithUserContext(page, { branch_scope: 'ALL' });
   await openProductReorderTab(page, AUGMENTIN);
 
   const branchSel = page.getByLabel('Branch', { exact: true });
@@ -116,9 +123,7 @@ test('manages native numeric Branch Reorder Settings, Unavailable AI forecast, a
   await page.getByLabel('Reorder quantity').fill('160');
   await page.getByLabel('Maximum stock quantity').fill('40');
   await saveRuleBtn(page).click();
-  await expect(
-    page.getByText(/greater than or equal to reorder/i)
-  ).toBeVisible();
+  await expect(page.getByText(/greater than or equal to/i)).toBeVisible();
 
   await page.getByLabel('Maximum stock quantity').fill('400');
   await saveRuleBtn(page).click();

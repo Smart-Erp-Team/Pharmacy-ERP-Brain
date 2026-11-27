@@ -371,7 +371,7 @@ describe('ProductDetailsView', () => {
     expect(await screen.findByText('Carton of 140')).toBeDefined();
     expect(screen.getByText('EGP 1350.00')).toBeDefined();
 
-    // Edit UOM: enforces !isDirty, immutable code/conversion, immutability notice, and 409 error surfacing
+    // Edit UOM: enforces !isDirty, keeps UOM code read-only, unlocks conversion_to_base for non-base UOM, and surfaces 409 errors
     const boxRow = screen.getByText('Box of 14').closest('tr');
     if (!boxRow) throw new Error('Expected Box of 14 row');
     await user.click(within(boxRow).getByRole('button', { name: 'Edit' }));
@@ -379,17 +379,44 @@ describe('ProductDetailsView', () => {
     const editDialog = screen.getByRole('dialog');
     expect(
       within(editDialog).getByText(
-        /conversion_to_base and is_base become immutable once referenced by a posted document or stock/i
+        /Conversion factor can be updated until this unit is referenced by stock or a posted document/i
       )
     ).toBeDefined();
     expect(within(editDialog).queryByLabelText('UOM code')).toBeNull();
-    expect(within(editDialog).queryByLabelText('Conversion factor')).toBeNull();
+    const editConversionInput = requireInput(
+      within(editDialog).getByLabelText('Conversion factor')
+    );
+    expect(editConversionInput.disabled).toBe(false);
+    expect(editConversionInput.value).toBe('14');
     expect(within(editDialog).getByText('Factor: 14')).toBeDefined();
 
     const saveBtn = within(editDialog).getByRole('button', {
       name: 'Save changes',
     });
     expect(saveBtn.hasAttribute('disabled')).toBe(true);
+
+    // Changing conversion_to_base on Augmentin (has history) -> 409 inline on conversion_to_base + alert
+    await user.clear(editConversionInput);
+    await user.type(editConversionInput, '28');
+    expect(saveBtn.hasAttribute('disabled')).toBe(false);
+    await user.click(saveBtn);
+
+    expect(
+      await within(editDialog).findByText(
+        /Conversion factor is immutable once stock or posted document history exists/i
+      )
+    ).toBeDefined();
+    expect(
+      within(editDialog)
+        .getByText(
+          'Cannot change conversion factor while stock or posted ledger history exists.'
+        )
+        .getAttribute('role')
+    ).toBe('alert');
+
+    // Restore factor to 14 and test custom 409 error on is_active, then retry save successfully
+    await user.clear(editConversionInput);
+    await user.type(editConversionInput, '14');
 
     server.use(
       http.patch(
@@ -797,11 +824,16 @@ describe('ProductDetailsView', () => {
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText('Box of 24')).toBeDefined();
 
-    // Base UOM edit keeps Active UOM toggle disabled and enforces price when Sellable is ON
+    // Base UOM edit keeps Conversion factor locked to 1 and Active UOM toggle disabled, and enforces price when Sellable is ON
     const baseRow = screen.getByText('Tablet').closest('tr');
     if (!baseRow) throw new Error('Expected Tablet row');
     await user.click(within(baseRow).getByRole('button', { name: 'Edit' }));
     const editBaseDialog = screen.getByRole('dialog');
+    const baseConversionInput = requireInput(
+      within(editBaseDialog).getByLabelText('Conversion factor')
+    );
+    expect(baseConversionInput.disabled).toBe(true);
+    expect(baseConversionInput.value).toBe('1');
     expect(
       within(editBaseDialog)
         .getByRole('switch', { name: 'Active UOM' })
@@ -1110,7 +1142,26 @@ describe('ProductDetailsView', () => {
     if (!boxRow) throw new Error('Expected Box of 24 row');
     await user.click(within(boxRow).getByRole('button', { name: 'Edit' }));
 
+    let capturedUomPatch: unknown = null;
+    server.use(
+      http.patch(
+        '*/api/v1/products/:productId/uoms/:uomId',
+        async ({ request }) => {
+          capturedUomPatch = await request.clone().json();
+          return undefined;
+        }
+      )
+    );
+
     const editDialog = screen.getByRole('dialog');
+    const conversionInput = requireInput(
+      within(editDialog).getByLabelText('Conversion factor')
+    );
+    expect(conversionInput.disabled).toBe(false);
+    expect(conversionInput.value).toBe('24');
+    await user.clear(conversionInput);
+    await user.type(conversionInput, '30');
+
     const priceInput = requireInput(
       within(editDialog).getByLabelText('Sale unit price (EGP)')
     );
@@ -1126,6 +1177,14 @@ describe('ProductDetailsView', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull();
     });
+    expect(capturedUomPatch).toMatchObject({
+      conversion_to_base: 30,
+      is_sellable: false,
+      sale_unit_price: null,
+    });
+    const updatedBoxRow = screen.getByText('Box of 24').closest('tr');
+    if (!updatedBoxRow) throw new Error('Expected updated Box of 24 row');
+    expect(within(updatedBoxRow).getByText('30')).toBeDefined();
   });
 
   it('guards direct BranchReorderTab mount without inventory:read and clears max_quantity_base to null + is_active=false with native numbers on PUT', async () => {

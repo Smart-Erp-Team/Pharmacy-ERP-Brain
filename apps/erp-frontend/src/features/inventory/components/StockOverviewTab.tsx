@@ -41,6 +41,14 @@ export function StockOverviewTab({
         isLocationsError={data.isLocationsError}
       />
 
+      {!data.isPreviewLoading &&
+      !data.hasPreviewError &&
+      data.truncationNotice ? (
+        <Alert variant="info" title="Bounded overview sample">
+          {data.truncationNotice}
+        </Alert>
+      ) : null}
+
       <Alert variant="ai" title="Brain Telemetry — Unavailable">
         30-day demand forecast: <strong>Unavailable</strong>. Stockout risk
         score: <strong>Unavailable</strong>. Predictive analytics will appear

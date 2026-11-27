@@ -127,8 +127,8 @@ test('creates product with native numeric tax/price, handles SKU conflict, and l
     .getByRole('button', { name: 'Edit' })
     .click();
   const editDlg = page.getByRole('dialog', { name: /Edit Augmentin/ });
-  await expect(editDlg.getByLabel('SKU')).toBeDisabled();
-  await expect(editDlg.getByLabel('Base UOM')).toBeDisabled();
+  await expect(editDlg.getByLabel('SKU')).toBeEnabled();
+  await expect(editDlg.getByLabel('Base UOM')).toBeEnabled();
   const saveBtn = editDlg.getByRole('button', { name: 'Save changes' });
   await expect(saveBtn).toBeDisabled();
   await editDlg.getByRole('switch', { name: 'Lot tracking required' }).click();

@@ -24,62 +24,33 @@ export interface UseInventoryQueryOptions {
   enabled?: boolean;
 }
 
-export type InventoryLocationsQueryParams = Omit<
-  ListInventoryLocationsParams,
-  'branch_id'
-> & {
-  branch_id?: string | null;
-};
+export type InventoryLocationsQueryParams = ListInventoryLocationsParams;
 
 export type InventoryBatchesQueryParams = ListInventoryBatchesParams;
 
-export type InventoryBalancesQueryParams = Omit<
-  ListInventoryBalancesParams,
-  'branch_id'
-> & {
-  branch_id?: string | null;
-};
+export type InventoryBalancesQueryParams = ListInventoryBalancesParams;
 
 export interface InventorySummaryQueryParams {
   branch_id?: string | null;
   product_id?: string | null;
 }
 
-export type InventoryTransactionsQueryParams = Omit<
-  ListInventoryTransactionsParams,
-  'branch_id'
-> & {
-  branch_id?: string | null;
-};
+export type InventoryTransactionsQueryParams = ListInventoryTransactionsParams;
 
-export type AllInventoryLocationsQueryParams = Omit<
-  AllInventoryLocationsKeyParams,
-  'branch_id'
-> & {
-  branch_id?: string | null;
-};
+export type AllInventoryLocationsQueryParams = AllInventoryLocationsKeyParams;
 
 export type AllInventoryBatchesQueryParams = AllInventoryBatchesKeyParams;
 
-export type AllInventoryBalancesQueryParams = Omit<
-  AllInventoryBalancesKeyParams,
-  'branch_id'
-> & {
-  branch_id?: string | null;
-};
+export type AllInventoryBalancesQueryParams = AllInventoryBalancesKeyParams;
 
-export type AllInventoryTransactionsQueryParams = Omit<
-  AllInventoryTransactionsKeyParams,
-  'branch_id'
-> & {
-  branch_id?: string | null;
-};
+export type AllInventoryTransactionsQueryParams =
+  AllInventoryTransactionsKeyParams;
 
 export function useInventoryLocationsQuery(
   params: InventoryLocationsQueryParams,
   options: UseInventoryQueryOptions = {}
 ) {
-  const normalizedBranchId = params.branch_id?.trim() ?? '';
+  const normalizedBranchId = params.branch_id.trim();
   const queryParams: ListInventoryLocationsParams = {
     ...params,
     branch_id: normalizedBranchId,
@@ -87,12 +58,7 @@ export function useInventoryLocationsQuery(
 
   return useQuery({
     queryKey: inventoryKeys.locationList(queryParams),
-    queryFn: () => {
-      if (!normalizedBranchId) {
-        return Promise.reject(new Error('Branch ID is required.'));
-      }
-      return listInventoryLocations(queryParams);
-    },
+    queryFn: () => listInventoryLocations(queryParams),
     enabled: Boolean(normalizedBranchId) && (options.enabled ?? true),
   });
 }
@@ -112,7 +78,7 @@ export function useInventoryBalancesQuery(
   params: InventoryBalancesQueryParams,
   options: UseInventoryQueryOptions = {}
 ) {
-  const normalizedBranchId = params.branch_id?.trim() ?? '';
+  const normalizedBranchId = params.branch_id.trim();
   const queryParams: ListInventoryBalancesParams = {
     ...params,
     branch_id: normalizedBranchId,
@@ -120,12 +86,7 @@ export function useInventoryBalancesQuery(
 
   return useQuery({
     queryKey: inventoryKeys.balanceList(queryParams),
-    queryFn: () => {
-      if (!normalizedBranchId) {
-        return Promise.reject(new Error('Branch ID is required.'));
-      }
-      return listInventoryBalances(queryParams);
-    },
+    queryFn: () => listInventoryBalances(queryParams),
     enabled: Boolean(normalizedBranchId) && (options.enabled ?? true),
   });
 }
@@ -162,7 +123,7 @@ export function useInventoryTransactionsQuery(
   params: InventoryTransactionsQueryParams,
   options: UseInventoryQueryOptions = {}
 ) {
-  const normalizedBranchId = params.branch_id?.trim() ?? '';
+  const normalizedBranchId = params.branch_id.trim();
   const queryParams: ListInventoryTransactionsParams = {
     ...params,
     branch_id: normalizedBranchId,
@@ -170,12 +131,7 @@ export function useInventoryTransactionsQuery(
 
   return useQuery({
     queryKey: inventoryKeys.transactionList(queryParams),
-    queryFn: () => {
-      if (!normalizedBranchId) {
-        return Promise.reject(new Error('Branch ID is required.'));
-      }
-      return listInventoryTransactions(queryParams);
-    },
+    queryFn: () => listInventoryTransactions(queryParams),
     enabled: Boolean(normalizedBranchId) && (options.enabled ?? true),
   });
 }
@@ -184,7 +140,7 @@ export function useAllInventoryLocationsQuery(
   params: AllInventoryLocationsQueryParams,
   options: UseInventoryQueryOptions = {}
 ) {
-  const normalizedBranchId = params.branch_id?.trim() ?? '';
+  const normalizedBranchId = params.branch_id.trim();
   const keyParams: AllInventoryLocationsKeyParams = {
     ...params,
     branch_id: normalizedBranchId,
@@ -194,7 +150,7 @@ export function useAllInventoryLocationsQuery(
     queryKey: inventoryKeys.allLocationList(keyParams),
     queryFn: () => {
       if (!normalizedBranchId) {
-        return Promise.reject(new Error('Branch ID is required.'));
+        return Promise.reject(new Error('branch_id is required.'));
       }
       return fetchAllPages((page, pageSize) =>
         listInventoryLocations({ ...keyParams, page, page_size: pageSize })
@@ -222,7 +178,7 @@ export function useAllInventoryBalancesQuery(
   params: AllInventoryBalancesQueryParams,
   options: UseInventoryQueryOptions = {}
 ) {
-  const normalizedBranchId = params.branch_id?.trim() ?? '';
+  const normalizedBranchId = params.branch_id.trim();
   const keyParams: AllInventoryBalancesKeyParams = {
     ...params,
     branch_id: normalizedBranchId,
@@ -232,7 +188,7 @@ export function useAllInventoryBalancesQuery(
     queryKey: inventoryKeys.allBalanceList(keyParams),
     queryFn: () => {
       if (!normalizedBranchId) {
-        return Promise.reject(new Error('Branch ID is required.'));
+        return Promise.reject(new Error('branch_id is required.'));
       }
       return fetchAllPages((page, pageSize) =>
         listInventoryBalances({ ...keyParams, page, page_size: pageSize })
@@ -246,7 +202,7 @@ export function useAllInventoryTransactionsQuery(
   params: AllInventoryTransactionsQueryParams,
   options: UseInventoryQueryOptions = {}
 ) {
-  const normalizedBranchId = params.branch_id?.trim() ?? '';
+  const normalizedBranchId = params.branch_id.trim();
   const keyParams: AllInventoryTransactionsKeyParams = {
     ...params,
     branch_id: normalizedBranchId,
@@ -256,7 +212,7 @@ export function useAllInventoryTransactionsQuery(
     queryKey: inventoryKeys.allTransactionList(keyParams),
     queryFn: () => {
       if (!normalizedBranchId) {
-        return Promise.reject(new Error('Branch ID is required.'));
+        return Promise.reject(new Error('branch_id is required.'));
       }
       return fetchAllPages((page, pageSize) =>
         listInventoryTransactions({ ...keyParams, page, page_size: pageSize })

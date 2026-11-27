@@ -48,7 +48,12 @@ import type {
   Role,
   RuntimeMode,
 } from '../../../types/api';
-import { useInventoryBranchState } from '../hooks/useInventoryBranchState';
+import {
+  isBalanceExpired,
+  isBatchExpired,
+  localDateOffset,
+  useInventoryBranchState,
+} from '../hooks/useInventoryBranchState';
 import { InventoryBranchBar } from './InventoryBranchBar';
 import { StockBalancesTab } from './StockBalancesTab';
 import { StockOverviewTab } from './StockOverviewTab';
@@ -498,12 +503,34 @@ describe('StockBalancesTab', () => {
     });
   });
 
-  it('drains multi-page PagedResult responses and rejects premature empty pages', async () => {
-    const seenPages: string[] = [];
+  it('paginates multi-page PagedResult responses on the server and filters by Storage location', async () => {
+    const user = userEvent.setup();
+    const seenUrls: string[] = [];
     server.use(
       http.get('*/api/v1/inventory/balances', ({ request }) => {
-        const page = new URL(request.url).searchParams.get('page') ?? '1';
-        seenPages.push(page);
+        seenUrls.push(request.url);
+        const url = new URL(request.url);
+        const page = url.searchParams.get('page') ?? '1';
+        const locationId = url.searchParams.get('location_id') ?? '';
+        if (locationId === MOCK_LOCATION_IDS.QUAR_01) {
+          return HttpResponse.json({
+            items: [
+              {
+                ...INITIAL_BALANCES[0],
+                location_id: MOCK_LOCATION_IDS.QUAR_01,
+                location_code: 'QUAR-01',
+                location_type: 'QUARANTINE',
+                is_location_sellable: false,
+                on_hand_qty_base: 300,
+                available_qty_base: 0,
+              },
+            ],
+            page: 1,
+            page_size: 25,
+            total_count: 1,
+            next_cursor: null,
+          });
+        }
         if (page === '2') {
           return HttpResponse.json({
             items: [
@@ -516,7 +543,7 @@ describe('StockBalancesTab', () => {
               },
             ],
             page: 2,
-            page_size: 200,
+            page_size: 1,
             total_count: 2,
             next_cursor: null,
           });
@@ -530,9 +557,195 @@ describe('StockBalancesTab', () => {
             },
           ],
           page: 1,
-          page_size: 200,
+          page_size: 1,
           total_count: 2,
           next_cursor: '2',
+        });
+      })
+    );
+
+    renderWithProviders(<StockBalancesTab branchId={DOWNTOWN_BRANCH_ID} />);
+    await waitFor(() => {
+      expect(screen.getAllByText('5,000').length).toBeGreaterThanOrEqual(2);
+    });
+    expect(
+      seenUrls.map((raw) => new URL(raw).searchParams.get('page'))
+    ).toEqual(['1']);
+
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    await waitFor(() => {
+      expect(screen.getAllByText('300').length).toBeGreaterThanOrEqual(2);
+    });
+    expect(
+      seenUrls.map((raw) => new URL(raw).searchParams.get('page'))
+    ).toEqual(['1', '2']);
+
+    await user.selectOptions(
+      screen.getByLabelText('Storage location'),
+      MOCK_LOCATION_IDS.QUAR_01
+    );
+    await waitFor(() => {
+      const latestUrl = new URL(seenUrls[seenUrls.length - 1] ?? '');
+      expect(latestUrl.searchParams.get('location_id')).toBe(
+        MOCK_LOCATION_IDS.QUAR_01
+      );
+      expect(latestUrl.searchParams.get('page')).toBe('1');
+    });
+  });
+
+  it('flags same-day expiry (expires_on === today) and backend zero-availability sellable lots as Expired across KPI cards, Overview, and Balances', async () => {
+    const user = userEvent.setup();
+    const today = localDateOffset(0);
+    const tomorrow = localDateOffset(1);
+
+    // Direct predicate checks
+    expect(
+      isBatchExpired(
+        {
+          batch_number: 'LOT-TODAY',
+          expires_on: today,
+          quality_status: 'AVAILABLE',
+        },
+        today
+      )
+    ).toBe(true);
+    expect(
+      isBatchExpired(
+        {
+          batch_number: 'NON-LOT',
+          expires_on: today,
+          quality_status: 'AVAILABLE',
+        },
+        today
+      )
+    ).toBe(false);
+
+    const sellableZeroAvailableBalance = {
+      ...INITIAL_BALANCES[0],
+      batch_id: '11111111-aaaa-4111-8111-000000000099',
+      batch_number: 'LOT-TZ-SYNC',
+      expires_on: tomorrow,
+      quality_status: 'AVAILABLE' as const,
+      location_type: 'SELLABLE' as const,
+      is_location_sellable: true,
+      on_hand_qty_base: 40,
+      available_qty_base: 0,
+    };
+    expect(
+      isBalanceExpired(sellableZeroAvailableBalance, tomorrow, today, true)
+    ).toBe(true);
+    expect(
+      isBalanceExpired(
+        { ...sellableZeroAvailableBalance, is_location_sellable: false },
+        tomorrow,
+        today,
+        true
+      )
+    ).toBe(false);
+
+    const sameDayBalance = {
+      ...INITIAL_BALANCES[0],
+      batch_id: '11111111-aaaa-4111-8111-000000000098',
+      batch_number: 'LOT-SAME-DAY',
+      expires_on: today,
+      quality_status: 'AVAILABLE' as const,
+      location_type: 'SELLABLE' as const,
+      is_location_sellable: true,
+      on_hand_qty_base: 25,
+      available_qty_base: 0,
+    };
+
+    server.use(
+      http.get('*/api/v1/inventory/batches', () =>
+        HttpResponse.json({
+          items: [
+            {
+              batch_id: sameDayBalance.batch_id,
+              organization_id: ORGANIZATION_ID,
+              product_id: sameDayBalance.product_id,
+              batch_number: 'LOT-SAME-DAY',
+              manufactured_on: '2025-01-01',
+              expires_on: today,
+              quality_status: 'AVAILABLE',
+              updated_at: '2026-11-27T08:00:00+00:00',
+            },
+          ],
+          page: 1,
+          page_size: 200,
+          total_count: 1,
+          next_cursor: null,
+        })
+      ),
+      http.get('*/api/v1/inventory/balances', () =>
+        HttpResponse.json({
+          items: [sameDayBalance, sellableZeroAvailableBalance],
+          page: 1,
+          page_size: 25,
+          total_count: 2,
+          next_cursor: null,
+        })
+      )
+    );
+
+    const { unmount } = renderWithProviders(
+      <StockOverviewTab
+        branchId={DOWNTOWN_BRANCH_ID}
+        branchName="MedCare - Downtown Flagship (MED-DT)"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('LOT-SAME-DAY')).toBeDefined();
+      expect(screen.getByText('LOT-TZ-SYNC')).toBeDefined();
+    });
+    const batchesFlaggedCard = screen
+      .getByText('Batches flagged')
+      .closest('div')?.parentElement;
+    expect(batchesFlaggedCard?.textContent).toContain('1');
+    expect(screen.getAllByText('Expired')).toHaveLength(2);
+    unmount();
+
+    renderWithProviders(<StockBalancesTab branchId={DOWNTOWN_BRANCH_ID} />);
+    await waitFor(() => {
+      expect(
+        screen.getByText('Augmentin 1g Film-Coated Tablets')
+      ).toBeDefined();
+    });
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Toggle batch breakdown for Augmentin 1g Film-Coated Tablets',
+      })
+    );
+    expect(screen.getByText('LOT-SAME-DAY')).toBeDefined();
+    expect(screen.getByText('LOT-TZ-SYNC')).toBeDefined();
+    // 2 Expired badges in table rows (+ 1 option in Expiry status select)
+    expect(screen.getAllByText('Expired').length).toBeGreaterThanOrEqual(3);
+
+    await user.selectOptions(screen.getByLabelText('Expiry status'), 'EXPIRED');
+    expect(screen.getByText('LOT-SAME-DAY')).toBeDefined();
+    expect(screen.getByText('LOT-TZ-SYNC')).toBeDefined();
+  });
+
+  it('renders 10,001 balance rows cleanly with server pagination and bounded overview notice without INVALID_RESPONSE', async () => {
+    const page1Items = Array.from({ length: 25 }, (_, index) => ({
+      ...INITIAL_BALANCES[0],
+      batch_id: `11111111-aaaa-4111-8111-${String(index + 1).padStart(12, '0')}`,
+      batch_number: `LOT-10K-${String(index + 1).padStart(3, '0')}`,
+      on_hand_qty_base: 10,
+      available_qty_base: 10,
+    }));
+
+    server.use(
+      http.get('*/api/v1/inventory/balances', ({ request }) => {
+        const url = new URL(request.url);
+        const pageSize = Number(url.searchParams.get('page_size') ?? '25');
+        return HttpResponse.json({
+          items: page1Items,
+          page: 1,
+          page_size: pageSize,
+          total_count: 10001,
+          next_cursor: 'page-2',
         });
       })
     );
@@ -540,28 +753,30 @@ describe('StockBalancesTab', () => {
     const { unmount } = renderWithProviders(
       <StockBalancesTab branchId={DOWNTOWN_BRANCH_ID} />
     );
+
     await waitFor(() => {
-      expect(screen.getAllByText('5,300').length).toBeGreaterThanOrEqual(2);
+      expect(screen.getByText('Showing 1–25 of 10001')).toBeDefined();
     });
-    expect(seenPages).toEqual(['1', '2']);
+    expect(screen.queryByText('Could not load stock balances')).toBeNull();
+    const nextButton = screen.getByRole('button', { name: 'Next page' });
+    expect(nextButton.hasAttribute('disabled')).toBe(false);
     unmount();
 
-    server.use(
-      http.get('*/api/v1/inventory/balances', () =>
-        HttpResponse.json({
-          items: [],
-          page: 1,
-          page_size: 200,
-          total_count: 5,
-          next_cursor: null,
-        })
-      )
+    renderWithProviders(
+      <StockOverviewTab
+        branchId={DOWNTOWN_BRANCH_ID}
+        branchName="MedCare - Downtown Flagship (MED-DT)"
+      />
     );
 
-    renderWithProviders(<StockBalancesTab branchId={DOWNTOWN_BRANCH_ID} />);
     await waitFor(() => {
-      expect(screen.getByText('Could not load stock balances')).toBeDefined();
+      expect(
+        screen.getByText(
+          'Showing overview metrics from the first 200 of 10001 balance records.'
+        )
+      ).toBeDefined();
     });
+    expect(screen.queryByText('Could not load inventory overview')).toBeNull();
   });
 });
 

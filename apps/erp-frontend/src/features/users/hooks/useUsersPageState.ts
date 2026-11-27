@@ -85,11 +85,26 @@ function isUserRole(value: string): value is UserRole {
 }
 
 export function useUsersPageState() {
-  const { currentUser } = useAuth();
+  const { currentUser, runtime, branchScope, branchIds, activeBranchId } =
+    useAuth();
   const currentUserId = currentUser?.user_id ?? null;
+  const canWrite = runtime === 'Cloud';
+  const isOrgAdmin = branchScope === 'ALL';
+
+  const defaultAssignedBranchId = useMemo(() => {
+    if (isOrgAdmin) {
+      return '';
+    }
+    if (activeBranchId && branchIds.includes(activeBranchId)) {
+      return activeBranchId;
+    }
+    return branchIds[0] ?? '';
+  }, [activeBranchId, branchIds, isOrgAdmin]);
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [branchFilter, setBranchFilter] = useState('');
+  const [branchFilter, setBranchFilter] = useState(
+    () => defaultAssignedBranchId
+  );
   const [roleFilter, setRoleFilter] = useState<UserRoleFilter>('all');
   const [statusFilter, setStatusFilter] = useState<UserStatusFilter>('active');
   const [page, setPage] = useState(DEFAULT_PAGE);
@@ -104,27 +119,45 @@ export function useUsersPageState() {
   const [togglingUserIds, setTogglingUserIds] = useState<string[]>([]);
   const [mountNowMs] = useState(() => Date.now());
 
-  const usersQuery = useUsersQuery({
-    page,
-    page_size: DEFAULT_PAGE_SIZE,
-    branch_id: branchFilter || undefined,
-    role: roleFilter === 'all' ? undefined : roleFilter,
-    include_inactive: statusFilter === 'all',
-  });
+  const effectiveBranchFilter = isOrgAdmin
+    ? branchFilter
+    : branchIds.includes(branchFilter)
+      ? branchFilter
+      : defaultAssignedBranchId;
 
-  const isCreatingUser = formModalState.open && formModalState.user === null;
+  const canQueryUsers = isOrgAdmin || effectiveBranchFilter.length > 0;
+
+  const usersQuery = useUsersQuery(
+    {
+      page,
+      page_size: DEFAULT_PAGE_SIZE,
+      branch_id: effectiveBranchFilter || undefined,
+      role: roleFilter === 'all' ? undefined : roleFilter,
+      include_inactive: statusFilter === 'all',
+    },
+    { enabled: canQueryUsers }
+  );
+
+  const isCreatingUser =
+    canWrite && formModalState.open && formModalState.user === null;
   const hasCompleteUnfilteredUsers =
     page === DEFAULT_PAGE &&
     statusFilter === 'all' &&
     roleFilter === 'all' &&
-    branchFilter === '' &&
+    (isOrgAdmin ? effectiveBranchFilter === '' : true) &&
     usersQuery.isSuccess &&
     usersQuery.data.next_cursor === null &&
     usersQuery.data.items.length >= usersQuery.data.total_count;
-  const needsFullUsersDirectory = isCreatingUser && !hasCompleteUnfilteredUsers;
+  const needsFullUsersDirectory =
+    isCreatingUser && !hasCompleteUnfilteredUsers && canQueryUsers;
 
   const allUsersQuery = useAllUsersQuery(
-    { include_inactive: true },
+    {
+      include_inactive: true,
+      ...(!isOrgAdmin && effectiveBranchFilter
+        ? { branch_id: effectiveBranchFilter }
+        : {}),
+    },
     { enabled: needsFullUsersDirectory }
   );
 
@@ -181,14 +214,17 @@ export function useUsersPageState() {
     return employees.filter(
       (employee) =>
         employee.is_active &&
+        (isOrgAdmin || branchIds.includes(employee.branch_id)) &&
         !assignedIds.has(employee.employee_id.toLowerCase())
     );
   }, [
     allUsersQuery.data,
     allUsersQuery.isError,
+    branchIds,
     employees,
     employeesQuery.isError,
     hasCompleteUnfilteredUsers,
+    isOrgAdmin,
     usersQuery.data,
   ]);
 
@@ -270,7 +306,30 @@ export function useUsersPageState() {
       : null
     : (usersQuery.data?.total_count ?? null);
 
+  const canManageUser = (target: User): boolean => {
+    if (!canWrite) {
+      return false;
+    }
+    if (isOrgAdmin) {
+      return true;
+    }
+    if (target.role === 'Admin' || target.branch_scope === 'ALL') {
+      return false;
+    }
+    if (branchIds.length === 0) {
+      return false;
+    }
+    if (target.branch_ids.length > 0) {
+      return target.branch_ids.every((id) => branchIds.includes(id));
+    }
+    const employee = employeesById.get(target.employee_id.toLowerCase());
+    return employee !== undefined && branchIds.includes(employee.branch_id);
+  };
+
   const handleBranchChange = (nextBranchId: string) => {
+    if (!isOrgAdmin && !branchIds.includes(nextBranchId)) {
+      return;
+    }
     setBranchFilter(nextBranchId);
     setPage(DEFAULT_PAGE);
   };
@@ -289,7 +348,7 @@ export function useUsersPageState() {
 
   const resetFilters = () => {
     setSearchTerm('');
-    setBranchFilter('');
+    setBranchFilter(isOrgAdmin ? '' : defaultAssignedBranchId);
     setRoleFilter('all');
     setStatusFilter('active');
     setPage(DEFAULT_PAGE);
@@ -307,6 +366,8 @@ export function useUsersPageState() {
 
   const handleToggleActive = async (user: User, nextActive: boolean) => {
     if (
+      !canWrite ||
+      !canManageUser(user) ||
       currentUserId === user.user_id ||
       togglingUserIds.includes(user.user_id)
     ) {
@@ -374,9 +435,14 @@ export function useUsersPageState() {
 
   return {
     currentUserId,
+    canWrite,
+    isOrgAdmin,
+    allowedBranchIds: branchIds,
+    defaultAssignedBranchId,
+    canManageUser,
     searchTerm,
     setSearchTerm,
-    branchFilter,
+    branchFilter: effectiveBranchFilter,
     roleFilter,
     statusFilter,
     page,

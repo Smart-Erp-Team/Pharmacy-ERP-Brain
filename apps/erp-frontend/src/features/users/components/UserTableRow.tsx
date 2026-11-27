@@ -15,6 +15,8 @@ export interface UserTableRowProps {
   branchAccessDisplay: BranchAccessDisplay;
   referenceNowMs: number;
   isSelf: boolean;
+  canWrite: boolean;
+  canManage: boolean;
   isToggling: boolean;
   onEdit: (user: User) => void;
   onResetPassword: (user: User) => void;
@@ -39,6 +41,8 @@ export function UserTableRow({
   branchAccessDisplay,
   referenceNowMs,
   isSelf,
+  canWrite,
+  canManage,
   isToggling,
   onEdit,
   onResetPassword,
@@ -48,6 +52,9 @@ export function UserTableRow({
   const isLocked = isLockoutActive(user.lockout_end, referenceNowMs);
   const useMonoBranchLabel =
     user.branch_scope === 'ASSIGNED' && !branchAccessDisplay.isMuted;
+  const restrictedTitle = canManage
+    ? undefined
+    : 'Restricted by your branch administration scope';
 
   return (
     <TableRow>
@@ -99,12 +106,14 @@ export function UserTableRow({
             <Badge variant={user.is_active ? 'success' : 'neutral'} dot>
               {user.is_active ? 'Active' : 'Inactive'}
             </Badge>
-            <Toggle
-              label={`Toggle status for ${user.username}`}
-              checked={user.is_active}
-              disabled={isToggling || isSelf}
-              onChange={(nextActive) => onToggleActive(user, nextActive)}
-            />
+            {canWrite ? (
+              <Toggle
+                label={`Toggle status for ${user.username}`}
+                checked={user.is_active}
+                disabled={isToggling || isSelf || !canManage}
+                onChange={(nextActive) => onToggleActive(user, nextActive)}
+              />
+            ) : null}
           </div>
           {isLocked ? (
             <div className="flex flex-wrap items-center gap-2">
@@ -116,31 +125,39 @@ export function UserTableRow({
           ) : null}
         </div>
       </TableCell>
-      <TableCell>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="secondary"
-            onClick={() => onEdit(user)}
-            leadingIcon={<Pencil className="h-3.5 w-3.5" />}
-          >
-            Edit
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => onResetPassword(user)}
-            leadingIcon={<KeyRound className="h-3.5 w-3.5" />}
-          >
-            Reset password
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => onRevokeSessions(user)}
-            leadingIcon={<LogOut className="h-3.5 w-3.5" />}
-          >
-            Revoke sessions
-          </Button>
-        </div>
-      </TableCell>
+      {canWrite ? (
+        <TableCell>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              disabled={!canManage}
+              title={restrictedTitle}
+              onClick={() => onEdit(user)}
+              leadingIcon={<Pencil className="h-3.5 w-3.5" />}
+            >
+              Edit
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={!canManage}
+              title={restrictedTitle}
+              onClick={() => onResetPassword(user)}
+              leadingIcon={<KeyRound className="h-3.5 w-3.5" />}
+            >
+              Reset password
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={!canManage}
+              title={restrictedTitle}
+              onClick={() => onRevokeSessions(user)}
+              leadingIcon={<LogOut className="h-3.5 w-3.5" />}
+            >
+              Revoke sessions
+            </Button>
+          </div>
+        </TableCell>
+      ) : null}
     </TableRow>
   );
 }

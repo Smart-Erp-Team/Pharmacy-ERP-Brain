@@ -455,6 +455,7 @@ describe('StockAdjustmentsTab and LedgerHistoryTab (Stage 1 MEDCARE)', () => {
       MOCK_LOCATION_IDS.MAIN_SELLABLE
     );
     await user.type(getInput(nextLine1, 'Batch number'), 'MEDCARE-PAN-01');
+    await user.type(getInput(nextLine1, 'Expiry date'), '2027-03-31');
     await user.type(getInput(nextLine1, 'Quantity'), '2');
     await user.type(getInput(nextLine1, 'Unit cost'), '36');
 
@@ -465,6 +466,101 @@ describe('StockAdjustmentsTab and LedgerHistoryTab (Stage 1 MEDCARE)', () => {
     expect(
       await within(ledgerSection).findByText('TXN-2026-000005')
     ).toBeDefined();
+  }, 15_000);
+
+  it('enforces client-side lot_tracking_required validation on ADJUSTMENT_IN before hitting the API and succeeds once batch_number and expires_on are provided', async () => {
+    const user = userEvent.setup();
+    const postAdjustmentCalls: string[] = [];
+    const recordPost = ({ request }: { request: Request }) => {
+      if (
+        request.method.toUpperCase() === 'POST' &&
+        new URL(request.url).pathname.endsWith('/api/v1/inventory/adjustments')
+      ) {
+        postAdjustmentCalls.push(request.url);
+      }
+    };
+    server.events.on('request:start', recordPost);
+
+    try {
+      renderWithProviders(
+        <>
+          <StockAdjustmentsTab branchId={DOWNTOWN_BRANCH_ID} />
+          <LedgerHistoryTab branchId={DOWNTOWN_BRANCH_ID} />
+        </>
+      );
+
+      const adjSection = getAdjustmentsFormSection();
+      const ledgerSection = getLedgerSection();
+      const line1 = await within(adjSection).findByRole('group', {
+        name: 'Adjustment line 1',
+      });
+
+      await user.type(getInput(adjSection, 'Reason code'), 'LOT_REQUIRED_TEST');
+      await user.selectOptions(
+        getSelect(line1, 'Product'),
+        MOCK_PRODUCT_IDS.AUGMENTIN_1G
+      );
+      expect(
+        within(line1).getByText(
+          'Required for lot-tracked product (cannot be NON-LOT)'
+        )
+      ).toBeDefined();
+      expect(
+        within(line1).getByText('Required for lot-tracked product')
+      ).toBeDefined();
+
+      await user.selectOptions(
+        getSelect(line1, 'Location'),
+        MOCK_LOCATION_IDS.MAIN_SELLABLE
+      );
+      await user.type(getInput(line1, 'Quantity'), '10');
+      await user.type(getInput(line1, 'Unit cost'), '7.2');
+
+      // 1. Missing batch_number and expires_on fails client-side without hitting API
+      await user.click(
+        within(adjSection).getByRole('button', { name: 'Submit adjustment' })
+      );
+      expect(
+        await within(line1).findByText(
+          'Batch number is required for lot-tracked products'
+        )
+      ).toBeDefined();
+      expect(
+        within(line1).getByText(
+          'Expiry date is required for lot-tracked products'
+        )
+      ).toBeDefined();
+      expect(postAdjustmentCalls).toHaveLength(0);
+
+      // 2. Reserved NON-LOT batch_number is also rejected client-side
+      await user.type(getInput(line1, 'Batch number'), 'non-lot');
+      await user.click(
+        within(adjSection).getByRole('button', { name: 'Submit adjustment' })
+      );
+      expect(
+        await within(line1).findByText(
+          /NON-LOT is reserved and cannot be used for lot-tracked products/i
+        )
+      ).toBeDefined();
+      expect(postAdjustmentCalls).toHaveLength(0);
+
+      // 3. Providing valid batch_number and expires_on passes validation and posts
+      const batchInput = getInput(line1, 'Batch number');
+      await user.clear(batchInput);
+      await user.type(batchInput, 'MEDCARE-LOT-2601');
+      await user.type(getInput(line1, 'Expiry date'), '2027-07-31');
+
+      await user.click(
+        within(adjSection).getByRole('button', { name: 'Submit adjustment' })
+      );
+
+      expect(
+        await within(ledgerSection).findByText('TXN-2026-000004')
+      ).toBeDefined();
+      expect(postAdjustmentCalls).toHaveLength(1);
+    } finally {
+      server.events.removeListener('request:start', recordPost);
+    }
   }, 15_000);
 
   it('hides/clears unit_cost_entered on ADJUSTMENT_OUT and maps 409 OUT_OF_STOCK and 422 EXPIRY_POLICY_VIOLATION inline', async () => {
@@ -486,6 +582,7 @@ describe('StockAdjustmentsTab and LedgerHistoryTab (Stage 1 MEDCARE)', () => {
       MOCK_LOCATION_IDS.MAIN_SELLABLE
     );
     await user.type(getInput(line1, 'Batch number'), 'MEDCARE-LOT-EXP');
+    await user.type(getInput(line1, 'Expiry date'), '2025-06-01');
     await user.type(getInput(line1, 'Quantity'), '5');
     await user.type(getInput(line1, 'Unit cost'), '7.2');
 
@@ -524,6 +621,9 @@ describe('StockAdjustmentsTab and LedgerHistoryTab (Stage 1 MEDCARE)', () => {
     const batchInput = getInput(line1, 'Batch number');
     await user.clear(batchInput);
     await user.type(batchInput, 'MEDCARE-LOT-2601');
+    const expInput = getInput(line1, 'Expiry date');
+    await user.clear(expInput);
+    await user.type(expInput, '2027-07-31');
     const qtyInput = getInput(line1, 'Quantity');
     await user.clear(qtyInput);
     await user.type(qtyInput, '9999');

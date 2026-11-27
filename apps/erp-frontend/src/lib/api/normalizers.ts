@@ -180,7 +180,7 @@ export function requireNullableString(
   endpoint?: string,
   options?: RequireNullableStringOptions
 ): string | null {
-  const allowUndefined = options?.allowUndefined ?? true;
+  const allowUndefined = options?.allowUndefined ?? false;
   const value = record[field];
   if (value === null) {
     return null;

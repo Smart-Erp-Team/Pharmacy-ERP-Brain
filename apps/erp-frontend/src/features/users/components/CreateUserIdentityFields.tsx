@@ -5,7 +5,6 @@ import { Select, type SelectOption } from '../../../components/ui/Select';
 import type { Employee } from '../../../features/employees';
 import type { DirectoryQueryStatus } from '../hooks/useUsersPageState';
 import {
-  MAX_PASSWORD_LENGTH,
   MAX_USERNAME_LENGTH,
   MIN_PASSWORD_LENGTH,
   type CreateUserFormValues,
@@ -94,7 +93,6 @@ export function CreateUserIdentityFields({
           label="Password"
           placeholder={`Minimum ${MIN_PASSWORD_LENGTH} characters`}
           hint={`Must be at least ${MIN_PASSWORD_LENGTH} characters.`}
-          maxLength={MAX_PASSWORD_LENGTH}
           autoComplete="new-password"
           disabled={disabled}
           error={errors.password?.message}

@@ -9,17 +9,28 @@
 import { http, HttpResponse } from 'msw';
 import authTokenPair from '@contracts/fixtures/auth-token-pair.json';
 import currentUserContext from '@contracts/fixtures/current-user-context.json';
+import { normalizeCurrentUser } from '../lib/api/normalizers';
 import type {
   CanonicalCapabilitiesDto,
   ErrorCode,
   NormalizedApiErrorDetail,
   NormalizedApiErrorEnvelope,
+  NormalizedCurrentUser,
 } from '../types/api';
 import { branchHandlers } from './branchHandlers';
 import { employeeHandlers } from './employeeHandlers';
 import { inventoryHandlers } from './inventoryHandlers';
 import { productHandlers } from './productHandlers';
 import { userHandlers } from './userHandlers';
+
+const ADMIN_MOCK_USER: NormalizedCurrentUser = normalizeCurrentUser(
+  currentUserContext,
+  '@contracts/fixtures/current-user-context.json'
+);
+const PHARMACIST_MOCK_USER: NormalizedCurrentUser = normalizeCurrentUser(
+  authTokenPair.user,
+  '@contracts/fixtures/auth-token-pair.json'
+);
 
 const INVALID_CREDENTIALS_PASSWORD = 'invalid';
 const STATIC_CONSUMED_REFRESH_TOKENS: ReadonlySet<string> = new Set([
@@ -29,10 +40,12 @@ const STATIC_CONSUMED_REFRESH_TOKENS: ReadonlySet<string> = new Set([
 ]);
 const consumedRefreshTokens = new Set<string>();
 let rotationSequence = 0;
+let activeMockUser: NormalizedCurrentUser = ADMIN_MOCK_USER;
 
 export function resetMockAuth(): void {
   consumedRefreshTokens.clear();
   rotationSequence = 0;
+  activeMockUser = ADMIN_MOCK_USER;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -118,13 +131,28 @@ export const handlers = [
       );
     }
 
+    const normalizedUsername =
+      typeof body.username === 'string'
+        ? body.username.trim().toLowerCase()
+        : '';
+    activeMockUser =
+      normalizedUsername === PHARMACIST_MOCK_USER.username.toLowerCase()
+        ? PHARMACIST_MOCK_USER
+        : ADMIN_MOCK_USER;
+
     consumedRefreshTokens.delete(authTokenPair.refresh_token);
-    return HttpResponse.json(authTokenPair, { status: 200 });
+    return HttpResponse.json(
+      {
+        ...authTokenPair,
+        user: activeMockUser,
+      },
+      { status: 200 }
+    );
   }),
 
   // GET /api/v1/auth/me
   http.get('*/api/v1/auth/me', () => {
-    return HttpResponse.json(currentUserContext, { status: 200 });
+    return HttpResponse.json(activeMockUser, { status: 200 });
   }),
 
   // POST /api/v1/auth/refresh
@@ -158,6 +186,7 @@ export const handlers = [
     return HttpResponse.json(
       {
         ...authTokenPair,
+        user: activeMockUser,
         access_token: `${authTokenPair.access_token}.${rotationSequence}.rotated`,
         refresh_token: `${refreshToken}.${rotationSequence}.rotated`,
       },
@@ -192,6 +221,7 @@ export const handlers = [
     }
 
     consumedRefreshTokens.add(refreshToken);
+    activeMockUser = ADMIN_MOCK_USER;
     return new HttpResponse(null, { status: 204 });
   }),
 

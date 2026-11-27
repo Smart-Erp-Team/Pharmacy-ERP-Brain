@@ -15,7 +15,10 @@ import axios, {
   type InternalAxiosRequestConfig,
 } from 'axios';
 import { tokenStorage } from '../auth/tokenStorage';
-import { notifySessionEnd } from '../auth/sessionEvents';
+import {
+  notifySessionEnd,
+  notifySessionUserUpdated,
+} from '../auth/sessionEvents';
 import {
   IDEMPOTENCY_KEY_HEADER,
   createIdempotencyKey,
@@ -160,6 +163,61 @@ const isIdempotencyExemptPath = (url: string | undefined): boolean => {
   return IDEMPOTENCY_EXEMPT_SUFFIXES.some((suffix) => path.endsWith(suffix));
 };
 
+const TRACEPARENT_HEADER = 'traceparent';
+
+const DEFINITIVE_REFRESH_FAILURE_STATUSES: ReadonlySet<number> = new Set([
+  400, 401, 403, 409, 422,
+]);
+
+function generateRandomBytes(byteLength: number): Uint8Array {
+  const bytes = new Uint8Array(byteLength);
+  const cryptoApi = globalThis.crypto;
+
+  if (cryptoApi && typeof cryptoApi.getRandomValues === 'function') {
+    cryptoApi.getRandomValues(bytes);
+    return bytes;
+  }
+
+  for (let i = 0; i < byteLength; i += 1) {
+    bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return bytes;
+}
+
+function randomNonZeroHex(byteLength: number): string {
+  const bytes = generateRandomBytes(byteLength);
+  if (bytes.every((byte) => byte === 0)) {
+    bytes[byteLength - 1] = 1;
+  }
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join(
+    ''
+  );
+}
+
+/**
+ * Generates a valid W3C Trace Context `traceparent` header value:
+ * `00-<32-lowercase-hex-traceId>-<16-lowercase-hex-spanId>-01`
+ * where neither `traceId` nor `spanId` is all zeros.
+ */
+export function createTraceparent(): string {
+  const traceId = randomNonZeroHex(16);
+  const spanId = randomNonZeroHex(8);
+  return `00-${traceId}-${spanId}-01`;
+}
+
+const isDefinitiveRefreshFailure = (refreshError: unknown): boolean => {
+  if (refreshError instanceof ApiClientError) {
+    return true;
+  }
+  if (axios.isAxiosError(refreshError)) {
+    const status = refreshError.response?.status;
+    return (
+      status !== undefined && DEFINITIVE_REFRESH_FAILURE_STATUSES.has(status)
+    );
+  }
+  return true;
+};
+
 /**
  * One refresh at a time. Refresh tokens rotate on every use, so two parallel
  * refreshes would consume the same token twice and revoke the whole token family.
@@ -182,7 +240,12 @@ const requestRefreshedAccessToken = async (): Promise<string> => {
   const response = await axios.post<unknown>(
     `${apiClient.defaults.baseURL ?? ''}/auth/refresh`,
     payload,
-    { headers: { 'Content-Type': 'application/json' } }
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        [TRACEPARENT_HEADER]: createTraceparent(),
+      },
+    }
   );
 
   let normalized: NormalizedLoginResponse;
@@ -196,6 +259,7 @@ const requestRefreshedAccessToken = async (): Promise<string> => {
   }
 
   tokenStorage.setTokens(normalized.access_token, normalized.refresh_token);
+  notifySessionUserUpdated(normalized.user);
 
   return normalized.access_token;
 };
@@ -276,12 +340,16 @@ const validateJsonApiResponse = (response: AxiosResponse): AxiosResponse => {
   return response;
 };
 
-// Request Interceptor: Inject Bearer JWT and Stage 1 Idempotency-Key
+// Request Interceptor: Inject Bearer JWT, W3C traceparent, and Stage 1 Idempotency-Key
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     const token = tokenStorage.getAccessToken();
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    if (!config.headers.has(TRACEPARENT_HEADER)) {
+      config.headers.set(TRACEPARENT_HEADER, createTraceparent());
     }
 
     // Attach Idempotency-Key on every mutating endpoint except the four
@@ -324,8 +392,25 @@ apiClient.interceptors.response.use(
           const accessToken = await getRefreshedAccessToken();
           originalRequest.headers.Authorization = `Bearer ${accessToken}`;
           return apiClient(originalRequest);
-        } catch {
-          endExpiredSession();
+        } catch (refreshError: unknown) {
+          if (isDefinitiveRefreshFailure(refreshError)) {
+            endExpiredSession();
+          } else {
+            if (axios.isAxiosError(refreshError)) {
+              const refreshEnvelope = normalizeApiErrorEnvelope(
+                refreshError.response?.data
+              );
+              if (refreshEnvelope) {
+                return Promise.reject(
+                  new ApiClientError(
+                    refreshEnvelope.error,
+                    refreshError.response?.status
+                  )
+                );
+              }
+            }
+            return Promise.reject(refreshError);
+          }
         }
       } else {
         // The request was already retried with a fresh token and was rejected

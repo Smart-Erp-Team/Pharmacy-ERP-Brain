@@ -4,12 +4,14 @@ import { EmptyState } from '../../../components/ui/EmptyState';
 
 export interface UsersTableEmptyStateProps {
   hasActiveFilters: boolean;
+  canWrite: boolean;
   onResetFilters: () => void;
   onAddUser: () => void;
 }
 
 export function UsersTableEmptyState({
   hasActiveFilters,
+  canWrite,
   onResetFilters,
   onAddUser,
 }: UsersTableEmptyStateProps) {
@@ -32,11 +34,17 @@ export function UsersTableEmptyState({
     <EmptyState
       icon={<Shield className="h-5 w-5" />}
       title="No user accounts yet"
-      description="Create a user account for an active employee to assign a role and branch access scope."
+      description={
+        canWrite
+          ? 'Create a user account for an active employee to assign a role and branch access scope.'
+          : 'No user accounts are available in this branch yet.'
+      }
       action={
-        <Button variant="primary" onClick={onAddUser}>
-          Add user
-        </Button>
+        canWrite ? (
+          <Button variant="primary" onClick={onAddUser}>
+            Add user
+          </Button>
+        ) : undefined
       }
     />
   );

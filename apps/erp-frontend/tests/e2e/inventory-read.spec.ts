@@ -26,8 +26,20 @@ test('Admin on Cloud inspects MEDCARE FEFO batches, filters & creates DAMAGED lo
     })
     .click();
   await expect(page.getByText('MEDCARE-LOT-EXP')).toBeVisible();
+  await expect(
+    page
+      .getByRole('row', { name: /MEDCARE-LOT-EXP/ })
+      .getByText('Expired', { exact: true })
+  ).toBeVisible();
   await expect(page.getByText('MEDCARE-LOT-2602')).toBeVisible();
   await expect(page.getByText('MEDCARE-LOT-2601')).toBeVisible();
+
+  const storageFilter = page.getByLabel('Storage location');
+  await storageFilter.selectOption('11111111-9999-4111-8111-000000000003');
+  await expect(page.getByRole('row', { name: /MED-AUG-1000/ })).toBeVisible();
+  await expect(page.getByRole('row', { name: /MED-PAN-500/ })).toBeHidden();
+  await storageFilter.selectOption('');
+  await expect(page.getByRole('row', { name: /MED-PAN-500/ })).toBeVisible();
 
   // 2. Stock Overview tab explicit Brain telemetry Unavailable alert
   await page.getByRole('tab', { name: 'Stock Overview' }).click();

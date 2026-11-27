@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { BRANCH_ALX_ID, BRANCH_DT_ID } from './helpers/authContext.ts';
 import {
+  expectReadOnlyBranchesPage,
   loginWithUserContext,
   openProductReorderTab,
 } from './helpers/session.ts';
@@ -61,7 +62,7 @@ test.describe('Stage 1 Closed 5-Scope Role & Runtime Matrix', () => {
     expect(errors).toEqual([]);
   });
 
-  test('3) Pharmacist+Cloud+ASSIGNED gets 403 on Admin routes and writes catalog', async ({
+  test('3) Pharmacist+Cloud+ASSIGNED reads Branches, gets 403 on Employees/Users, and writes catalog', async ({
     page,
   }) => {
     const errors = await loginWithUserContext(page, {
@@ -70,25 +71,26 @@ test.describe('Stage 1 Closed 5-Scope Role & Runtime Matrix', () => {
       branch_scope: 'ASSIGNED',
       branch_ids: [BRANCH_DT_ID],
     });
-    for (const link of ['Branches', 'Employees', 'User Accounts']) {
+    for (const link of ['Employees', 'User Accounts']) {
       await expect(page.getByRole('link', { name: link })).toBeHidden();
     }
-    await expect(
-      page.getByRole('link', { name: 'Branch Enrollment' })
-    ).toBeVisible();
-    await page.goto('/branches');
-    await expect(page.getByTestId('role-gate-forbidden')).toBeVisible();
+    for (const link of ['Branches', 'Branch Enrollment']) {
+      await expect(page.getByRole('link', { name: link })).toBeVisible();
+    }
+    await expectReadOnlyBranchesPage(page, 'Read-only access');
+    for (const path of ['/employees', '/users']) {
+      await page.goto(path);
+      await expect(page.getByTestId('role-gate-forbidden')).toBeVisible();
+    }
     await openProductReorderTab(page);
-    await expect(page.getByLabel('Branch', { exact: true })).toContainText(
-      'MED-DT'
-    );
-    await expect(
-      page.getByRole('button', { name: 'Save reorder rule' })
-    ).toBeVisible();
+    const branchSel = page.getByLabel('Branch', { exact: true });
+    await expect(branchSel).toContainText('MED-DT');
+    const saveBtn = page.getByRole('button', { name: 'Save reorder rule' });
+    await expect(saveBtn).toBeVisible();
     expect(errors).toEqual([]);
   });
 
-  test('4) Cashier+BranchLocal hides Enrollment & Adjustments/Ledger and renders read-only Reorder tab', async ({
+  test('4) Cashier+BranchLocal reads Branches, hides Enrollment/Adjustments/Ledger, and renders read-only Reorder', async ({
     page,
   }) => {
     const errors = await loginWithUserContext(page, {
@@ -97,28 +99,28 @@ test.describe('Stage 1 Closed 5-Scope Role & Runtime Matrix', () => {
       branch_scope: 'ASSIGNED',
       branch_ids: [BRANCH_DT_ID],
     });
-    await expect(
-      page.getByRole('link', { name: 'Branch Enrollment' })
-    ).toBeHidden();
+    const btn = (name: string) => page.getByRole('button', { name });
+    const enroll = page.getByRole('link', { name: 'Branch Enrollment' });
+    await expect(enroll).toBeHidden();
+    await expectReadOnlyBranchesPage(page, 'Read-only mode');
     await page.getByRole('link', { name: 'Products' }).click();
-    await expect(
-      page.getByText('Catalog changes require the Cloud deployment.')
-    ).toBeVisible();
-    for (const btn of ['Add product', 'Add category']) {
-      await expect(page.getByRole('button', { name: btn })).toBeHidden();
+    const cloudNotice = 'Catalog changes require the Cloud deployment.';
+    await expect(page.getByText(cloudNotice)).toBeVisible();
+    for (const name of ['Add product', 'Add category']) {
+      await expect(btn(name)).toBeHidden();
     }
     await openProductReorderTab(page);
-    await expect(page.getByLabel('Reorder point')).toBeDisabled();
-    await expect(page.getByLabel('Reorder point')).toHaveValue('50');
-    await expect(
-      page.getByRole('button', { name: 'Save reorder rule' })
-    ).toBeHidden();
+    const reorderPt = page.getByLabel('Reorder point');
+    await expect(reorderPt).toBeDisabled();
+    await expect(reorderPt).toHaveValue('50');
+    await expect(btn('Save reorder rule')).toBeHidden();
     await page.getByRole('link', { name: 'Inventory' }).click();
-    for (const hidden of [
+    const hiddenTabs = [
       'Stock Adjustments & Opening Balance',
       'Inventory Ledger History',
-    ]) {
-      await expect(page.getByRole('tab', { name: hidden })).toBeHidden();
+    ];
+    for (const tab of hiddenTabs) {
+      await expect(page.getByRole('tab', { name: tab })).toBeHidden();
     }
     expect(errors).toEqual([]);
   });

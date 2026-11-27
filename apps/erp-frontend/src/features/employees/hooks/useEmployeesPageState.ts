@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
 import { useAllBranchesQuery, type Branch } from '../../../features/branches';
+import { useAuth } from '../../../hooks/useAuth';
 import { ApiClientError } from '../../../lib/api/client';
 import { DEFAULT_PAGE, DEFAULT_PAGE_SIZE } from '../../../lib/api/pagination';
 import type { Employee } from '../../../types/api';
@@ -8,6 +9,9 @@ import type { EmployeeStatusFilter } from '../components/EmployeesFilterBar';
 import { useEmployeesQuery, usePatchEmployeeMutation } from './useEmployees';
 
 export function useEmployeesPageState() {
+  const { runtime } = useAuth();
+  const canWrite = runtime === 'Cloud';
+
   const [searchTerm, setSearchTerm] = useState('');
   const [branchFilter, setBranchFilter] = useState('');
   const [statusFilter, setStatusFilter] =
@@ -105,6 +109,9 @@ export function useEmployeesPageState() {
     employee: Employee,
     nextActive: boolean
   ) => {
+    if (!canWrite) {
+      return;
+    }
     setTogglingEmployeeId(employee.employee_id);
     try {
       await patchEmployeeMutation.mutateAsync({
@@ -126,6 +133,7 @@ export function useEmployeesPageState() {
   };
 
   return {
+    canWrite,
     searchTerm,
     branchFilter,
     statusFilter,

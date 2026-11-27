@@ -81,6 +81,26 @@ export async function openProductReorderTab(
   await page.getByRole('tab', { name: 'Branch Reorder Settings' }).click();
 }
 
+export async function expectReadOnlyBranchesPage(
+  page: Page,
+  noticeTitle: string
+): Promise<void> {
+  await page.getByRole('link', { name: 'Branches' }).click();
+  await expect(page.getByText(noticeTitle)).toBeVisible();
+  await expect(page.getByRole('row', { name: /MED-DT/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add branch' })).toBeHidden();
+  await expect(page.getByRole('switch', { name: /Toggle status/ })).toHaveCount(
+    0
+  );
+  await expect(
+    page.getByRole('columnheader', { name: 'Actions' })
+  ).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Edit' })).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'Enrollment token' })
+  ).toHaveCount(0);
+}
+
 export async function loginWithUserContext(
   page: Page,
   overrides: UserContextOverrides,

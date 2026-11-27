@@ -343,9 +343,25 @@ describe('employeesApi & useEmployees hooks', () => {
     expect(updated.employee_no).toBe('EMP-001');
     expect(updated.hired_on).toBe('2024-03-01');
 
+    const missingKeyResponse = await fetch(
+      'http://localhost/api/v1/employees',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ full_name: 'Missing key' }),
+      }
+    );
+    expect(missingKeyResponse.status).toBe(400);
+    await expect(missingKeyResponse.json()).resolves.toMatchObject({
+      error: { code: 'MALFORMED_REQUEST' },
+    });
+
     await expect(
       apiClient.post('/employees', 'not-an-object', {
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': 'test-malformed-employee-body',
+        },
       })
     ).rejects.toMatchObject({
       code: 'MALFORMED_REQUEST',

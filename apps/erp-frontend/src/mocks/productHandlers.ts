@@ -1545,6 +1545,35 @@ export const productHandlers = [
       }
     }
 
+    const baseUomCodeChanged = nextBaseUomCode !== current.base_uom_code;
+    if (baseUomCodeChanged) {
+      const conflictingUom = current.uoms.some(
+        (uom) =>
+          !uom.is_base &&
+          uom.uom_code.trim().toUpperCase() === nextBaseUomCode.toUpperCase()
+      );
+      if (conflictingUom) {
+        return conflictResponse(
+          `Base UOM code "${nextBaseUomCode}" conflicts with an existing non-base UOM.`,
+          [
+            {
+              field: 'base_uom_code',
+              issue: 'Base UOM code must not match an existing non-base UOM.',
+            },
+          ]
+        );
+      }
+    }
+
+    const now = new Date().toISOString();
+    const nextUoms = baseUomCodeChanged
+      ? current.uoms.map((uom) =>
+          uom.is_base
+            ? { ...uom, uom_code: nextBaseUomCode, updated_at: now }
+            : uom
+        )
+      : current.uoms;
+
     const updated: Product = {
       ...current,
       category_id: nextCategoryId,
@@ -1559,7 +1588,8 @@ export const productHandlers = [
       lot_tracking_required: nextLotTracking,
       expiry_alert_days: nextExpiryAlertDays,
       is_active: nextIsActive,
-      updated_at: new Date().toISOString(),
+      uoms: nextUoms,
+      updated_at: now,
     };
 
     mockProducts = mockProducts.map((item, idx) =>
@@ -1708,6 +1738,29 @@ export const productHandlers = [
       }
 
       const details: NormalizedApiErrorDetail[] = [];
+
+      if (
+        'is_base' in body &&
+        body.is_base !== undefined &&
+        body.is_base !== null
+      ) {
+        if (typeof body.is_base !== 'boolean') {
+          details.push({
+            field: 'is_base',
+            issue: 'is_base must be a boolean.',
+          });
+        } else if (body.is_base !== currentUom.is_base) {
+          return conflictResponse(
+            'Base unit status cannot be changed on an existing UOM.',
+            [
+              {
+                field: 'is_base',
+                issue: 'Base unit status cannot be changed on an existing UOM.',
+              },
+            ]
+          );
+        }
+      }
 
       let nextDisplayName = currentUom.display_name;
       if (body.display_name !== undefined && body.display_name !== null) {

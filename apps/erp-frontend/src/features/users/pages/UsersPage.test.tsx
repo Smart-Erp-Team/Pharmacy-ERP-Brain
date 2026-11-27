@@ -1014,7 +1014,9 @@ describe('UsersPage', () => {
       within(getMonaRow()).getByRole('button', { name: 'Reset password' })
     );
     const firstDialog = screen.getByRole('dialog');
-    expect(within(firstDialog).getByText(/12–128 characters/i)).toBeDefined();
+    expect(
+      within(firstDialog).getByText(/at least 12 characters/i)
+    ).toBeDefined();
     const firstNewPass = within(firstDialog).getByLabelText('New password');
     expect(firstNewPass.getAttribute('placeholder')).toBe(
       'Minimum 12 characters'
@@ -1256,5 +1258,159 @@ describe('UsersPage', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull();
     });
+  });
+
+  it('enforces mandatory branch_id filter and hierarchical restrictions for ASSIGNED Admin on Cloud', async () => {
+    const user = userEvent.setup();
+    const seenUserQueries: URL[] = [];
+
+    server.events.on('request:start', ({ request }) => {
+      const url = new URL(request.url);
+      if (request.method === 'GET' && url.pathname.endsWith('/api/v1/users')) {
+        seenUserQueries.push(url);
+      }
+    });
+
+    setSignedInUser({
+      ...SELF_ADMIN_CONTEXT,
+      user_id: OTHER_ADMIN_USER_ID,
+      username: 'branch.admin@medcare.test',
+      branch_scope: 'ASSIGNED',
+      branch_ids: [MED_DT_ID],
+    });
+
+    renderWithProviders(<UsersPage />);
+
+    expect(await screen.findByText('ph.mona@medcare.test')).toBeDefined();
+    expect(screen.getByText('admin@medcare.test')).toBeDefined();
+    expect(screen.getByText('Assigned branch administration')).toBeDefined();
+
+    // Every GET /users request includes non-empty branch_id=MED_DT_ID
+    expect(seenUserQueries.length).toBeGreaterThan(0);
+    expect(
+      seenUserQueries.every(
+        (u) => u.searchParams.get('branch_id') === MED_DT_ID
+      )
+    ).toBe(true);
+
+    // Branch filter hides "All branches" and lists only assigned branches
+    const branchSelect = screen.getByLabelText('Branch filter');
+    if (!(branchSelect instanceof HTMLSelectElement)) {
+      throw new Error('Expected Branch filter select element');
+    }
+    expect(branchSelect.value).toBe(MED_DT_ID);
+    const branchOptionValues = Array.from(branchSelect.options).map(
+      (opt) => opt.value
+    );
+    expect(branchOptionValues).toEqual([MED_DT_ID]);
+    expect(
+      Array.from(branchSelect.options).some(
+        (opt) => opt.textContent === 'All branches'
+      )
+    ).toBe(false);
+
+    // Admin/ALL row is locked; assigned Pharmacist row is manageable
+    const adminRow = screen.getByText('admin@medcare.test').closest('tr');
+    const monaRow = screen.getByText('ph.mona@medcare.test').closest('tr');
+    if (!adminRow || !monaRow) {
+      throw new Error('Expected admin and mona rows');
+    }
+
+    expect(
+      within(adminRow)
+        .getByRole('switch', { name: 'Toggle status for admin@medcare.test' })
+        .hasAttribute('disabled')
+    ).toBe(true);
+    expect(
+      within(adminRow)
+        .getByRole('button', { name: 'Edit' })
+        .hasAttribute('disabled')
+    ).toBe(true);
+    expect(
+      within(adminRow)
+        .getByRole('button', { name: 'Reset password' })
+        .hasAttribute('disabled')
+    ).toBe(true);
+    expect(
+      within(adminRow)
+        .getByRole('button', { name: 'Revoke sessions' })
+        .hasAttribute('disabled')
+    ).toBe(true);
+
+    expect(
+      within(monaRow)
+        .getByRole('switch', { name: 'Toggle status for ph.mona@medcare.test' })
+        .hasAttribute('disabled')
+    ).toBe(false);
+    expect(
+      within(monaRow)
+        .getByRole('button', { name: 'Edit' })
+        .hasAttribute('disabled')
+    ).toBe(false);
+
+    // Create modal restricts Role to Pharmacist/Cashier, locks Branch scope to ASSIGNED, and lists only MED-DT
+    await user.click(screen.getByRole('button', { name: 'Add user' }));
+    const createDialog = screen.getByRole('dialog');
+
+    const roleSelect = within(createDialog).getByLabelText('Role');
+    const scopeSelect = within(createDialog).getByLabelText('Branch scope');
+    if (
+      !(roleSelect instanceof HTMLSelectElement) ||
+      !(scopeSelect instanceof HTMLSelectElement)
+    ) {
+      throw new Error('Expected Role and Branch scope selects');
+    }
+
+    expect(Array.from(roleSelect.options).map((opt) => opt.value)).toEqual([
+      'Pharmacist',
+      'Cashier',
+    ]);
+    expect(Array.from(scopeSelect.options).map((opt) => opt.value)).toEqual([
+      'ASSIGNED',
+    ]);
+    expect(scopeSelect.disabled).toBe(true);
+
+    expect(
+      await within(createDialog).findByRole('button', { name: /MED-DT/i })
+    ).toBeDefined();
+    expect(
+      within(createDialog).queryByRole('button', { name: /MED-ALX/i })
+    ).toBeNull();
+
+    // All GET /users calls (including useAllUsersQuery for Create modal) kept branch_id=MED_DT_ID
+    await waitFor(() => {
+      expect(
+        within(createDialog).getByLabelText('Employee').hasAttribute('disabled')
+      ).toBe(false);
+    });
+    expect(
+      seenUserQueries.every(
+        (u) => u.searchParams.get('branch_id') === MED_DT_ID
+      )
+    ).toBe(true);
+  });
+
+  it('renders read-only mode on BranchLocal with info notice and no write controls', async () => {
+    setSignedInUser({
+      ...SELF_ADMIN_CONTEXT,
+      branch_scope: 'ASSIGNED',
+      branch_ids: [MED_DT_ID],
+      runtime_mode: 'BranchLocal',
+    });
+
+    renderWithProviders(<UsersPage />);
+
+    expect(await screen.findByText('ph.mona@medcare.test')).toBeDefined();
+    expect(
+      screen.getByText('User account changes require the Cloud deployment.')
+    ).toBeDefined();
+    expect(screen.queryByRole('button', { name: 'Add user' })).toBeNull();
+    expect(screen.queryByRole('switch')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reset password' })).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Revoke sessions' })
+    ).toBeNull();
+    expect(screen.queryByRole('columnheader', { name: 'Actions' })).toBeNull();
   });
 });

@@ -28,6 +28,8 @@ export interface EditUserFormModalProps {
   employeeDisplay: EmployeeDisplay;
   branches: readonly Branch[];
   branchesDirectory: DirectoryQueryStatus;
+  isOrgAdmin: boolean;
+  allowedBranchIds: readonly string[];
   onClose: () => void;
 }
 
@@ -36,6 +38,8 @@ export function EditUserFormModal({
   employeeDisplay,
   branches,
   branchesDirectory,
+  isOrgAdmin,
+  allowedBranchIds,
   onClose,
 }: EditUserFormModalProps) {
   const formId = useId();
@@ -54,11 +58,15 @@ export function EditUserFormModal({
   const hasEffectiveChanges = hasEffectiveEditChanges(currentValues, user);
 
   const handleAccessChange = (patch: UserAccessPatch) => {
-    if (!isSelf && patch.role) {
+    if (!isSelf && patch.role && (isOrgAdmin || patch.role !== 'Admin')) {
       form.setValue('role', patch.role, { shouldDirty: true });
       void form.trigger('role');
     }
-    if (!isSelf && patch.branch_scope) {
+    if (
+      !isSelf &&
+      patch.branch_scope &&
+      (isOrgAdmin || patch.branch_scope !== 'ALL')
+    ) {
       form.setValue('branch_scope', patch.branch_scope, { shouldDirty: true });
       form.clearErrors('branch_scope');
       if (patch.branch_scope === 'ALL') {
@@ -119,6 +127,8 @@ export function EditUserFormModal({
         username={user.username}
         values={currentValues}
         isSelf={isSelf}
+        isOrgAdmin={isOrgAdmin}
+        allowedBranchIds={allowedBranchIds}
         branches={branches}
         branchesDirectory={branchesDirectory}
         disabled={isPending}

@@ -16,8 +16,6 @@ import {
 import type { EditProductFormValues } from '../schemas/productSchema';
 
 export interface EditProductFormFieldsProps {
-  sku: string;
-  baseUomCode: string;
   currentCategoryId: string;
   categories: readonly ProductCategory[];
   disabled: boolean;
@@ -40,8 +38,8 @@ const TOGGLE_FIELDS = [
 ] as const;
 
 export function EditProductFormFields(props: EditProductFormFieldsProps) {
-  const { sku, baseUomCode, currentCategoryId, categories } = props;
-  const { disabled, register, control, errors } = props;
+  const { currentCategoryId, categories, disabled, register, control, errors } =
+    props;
   const categoryOptions = useMemo(
     () =>
       buildProductCategoryOptions(categories, {
@@ -56,17 +54,21 @@ export function EditProductFormFields(props: EditProductFormFieldsProps) {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Input
           label="SKU"
-          value={sku}
-          disabled
-          readOnly
-          hint="SKU is immutable once created."
+          placeholder="ANA-PCM-500-TAB"
+          maxLength={40}
+          hint="Must remain unique across products."
+          disabled={disabled}
+          error={errors.sku?.message}
+          {...register('sku')}
         />
         <Input
           label="Base UOM"
-          value={baseUomCode}
-          disabled
-          readOnly
-          hint="Base UOM code is immutable; manage units in UOMs & Pricing."
+          placeholder="TAB"
+          maxLength={20}
+          hint="Can only change before inventory or transaction history exists."
+          disabled={disabled}
+          error={errors.base_uom_code?.message}
+          {...register('base_uom_code')}
         />
         <Select
           label="Category"

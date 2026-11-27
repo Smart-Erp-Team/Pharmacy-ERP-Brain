@@ -19,17 +19,53 @@ import {
   MOCK_BRANCH_IDS,
   resetMockBranches,
 } from '../../../mocks/branchHandlers';
+import { useAuthStore } from '../../../stores/authStore';
 import { renderWithProviders } from '../../../test/renderWithProviders';
+import type { CurrentUser } from '../../../types/api';
 import { BranchesPage } from './BranchesPage';
+
+const ORG_ADMIN_CLOUD: CurrentUser = {
+  user_id: currentUserContext.user_id,
+  employee_id: currentUserContext.employee_id,
+  organization_id: currentUserContext.organization_id,
+  username: currentUserContext.username,
+  role: 'Admin',
+  branch_scope: 'ALL',
+  branch_ids: [],
+  scopes: [
+    'user:admin',
+    'inventory:read',
+    'inventory:write',
+    'sales:read',
+    'sales:write',
+  ],
+  runtime_mode: 'Cloud',
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function setSignedInUser(currentUser: CurrentUser | null) {
+  useAuthStore.setState({
+    currentUser,
+    organizationCode: currentUser ? 'MEDCARE' : null,
+    activeBranchId: currentUser?.branch_ids[0] ?? null,
+    isAuthenticated: currentUser !== null,
+    isInitializing: false,
+  });
+}
 
 const server = setupServer(...handlers);
 
 beforeAll(() => server.listen());
 beforeEach(() => {
   resetMockBranches();
+  setSignedInUser(ORG_ADMIN_CLOUD);
 });
 afterEach(() => {
   server.resetHandlers();
+  setSignedInUser(null);
   cleanup();
   vi.restoreAllMocks();
 });
@@ -557,5 +593,165 @@ describe('BranchesPage', () => {
     expect(
       await within(dialog).findByText(/Clipboard access was blocked/i)
     ).toBeDefined();
+  });
+
+  it('restricts Admin with ASSIGNED scope on Cloud to Edit & Enrollment token for assigned branches only and hides Add branch and active toggles', async () => {
+    const user = userEvent.setup();
+    const seenPatchBodies: Array<Record<string, unknown>> = [];
+
+    server.use(
+      http.patch('*/api/v1/branches/:branchId', async ({ request }) => {
+        const body: unknown = await request.json().catch(() => null);
+        if (isRecord(body)) {
+          seenPatchBodies.push(body);
+        }
+        return HttpResponse.json({
+          branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
+          organization_id: currentUserContext.organization_id,
+          branch_code: 'MED-DT',
+          name: 'MedCare - Downtown Scoped',
+          is_active: true,
+          address: {
+            line1: '24 Talaat Harb Street',
+            line2: 'Ground Floor',
+            city: 'Cairo',
+            region: 'Downtown',
+            postal_code: '11511',
+            country_code: 'EG',
+          },
+          created_at: '2026-01-15T08:00:00+00:00',
+          updated_at: '2026-11-26T10:00:00+00:00',
+        });
+      })
+    );
+
+    setSignedInUser({
+      ...ORG_ADMIN_CLOUD,
+      branch_scope: 'ASSIGNED',
+      branch_ids: [MOCK_BRANCH_IDS.DOWNTOWN],
+    });
+
+    renderWithProviders(<BranchesPage />);
+    expect(
+      await screen.findByText('MedCare - Downtown Flagship')
+    ).toBeDefined();
+    expect(screen.getByText('MedCare - Alexandria Corniche')).toBeDefined();
+
+    // Hides Add branch & active status toggles; shows assigned scope alert
+    expect(screen.queryByRole('button', { name: 'Add branch' })).toBeNull();
+    expect(screen.queryByRole('switch')).toBeNull();
+    expect(screen.getByText('Assigned branch scope')).toBeDefined();
+
+    const downtownRow = screen
+      .getByText('MedCare - Downtown Flagship')
+      .closest('tr');
+    const alexRow = screen
+      .getByText('MedCare - Alexandria Corniche')
+      .closest('tr');
+    if (!downtownRow || !alexRow) {
+      throw new Error('Expected Downtown and Alexandria rows');
+    }
+
+    // Assigned branch keeps Edit & Enrollment token
+    expect(
+      within(downtownRow).getByRole('button', { name: 'Edit' })
+    ).toBeDefined();
+    expect(
+      within(downtownRow).getByRole('button', { name: 'Enrollment token' })
+    ).toBeDefined();
+
+    // Unassigned branch blocks Edit & Enrollment token
+    expect(within(alexRow).queryByRole('button', { name: 'Edit' })).toBeNull();
+    expect(
+      within(alexRow).queryByRole('button', { name: 'Enrollment token' })
+    ).toBeNull();
+
+    // Edit modal hides Active branch toggle and omits is_active from PATCH payload
+    await user.click(within(downtownRow).getByRole('button', { name: 'Edit' }));
+    const dialog = screen.getByRole('dialog');
+    expect(
+      within(dialog).queryByRole('switch', { name: 'Active branch' })
+    ).toBeNull();
+
+    const nameInput = within(dialog).getByLabelText('Branch name');
+    await user.clear(nameInput);
+    await user.type(nameInput, 'MedCare - Downtown Scoped');
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Save changes' })
+    );
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(seenPatchBodies).toHaveLength(1);
+    expect('is_active' in (seenPatchBodies[0] ?? {})).toBe(false);
+  });
+
+  it('renders a read-only table without Actions column or write buttons for Pharmacist, Cashier, and BranchLocal', async () => {
+    const readOnlyCases: Array<{ label: string; user: CurrentUser }> = [
+      {
+        label: 'Pharmacist on Cloud',
+        user: {
+          ...ORG_ADMIN_CLOUD,
+          role: 'Pharmacist',
+          branch_scope: 'ASSIGNED',
+          branch_ids: [MOCK_BRANCH_IDS.DOWNTOWN],
+          scopes: ['inventory:read', 'inventory:write', 'sales:read'],
+          runtime_mode: 'Cloud',
+        },
+      },
+      {
+        label: 'Cashier on Cloud',
+        user: {
+          ...ORG_ADMIN_CLOUD,
+          role: 'Cashier',
+          branch_scope: 'ASSIGNED',
+          branch_ids: [MOCK_BRANCH_IDS.DOWNTOWN],
+          scopes: ['inventory:read', 'sales:read', 'sales:write'],
+          runtime_mode: 'Cloud',
+        },
+      },
+      {
+        label: 'Admin on BranchLocal',
+        user: {
+          ...ORG_ADMIN_CLOUD,
+          role: 'Admin',
+          branch_scope: 'ASSIGNED',
+          branch_ids: [MOCK_BRANCH_IDS.DOWNTOWN],
+          runtime_mode: 'BranchLocal',
+        },
+      },
+    ];
+
+    for (const testCase of readOnlyCases) {
+      setSignedInUser(testCase.user);
+      renderWithProviders(<BranchesPage />);
+
+      expect(
+        await screen.findByText('MedCare - Downtown Flagship')
+      ).toBeDefined();
+      expect(screen.queryByRole('button', { name: 'Add branch' })).toBeNull();
+      expect(screen.queryByRole('switch')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+      expect(
+        screen.queryByRole('button', { name: 'Enrollment token' })
+      ).toBeNull();
+      expect(
+        screen.queryByRole('columnheader', { name: 'Actions' })
+      ).toBeNull();
+
+      if (testCase.user.runtime_mode === 'BranchLocal') {
+        expect(
+          screen.getByText(
+            'Branch changes and enrollment tokens require the Cloud deployment.'
+          )
+        ).toBeDefined();
+      } else {
+        expect(
+          screen.getByText(
+            'Only administrators can create, edit, or issue enrollment tokens for branches.'
+          )
+        ).toBeDefined();
+      }
+
+      cleanup();
+    }
   });
 });

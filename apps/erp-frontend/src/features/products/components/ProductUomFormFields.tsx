@@ -35,6 +35,19 @@ export function ProductUomFormFields({
   onToggleBool,
 }: ProductUomFormFieldsProps) {
   const isEdit = uom !== null;
+  const conversionField = (
+    <Input
+      label="Conversion factor"
+      type="text"
+      inputMode="decimal"
+      placeholder="10"
+      hint="Conversion factor to base UOM (locked after inventory history exists; base unit is fixed at 1)."
+      disabled={isPending || (isEdit ? uom.is_base : isBase)}
+      error={errors.conversion_to_base?.message}
+      {...register('conversion_to_base')}
+    />
+  );
+
   const toggleField = (
     name: UomBoolField,
     label: string,
@@ -74,8 +87,9 @@ export function ProductUomFormFields({
             </span>
           </div>
           <Alert variant="info">
-            conversion_to_base and is_base become immutable once referenced by a
-            posted document or stock.
+            {uom.is_base
+              ? 'Base unit conversion factor is fixed at 1 and cannot be deactivated.'
+              : 'UOM code and base unit status cannot be changed here. Conversion factor can be updated until this unit is referenced by stock or a posted document.'}
           </Alert>
         </>
       ) : hasBaseUom ? (
@@ -85,7 +99,9 @@ export function ProductUomFormFields({
       ) : (
         toggleField('is_base', 'Base unit', isBase, isPending)
       )}
-      {!isEdit && (
+      {isEdit ? (
+        conversionField
+      ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Input
             label="UOM code"
@@ -95,15 +111,7 @@ export function ProductUomFormFields({
             error={errors.uom_code?.message}
             {...register('uom_code')}
           />
-          <Input
-            label="Conversion factor"
-            type="text"
-            inputMode="decimal"
-            placeholder="10"
-            disabled={isPending || isBase}
-            error={errors.conversion_to_base?.message}
-            {...register('conversion_to_base')}
-          />
+          {conversionField}
         </div>
       )}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

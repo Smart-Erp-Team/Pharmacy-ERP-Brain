@@ -15,6 +15,8 @@ export interface EditUserFormFieldsProps {
   username: string;
   values: EditUserFormValues;
   isSelf: boolean;
+  isOrgAdmin: boolean;
+  allowedBranchIds: readonly string[];
   branches: readonly Branch[];
   branchesDirectory: DirectoryQueryStatus;
   disabled: boolean;
@@ -28,6 +30,8 @@ export function EditUserFormFields({
   username,
   values,
   isSelf,
+  isOrgAdmin,
+  allowedBranchIds,
   branches,
   branchesDirectory,
   disabled,
@@ -53,6 +57,8 @@ export function EditUserFormFields({
         branches={branches}
         branchesDirectory={branchesDirectory}
         disabled={disabled}
+        isOrgAdmin={isOrgAdmin}
+        allowedBranchIds={allowedBranchIds}
         lockRoleAndScope={isSelf}
         roleError={errors.role?.message}
         branchScopeError={errors.branch_scope?.message}

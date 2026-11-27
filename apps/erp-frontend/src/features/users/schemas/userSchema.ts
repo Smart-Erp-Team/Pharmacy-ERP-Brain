@@ -9,7 +9,6 @@ import type {
 } from '../../../types/api';
 
 export const MIN_PASSWORD_LENGTH = 12;
-export const MAX_PASSWORD_LENGTH = 128;
 export const MAX_USERNAME_LENGTH = 80;
 
 export const USER_ROLES = [
@@ -82,10 +81,6 @@ export const createUserFormSchema = z
       .min(
         MIN_PASSWORD_LENGTH,
         `Password must be at least ${MIN_PASSWORD_LENGTH} characters`
-      )
-      .max(
-        MAX_PASSWORD_LENGTH,
-        `Password must be at most ${MAX_PASSWORD_LENGTH} characters`
       ),
     role: z.enum(USER_ROLES),
     branch_scope: z.enum(BRANCH_SCOPES),
@@ -126,10 +121,6 @@ export const passwordResetSchema = z
       .min(
         MIN_PASSWORD_LENGTH,
         `Password must be at least ${MIN_PASSWORD_LENGTH} characters`
-      )
-      .max(
-        MAX_PASSWORD_LENGTH,
-        `Password must be at most ${MAX_PASSWORD_LENGTH} characters`
       ),
     confirm_password: z.string().min(1, 'Please confirm the new password'),
   })

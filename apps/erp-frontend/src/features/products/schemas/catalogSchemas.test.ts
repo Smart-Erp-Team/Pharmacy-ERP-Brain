@@ -44,6 +44,7 @@ import {
   toCreateProductPayload,
   toPatchProductPayload,
   toProductPatchPayload,
+  toUpdateProductPayload,
   type CreateProductFormValues,
   type EditProductFormValues,
 } from './productSchema';
@@ -59,8 +60,10 @@ import {
   toPatchProductUomPayload,
   toReorderRulePayload,
   toUomPatchPayload,
+  toUpdateUomPayload,
   toUpsertReorderRulePayload,
   uomDtoToEditFormValues,
+  updateProductUomFormSchema,
   type CreateUomFormValues,
   type EditUomFormValues,
   type ReorderRuleFormValues,
@@ -625,12 +628,14 @@ describe('productSchema and tax conversion helpers', () => {
     });
   });
 
-  it('converts Product to EditProductFormValues and emits UpdateProductRequest with native numbers', () => {
+  it('converts Product to EditProductFormValues and emits UpdateProductRequest with editable sku, base_uom_code, and native numbers', () => {
     const product: Product = normalizeProduct(productFixture);
     const formValues = productDtoToEditFormValues(product);
 
     expect(formValues).toEqual({
       category_id: product.category_id,
+      sku: 'MED-AUG-1000',
+      base_uom_code: 'TAB',
       name: 'Augmentin 1g Film-Coated Tablets',
       barcode: '6221001000019',
       generic_name: 'Amoxicillin 875mg + Clavulanic Acid 125mg',
@@ -641,11 +646,11 @@ describe('productSchema and tax conversion helpers', () => {
       expiry_alert_days: '90',
       is_active: true,
     });
-    expect('sku' in formValues).toBe(false);
-    expect('base_uom_code' in formValues).toBe(false);
 
     const parsed = editProductFormSchema.parse({
       ...formValues,
+      sku: ' MED-AUG-1000-V2 ',
+      base_uom_code: ' CAP ',
       barcode: '',
       tax_percent: '14',
       is_active: false,
@@ -654,6 +659,8 @@ describe('productSchema and tax conversion helpers', () => {
 
     expect(patchPayload).toEqual({
       category_id: product.category_id,
+      sku: 'MED-AUG-1000-V2',
+      base_uom_code: 'CAP',
       barcode: null,
       name: 'Augmentin 1g Film-Coated Tablets',
       generic_name: 'Amoxicillin 875mg + Clavulanic Acid 125mg',
@@ -666,8 +673,21 @@ describe('productSchema and tax conversion helpers', () => {
     });
     expect(typeof patchPayload.tax_rate).toBe('number');
     expect(toProductPatchPayload(parsed)).toEqual(patchPayload);
-    expect('sku' in patchPayload).toBe(false);
-    expect('base_uom_code' in patchPayload).toBe(false);
+    expect(toUpdateProductPayload(parsed)).toEqual(patchPayload);
+
+    const invalidSkuAndBaseUom = editProductFormSchema.safeParse({
+      ...formValues,
+      sku: '   ',
+      base_uom_code: 'B'.repeat(21),
+    });
+    expect(invalidSkuAndBaseUom.success).toBe(false);
+    if (!invalidSkuAndBaseUom.success) {
+      const paths = invalidSkuAndBaseUom.error.issues.map((i) =>
+        i.path.join('.')
+      );
+      expect(paths).toContain('sku');
+      expect(paths).toContain('base_uom_code');
+    }
   });
 });
 
@@ -732,7 +752,7 @@ describe('uomReorderSchema', () => {
     ).toBe(false);
   });
 
-  it('validates editUomFormSchema and emits UpdateProductUomRequest with native numbers or null', () => {
+  it('validates editUomFormSchema with editable conversion_to_base for non-base UOMs and base lock === 1', () => {
     const uom: ProductUom = {
       product_uom_id: 'u-1',
       product_id: 'p-1',
@@ -750,18 +770,22 @@ describe('uomReorderSchema', () => {
     const formValues = uomDtoToEditFormValues(uom);
     expect(formValues).toEqual({
       display_name: 'Strip of 10',
+      conversion_to_base: '10',
+      is_base: false,
       is_sellable: true,
       is_purchasable: false,
       sale_unit_price: '12.5',
       is_active: true,
     });
 
-    const parsedSellable = editUomFormSchema.parse({
+    const parsedSellable = updateProductUomFormSchema.parse({
       ...formValues,
+      conversion_to_base: '12.5',
       sale_unit_price: '15.25',
     });
-    expect(toPatchProductUomPayload(parsedSellable)).toEqual({
+    expect(toPatchProductUomPayload(parsedSellable, uom)).toEqual({
       display_name: 'Strip of 10',
+      conversion_to_base: 12.5,
       sale_unit_price: 15.25,
       is_sellable: true,
       is_purchasable: false,
@@ -777,12 +801,47 @@ describe('uomReorderSchema', () => {
     const nonSellablePatch = toPatchProductUomPayload(parsedNonSellable);
     expect(nonSellablePatch).toEqual({
       display_name: 'Strip of 10',
+      conversion_to_base: 10,
       sale_unit_price: null,
       is_sellable: false,
       is_purchasable: false,
       is_active: false,
     });
     expect(toUomPatchPayload(parsedNonSellable)).toEqual(nonSellablePatch);
+    expect(toUpdateUomPayload(parsedNonSellable)).toEqual(nonSellablePatch);
+
+    // Non-base UOM rejects zero/negative conversion factor
+    expect(
+      editUomFormSchema.safeParse({
+        ...formValues,
+        conversion_to_base: '0',
+      }).success
+    ).toBe(false);
+
+    // Base UOM requires conversion_to_base === 1 and emits 1
+    const baseUom: ProductUom = {
+      ...uom,
+      uom_code: 'TAB',
+      conversion_to_base: 1,
+      is_base: true,
+    };
+    const baseInvalid = editUomFormSchema.safeParse({
+      ...uomDtoToEditFormValues(baseUom),
+      conversion_to_base: '2',
+    });
+    expect(baseInvalid.success).toBe(false);
+    if (!baseInvalid.success) {
+      expect(baseInvalid.error.issues[0]).toMatchObject({
+        path: ['conversion_to_base'],
+        message: 'Base UOM conversion factor must equal 1',
+      });
+    }
+    expect(
+      toUpdateUomPayload(
+        { ...uomDtoToEditFormValues(baseUom), conversion_to_base: '5' },
+        baseUom
+      ).conversion_to_base
+    ).toBe(1);
   });
 
   it('validates reorderRuleFormSchema bounds and emits UpsertReorderRuleRequest with native numbers', () => {
@@ -1030,6 +1089,14 @@ describe('catalogErrorMapper', () => {
             field: 'lot_tracking_required',
             issue: 'Cannot change while stock exists.',
           },
+          {
+            field: 'sku',
+            issue: 'SKU must be unique.',
+          },
+          {
+            field: 'base_uom_code',
+            issue: 'Base UOM locked after stock history.',
+          },
         ],
       },
       409
@@ -1040,6 +1107,14 @@ describe('catalogErrorMapper', () => {
     expect(editProductSetError).toHaveBeenCalledWith('lot_tracking_required', {
       type: 'server',
       message: 'Cannot change while stock exists.',
+    });
+    expect(editProductSetError).toHaveBeenCalledWith('sku', {
+      type: 'server',
+      message: 'SKU must be unique.',
+    });
+    expect(editProductSetError).toHaveBeenCalledWith('base_uom_code', {
+      type: 'server',
+      message: 'Base UOM locked after stock history.',
     });
 
     const createUomSetError = vi.fn<UseFormSetError<CreateUomFormValues>>();
@@ -1062,13 +1137,23 @@ describe('catalogErrorMapper', () => {
         code: 'CONFLICT',
         message: 'Base UOM cannot be deactivated.',
         trace_id: 'tr-uom-base',
-        details: [{ field: 'is_active', issue: 'Base UOM must stay active' }],
+        details: [
+          { field: 'is_active', issue: 'Base UOM must stay active' },
+          {
+            field: 'conversion_to_base',
+            issue: 'Conversion factor locked by stock history.',
+          },
+        ],
       },
       409
     );
     expect(applyEditUomFormApiError(editUomErr, editUomSetError)).toBe(
       'Base UOM cannot be deactivated. (Trace: tr-uom-base)'
     );
+    expect(editUomSetError).toHaveBeenCalledWith('conversion_to_base', {
+      type: 'server',
+      message: 'Conversion factor locked by stock history.',
+    });
 
     const reorderSetError = vi.fn<UseFormSetError<ReorderRuleFormValues>>();
     const reorderErr = new ApiClientError(

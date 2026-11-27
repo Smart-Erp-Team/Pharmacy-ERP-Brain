@@ -9,6 +9,7 @@ import {
   ADJUSTMENT_TXN_TYPES,
   ADJUSTMENTS_TXN_TYPES,
   createEmptyAdjustmentLine,
+  createInventoryAdjustmentFormSchema,
   DEFAULT_ADJUSTMENT_FORM_VALUES,
   DEFAULT_ADJUSTMENT_LINE,
   formatNumericDisplay,
@@ -17,6 +18,7 @@ import {
   parseFiniteNumber,
   toCreateInventoryAdjustmentPayload,
   type InventoryAdjustmentFormValues,
+  type ProductLotTrackingInfo,
 } from './inventoryAdjustmentSchema';
 import {
   applyAdjustmentFormApiError,
@@ -501,6 +503,143 @@ describe('inventoryAdjustmentFormSchema and toCreateInventoryAdjustmentPayload',
         'Unit cost is required for stock-in adjustments'
       );
     });
+  });
+
+  it('enforces product-aware lot_tracking_required rules via createInventoryAdjustmentFormSchema', () => {
+    const lotProductId = '6dbdb1a7-c723-da4c-8e0e-b067c18bc710';
+    const nonLotProductId = '11111111-6666-4111-8111-000000000003';
+    const productsById = new Map<string, ProductLotTrackingInfo>([
+      [lotProductId, { lot_tracking_required: true }],
+      [nonLotProductId, { lot_tracking_required: false }],
+    ]);
+    const schema = createInventoryAdjustmentFormSchema(productsById);
+
+    // 1. Lot-tracked product missing batch_number & expires_on -> rejected
+    const missingLotFields = schema.safeParse({
+      transaction_type: 'ADJUSTMENT_IN',
+      reason_code: 'CYCLE_SURPLUS',
+      note: '',
+      reverses_inventory_txn_id: '',
+      lines: [
+        {
+          ...sampleLine,
+          product_id: lotProductId,
+          batch_number: '   ',
+          manufactured_on: '',
+          expires_on: '  ',
+        },
+      ],
+    });
+    expect(missingLotFields.success).toBe(false);
+    if (!missingLotFields.success) {
+      const paths = missingLotFields.error.issues.map((issue) =>
+        issue.path.join('.')
+      );
+      expect(paths).toContain('lines.0.batch_number');
+      expect(paths).toContain('lines.0.expires_on');
+    }
+
+    // 2. Lot-tracked product with reserved NON-LOT batch_number (case-insensitive) -> rejected
+    const nonLotMisuse = schema.safeParse({
+      transaction_type: 'OPENING_BALANCE',
+      reason_code: 'INITIAL_STOCK',
+      note: '',
+      reverses_inventory_txn_id: '',
+      lines: [
+        {
+          ...sampleLine,
+          product_id: lotProductId,
+          batch_number: ' non-lot ',
+          expires_on: '2027-07-31',
+        },
+      ],
+    });
+    expect(nonLotMisuse.success).toBe(false);
+    if (!nonLotMisuse.success) {
+      expect(nonLotMisuse.error.issues[0]?.path).toEqual([
+        'lines',
+        0,
+        'batch_number',
+      ]);
+    }
+
+    // 3. Lot-tracked product with valid batch_number & expires_on -> succeeds
+    const validLot = schema.safeParse({
+      transaction_type: 'ADJUSTMENT_IN',
+      reason_code: 'CYCLE_SURPLUS',
+      note: '',
+      reverses_inventory_txn_id: '',
+      lines: [
+        {
+          ...sampleLine,
+          product_id: lotProductId,
+          batch_number: 'MEDCARE-LOT-2601',
+          expires_on: '2027-07-31',
+        },
+      ],
+    });
+    expect(validLot.success).toBe(true);
+
+    // 4. Non-lot product allows empty or NON-LOT batch_number when dates are empty
+    for (const allowedBatch of ['', 'NON-LOT', 'non-lot']) {
+      const validNonLot = schema.safeParse({
+        transaction_type: 'ADJUSTMENT_IN',
+        reason_code: 'VITAMIN_RESTOCK',
+        note: '',
+        reverses_inventory_txn_id: '',
+        lines: [
+          {
+            ...sampleLine,
+            product_id: nonLotProductId,
+            batch_number: allowedBatch,
+            manufactured_on: '',
+            expires_on: '',
+          },
+        ],
+      });
+      expect(validNonLot.success).toBe(true);
+    }
+
+    // 5. Non-lot product rejects custom batch_number, manufactured_on, or expires_on
+    const invalidNonLot = schema.safeParse({
+      transaction_type: 'ADJUSTMENT_IN',
+      reason_code: 'VITAMIN_RESTOCK',
+      note: '',
+      reverses_inventory_txn_id: '',
+      lines: [
+        {
+          ...sampleLine,
+          product_id: nonLotProductId,
+          batch_number: 'CUSTOM-LOT-01',
+          manufactured_on: '2026-01-10',
+          expires_on: '2027-07-31',
+        },
+      ],
+    });
+    expect(invalidNonLot.success).toBe(false);
+    if (!invalidNonLot.success) {
+      const paths = invalidNonLot.error.issues.map((issue) =>
+        issue.path.join('.')
+      );
+      expect(paths).toContain('lines.0.batch_number');
+      expect(paths).toContain('lines.0.manufactured_on');
+      expect(paths).toContain('lines.0.expires_on');
+    }
+
+    // 6. REVERSAL bypasses line lot-tracking rules
+    const validReversal = schema.safeParse({
+      transaction_type: 'REVERSAL',
+      reason_code: '',
+      note: '',
+      reverses_inventory_txn_id: '7d9503b8-1001-4ca5-8a0b-cd4040620002',
+      lines: [
+        {
+          ...createEmptyAdjustmentLine(),
+          product_id: lotProductId,
+        },
+      ],
+    });
+    expect(validReversal.success).toBe(true);
   });
 });
 

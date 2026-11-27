@@ -139,29 +139,41 @@ describe('Application router', () => {
     ).toBeDefined();
   });
 
-  it('shows the 403 screen when the role does not allow the screen', () => {
-    useAuthStore.setState({
-      currentUser: buildUser({
-        username: 'sarah.pharm@medcare.test',
-        role: 'Pharmacist',
-        branch_scope: 'ASSIGNED',
-        branch_ids: [BRANCH_DT_ID],
-        scopes: ['inventory:read', 'inventory:write', 'sales:read'],
-        runtime_mode: 'Cloud',
-      }),
-      organizationCode: 'MEDCARE',
-      activeBranchId: BRANCH_DT_ID,
-      isAuthenticated: true,
-      isInitializing: false,
-    });
+  it('opens /branches for Pharmacist and Cashier on both Cloud and BranchLocal while blocking /employees and /users with 403', () => {
+    for (const role of ['Pharmacist', 'Cashier'] as const) {
+      for (const runtimeMode of ['Cloud', 'BranchLocal'] as const) {
+        useAuthStore.setState({
+          currentUser: buildUser({
+            username: `${role.toLowerCase()}@medcare.test`,
+            role,
+            branch_scope: 'ASSIGNED',
+            branch_ids: [BRANCH_DT_ID],
+            scopes:
+              role === 'Pharmacist'
+                ? ['inventory:read', 'inventory:write', 'sales:read']
+                : ['inventory:read', 'sales:read', 'sales:write'],
+            runtime_mode: runtimeMode,
+          }),
+          organizationCode: 'MEDCARE',
+          activeBranchId: BRANCH_DT_ID,
+          isAuthenticated: true,
+          isInitializing: false,
+        });
 
-    renderRouter('/branches');
+        renderRouter('/branches');
+        expect(screen.getByRole('heading', { name: 'Branches' })).toBeDefined();
+        cleanup();
 
-    expect(screen.getByTestId('role-gate-forbidden')).toBeDefined();
-    expect(screen.queryByRole('heading', { name: 'Branches' })).toBeNull();
+        for (const adminOnlyPath of ['/employees', '/users']) {
+          renderRouter(adminOnlyPath);
+          expect(screen.getByTestId('role-gate-forbidden')).toBeDefined();
+          cleanup();
+        }
+      }
+    }
   });
 
-  it('shows the 403 screen when the runtime does not own the screen', () => {
+  it('opens /branches, /employees, and /users in read-only mode for an Admin on BranchLocal', () => {
     useAuthStore.setState({
       currentUser: buildUser({
         runtime_mode: 'BranchLocal',
@@ -175,8 +187,28 @@ describe('Application router', () => {
     });
 
     renderRouter('/branches');
+    expect(screen.getByRole('heading', { name: 'Branches' })).toBeDefined();
+    expect(
+      screen.getByText(
+        'Branch changes and enrollment tokens require the Cloud deployment.'
+      )
+    ).toBeDefined();
+    cleanup();
 
-    expect(screen.getByTestId('role-gate-forbidden')).toBeDefined();
+    renderRouter('/employees');
+    expect(screen.getByRole('heading', { name: 'Employees' })).toBeDefined();
+    expect(
+      screen.getByText('Employee changes require the Cloud deployment.')
+    ).toBeDefined();
+    cleanup();
+
+    renderRouter('/users');
+    expect(
+      screen.getByRole('heading', { name: 'User Accounts' })
+    ).toBeDefined();
+    expect(
+      screen.getByText('User account changes require the Cloud deployment.')
+    ).toBeDefined();
   });
 
   it('allows /branches for Admin on Cloud without user:admin while gating /employees and /users on user:admin', () => {

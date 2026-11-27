@@ -56,11 +56,12 @@ export function toBranchCreatePayload(
 }
 
 export function toBranchPatchPayload(
-  values: BranchFormValues
+  values: BranchFormValues,
+  includeIsActive = true
 ): UpdateBranchRequest {
   return {
     name: values.name.trim(),
-    is_active: values.is_active,
+    ...(includeIsActive ? { is_active: values.is_active } : {}),
     address: toAddressDto(values.address),
   };
 }

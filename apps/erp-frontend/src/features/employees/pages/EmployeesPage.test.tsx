@@ -13,6 +13,7 @@ import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import currentUserContext from '@contracts/fixtures/current-user-context.json';
 import {
   branchHandlers,
   MOCK_BRANCH_IDS,
@@ -23,8 +24,38 @@ import {
   INITIAL_EMPLOYEES,
   resetMockEmployees,
 } from '../../../mocks/employeeHandlers';
+import { useAuthStore } from '../../../stores/authStore';
 import { renderWithProviders } from '../../../test/renderWithProviders';
+import type { CurrentUser } from '../../../types/api';
 import { EmployeesPage } from './EmployeesPage';
+
+const ADMIN_CLOUD_USER: CurrentUser = {
+  user_id: currentUserContext.user_id,
+  employee_id: currentUserContext.employee_id,
+  organization_id: currentUserContext.organization_id,
+  username: currentUserContext.username,
+  role: 'Admin',
+  branch_scope: 'ALL',
+  branch_ids: [],
+  scopes: [
+    'user:admin',
+    'inventory:read',
+    'inventory:write',
+    'sales:read',
+    'sales:write',
+  ],
+  runtime_mode: 'Cloud',
+};
+
+function setSignedInUser(currentUser: CurrentUser | null) {
+  useAuthStore.setState({
+    currentUser,
+    organizationCode: currentUser ? 'MEDCARE' : null,
+    activeBranchId: currentUser?.branch_ids[0] ?? null,
+    isAuthenticated: currentUser !== null,
+    isInitializing: false,
+  });
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -36,9 +67,11 @@ beforeAll(() => server.listen());
 beforeEach(() => {
   resetMockBranches();
   resetMockEmployees();
+  setSignedInUser(ADMIN_CLOUD_USER);
 });
 afterEach(() => {
   server.resetHandlers();
+  setSignedInUser(null);
   cleanup();
   vi.restoreAllMocks();
 });
@@ -752,5 +785,26 @@ describe('EmployeesPage', () => {
     expect(within(dialog).queryByText('Branches unavailable')).toBeNull();
     expect(branchSelect.disabled).toBe(true);
     expect(branchSelect.value).toBe(MOCK_BRANCH_IDS.ALEXANDRIA);
+  });
+
+  it('renders read-only mode on BranchLocal with info notice and no write controls', async () => {
+    setSignedInUser({
+      ...ADMIN_CLOUD_USER,
+      branch_scope: 'ASSIGNED',
+      branch_ids: [MOCK_BRANCH_IDS.DOWNTOWN],
+      runtime_mode: 'BranchLocal',
+    });
+
+    renderWithProviders(<EmployeesPage />);
+
+    expect(await screen.findByText('Omar Khaled')).toBeDefined();
+    expect(
+      screen.getByText('Employee changes require the Cloud deployment.')
+    ).toBeDefined();
+    expect(screen.queryByRole('button', { name: 'Add employee' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+    expect(screen.queryByRole('switch')).toBeNull();
+    expect(screen.queryByRole('columnheader', { name: 'Actions' })).toBeNull();
+    expect(screen.getAllByText('Active').length).toBeGreaterThan(0);
   });
 });

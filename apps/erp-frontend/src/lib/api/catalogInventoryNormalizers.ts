@@ -152,19 +152,30 @@ function formatValidationMessage(
   return `${prefix}Expected valid "${fieldPath}" (${reason}).`;
 }
 
+export interface RequireNullableNumberOptions {
+  readonly allowUndefined?: boolean;
+}
+
 /**
- * Validates an optional/nullable finite JSON number property.
- * Returns `null` for `null` or `undefined`, returns finite `number` for finite
- * numbers (including `0` and negatives), and throws `ContractValidationError`
- * on strings (e.g. legacy `"10.50"`), `NaN`, `Infinity`, or booleans.
+ * Validates a nullable finite JSON number property.
+ * By default (`allowUndefined: false`), requires the property key to be present
+ * with either `null` or a finite `number` (including `0` and negatives).
+ * Pass `{ allowUndefined: true }` only when the contract genuinely allows the
+ * property to be omitted. Rejects strings (e.g. legacy `"10.50"`), `NaN`,
+ * `Infinity`, booleans, and missing keys (when `allowUndefined` is `false`).
  */
 export function requireNullableNumber(
   record: Record<string, unknown>,
   field: string,
-  endpoint?: string
+  endpoint?: string,
+  options?: RequireNullableNumberOptions
 ): number | null {
+  const allowUndefined = options?.allowUndefined ?? false;
   const value = record[field];
-  if (value === null || value === undefined) {
+  if (value === null) {
+    return null;
+  }
+  if (value === undefined && allowUndefined) {
     return null;
   }
   if (typeof value === 'number' && Number.isFinite(value)) {

@@ -409,6 +409,42 @@ describe('catalogApi and productHandlers Stage 1 integration', () => {
     );
     expect(augmentinNamePatch.name).toBe('Augmentin 1g Tablets Updated');
 
+    // Panadol has no history -> sku and base_uom_code are editable and base UOM code stays synced
+    const panadolBaseChanged = await patchProduct(
+      MOCK_PRODUCT_IDS.PANADOL_EXTRA,
+      { sku: 'MED-PAN-500-NEW', base_uom_code: 'CAP' }
+    );
+    expect(panadolBaseChanged.sku).toBe('MED-PAN-500-NEW');
+    expect(panadolBaseChanged.base_uom_code).toBe('CAP');
+    expect(panadolBaseChanged.uoms.find((u) => u.is_base)?.uom_code).toBe(
+      'CAP'
+    );
+
+    // Duplicate SKU on PATCH -> 409 CONFLICT
+    await expect(
+      patchProduct(MOCK_PRODUCT_IDS.PANADOL_EXTRA, { sku: 'med-aug-1000' })
+    ).rejects.toMatchObject({
+      status: 409,
+      code: 'CONFLICT',
+      details: [{ field: 'sku', issue: 'SKU must be unique.' }],
+    });
+
+    // Missing Idempotency-Key on write endpoint -> 400 MALFORMED_REQUEST
+    const noKeyRes = await fetch(
+      `http://localhost:3000/api/v1/products/${MOCK_PRODUCT_IDS.PANADOL_EXTRA}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'No Key' }),
+      }
+    );
+    expect(noKeyRes.status).toBe(400);
+    await expect(noKeyRes.json()).resolves.toMatchObject({
+      error: {
+        code: 'MALFORMED_REQUEST',
+      },
+    });
+
     const validCreatePayload: CreateProductRequest = {
       category_id: MOCK_CATEGORY_IDS.ANALGESICS,
       sku: 'MED-IBP-400',
@@ -559,6 +595,44 @@ describe('catalogApi and productHandlers Stage 1 integration', () => {
         { conversion_to_base: 28 }
       )
     ).rejects.toMatchObject({ status: 409, code: 'CONFLICT' });
+
+    // Non-base UOM conversion patch on Panadol (no history) -> 200
+    const updatedBoxUom = await patchProductUom(
+      MOCK_PRODUCT_IDS.PANADOL_EXTRA,
+      MOCK_PRODUCT_UOM_IDS.PANADOL_BOX,
+      { conversion_to_base: 30 }
+    );
+    expect(updatedBoxUom.conversion_to_base).toBe(30);
+
+    // Non-1 factor on base UOM -> 422
+    await expect(
+      patchProductUom(
+        MOCK_PRODUCT_IDS.PANADOL_EXTRA,
+        MOCK_PRODUCT_UOM_IDS.PANADOL_TAB,
+        { conversion_to_base: 2 }
+      )
+    ).rejects.toMatchObject({
+      status: 422,
+      code: 'VALIDATION_ERROR',
+      details: expect.arrayContaining([
+        expect.objectContaining({ field: 'conversion_to_base' }),
+      ]),
+    });
+
+    // Changing is_base on existing UOM -> 409
+    await expect(
+      apiClient.patch(
+        `/products/${MOCK_PRODUCT_IDS.PANADOL_EXTRA}/uoms/${MOCK_PRODUCT_UOM_IDS.PANADOL_BOX}`,
+        { is_base: true },
+        { headers: { 'Idempotency-Key': 'uom-is-base-conflict-test-01' } }
+      )
+    ).rejects.toMatchObject({
+      status: 409,
+      code: 'CONFLICT',
+      details: expect.arrayContaining([
+        expect.objectContaining({ field: 'is_base' }),
+      ]),
+    });
 
     // Second base UOM -> 409
     await expect(

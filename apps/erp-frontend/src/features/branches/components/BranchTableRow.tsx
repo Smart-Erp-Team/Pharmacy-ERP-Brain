@@ -8,6 +8,10 @@ import type { Branch } from '../../../types/api';
 export interface BranchTableRowProps {
   branch: Branch;
   isToggling: boolean;
+  canToggleStatus: boolean;
+  canEdit: boolean;
+  canIssueToken: boolean;
+  showActionsColumn: boolean;
   onEdit: (branch: Branch) => void;
   onToggleActive: (branch: Branch, nextActive: boolean) => void;
   onGenerateToken: (branch: Branch) => void;
@@ -16,6 +20,10 @@ export interface BranchTableRowProps {
 export function BranchTableRow({
   branch,
   isToggling,
+  canToggleStatus,
+  canEdit,
+  canIssueToken,
+  showActionsColumn,
   onEdit,
   onToggleActive,
   onGenerateToken,
@@ -43,38 +51,50 @@ export function BranchTableRow({
           <Badge variant={branch.is_active ? 'success' : 'neutral'} dot>
             {branch.is_active ? 'Active' : 'Inactive'}
           </Badge>
-          <Toggle
-            label={`Toggle status for ${branch.name}`}
-            checked={branch.is_active}
-            disabled={isToggling}
-            onChange={(nextActive) => onToggleActive(branch, nextActive)}
-          />
+          {canToggleStatus ? (
+            <Toggle
+              label={`Toggle status for ${branch.name}`}
+              checked={branch.is_active}
+              disabled={isToggling}
+              onChange={(nextActive) => onToggleActive(branch, nextActive)}
+            />
+          ) : null}
         </div>
       </TableCell>
-      <TableCell>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="secondary"
-            onClick={() => onEdit(branch)}
-            leadingIcon={<Pencil className="h-3.5 w-3.5" />}
-          >
-            Edit
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => onGenerateToken(branch)}
-            disabled={!branch.is_active}
-            title={
-              branch.is_active
-                ? 'Generate single-use device enrollment token'
-                : 'Activate branch before issuing an enrollment token'
-            }
-            leadingIcon={<KeyRound className="h-3.5 w-3.5" />}
-          >
-            Enrollment token
-          </Button>
-        </div>
-      </TableCell>
+      {showActionsColumn ? (
+        <TableCell>
+          {canEdit || canIssueToken ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {canEdit ? (
+                <Button
+                  variant="secondary"
+                  onClick={() => onEdit(branch)}
+                  leadingIcon={<Pencil className="h-3.5 w-3.5" />}
+                >
+                  Edit
+                </Button>
+              ) : null}
+              {canIssueToken ? (
+                <Button
+                  variant="secondary"
+                  onClick={() => onGenerateToken(branch)}
+                  disabled={!branch.is_active}
+                  title={
+                    branch.is_active
+                      ? 'Generate single-use device enrollment token'
+                      : 'Activate branch before issuing an enrollment token'
+                  }
+                  leadingIcon={<KeyRound className="h-3.5 w-3.5" />}
+                >
+                  Enrollment token
+                </Button>
+              ) : null}
+            </div>
+          ) : (
+            <span className="text-body-sm text-text-muted">—</span>
+          )}
+        </TableCell>
+      ) : null}
     </TableRow>
   );
 }

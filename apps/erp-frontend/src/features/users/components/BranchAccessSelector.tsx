@@ -5,6 +5,7 @@ import type { Branch } from '../../../features/branches';
 export interface BranchAccessSelectorProps {
   branches: readonly Branch[];
   selectedBranchIds: readonly string[];
+  allowedBranchIds?: readonly string[];
   isLoading: boolean;
   isError: boolean;
   disabled?: boolean;
@@ -15,6 +16,7 @@ export interface BranchAccessSelectorProps {
 export function BranchAccessSelector({
   branches,
   selectedBranchIds,
+  allowedBranchIds,
   isLoading,
   isError,
   disabled = false,
@@ -26,8 +28,11 @@ export function BranchAccessSelector({
   const errorId = `${generatedId}-error`;
   const hintId = `${generatedId}-hint`;
   const selectedSet = new Set(selectedBranchIds);
+  const allowedSet = allowedBranchIds ? new Set(allowedBranchIds) : null;
   const selectableBranches = branches.filter(
-    (branch) => branch.is_active || selectedSet.has(branch.branch_id)
+    (branch) =>
+      (branch.is_active || selectedSet.has(branch.branch_id)) &&
+      (allowedSet === null || allowedSet.has(branch.branch_id))
   );
   const describedBy = error ? errorId : hintId;
 

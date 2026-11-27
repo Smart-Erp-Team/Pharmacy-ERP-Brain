@@ -20,6 +20,8 @@ import { UsersTableEmptyState } from './UsersTableEmptyState';
 export interface UsersTableProps {
   users: readonly User[];
   currentUserId: string | null;
+  canWrite: boolean;
+  canManageUser: (user: User) => boolean;
   getEmployeeDisplay: (employeeId: string) => EmployeeDisplay;
   getBranchAccessDisplay: (user: User) => BranchAccessDisplay;
   referenceNowMs: number;
@@ -45,19 +47,11 @@ const COLUMNS = [
   { label: 'Actions', skeleton: 'h-8 w-56' },
 ] as const;
 
-const HEADERS = (
-  <TableHeader>
-    <TableRow>
-      {COLUMNS.map((col) => (
-        <TableHead key={col.label}>{col.label}</TableHead>
-      ))}
-    </TableRow>
-  </TableHeader>
-);
-
 export function UsersTable({
   users,
   currentUserId,
+  canWrite,
+  canManageUser,
   getEmployeeDisplay,
   getBranchAccessDisplay,
   referenceNowMs,
@@ -73,6 +67,20 @@ export function UsersTable({
   onRevokeSessions,
   onToggleActive,
 }: UsersTableProps) {
+  const visibleColumns = canWrite
+    ? COLUMNS
+    : COLUMNS.filter((col) => col.label !== 'Actions');
+
+  const headers = (
+    <TableHeader>
+      <TableRow>
+        {visibleColumns.map((col) => (
+          <TableHead key={col.label}>{col.label}</TableHead>
+        ))}
+      </TableRow>
+    </TableHeader>
+  );
+
   if (errorMessage) {
     return (
       <div className="p-6">
@@ -92,11 +100,11 @@ export function UsersTable({
     return (
       <div role="status" aria-busy="true" aria-label="Loading user accounts">
         <Table>
-          {HEADERS}
+          {headers}
           <TableBody>
             {[0, 1, 2, 3].map((row) => (
               <TableRow key={row}>
-                {COLUMNS.map((col) => (
+                {visibleColumns.map((col) => (
                   <TableCell key={col.label}>
                     <Skeleton className={col.skeleton} />
                   </TableCell>
@@ -113,6 +121,7 @@ export function UsersTable({
     return (
       <UsersTableEmptyState
         hasActiveFilters={hasActiveFilters}
+        canWrite={canWrite}
         onResetFilters={onResetFilters}
         onAddUser={onAddUser}
       />
@@ -121,7 +130,7 @@ export function UsersTable({
 
   return (
     <Table>
-      {HEADERS}
+      {headers}
       <TableBody>
         {users.map((user) => (
           <UserTableRow
@@ -131,6 +140,8 @@ export function UsersTable({
             branchAccessDisplay={getBranchAccessDisplay(user)}
             referenceNowMs={referenceNowMs}
             isSelf={currentUserId === user.user_id}
+            canWrite={canWrite}
+            canManage={canManageUser(user)}
             isToggling={togglingUserIds.includes(user.user_id)}
             onEdit={onEdit}
             onResetPassword={onResetPassword}

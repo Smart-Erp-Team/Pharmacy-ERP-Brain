@@ -12,7 +12,6 @@ import { useResetUserPasswordMutation } from '../hooks/useUsers';
 import { applyPasswordResetFormApiError } from '../schemas/userErrorMapper';
 import {
   DEFAULT_PASSWORD_RESET_VALUES,
-  MAX_PASSWORD_LENGTH,
   MIN_PASSWORD_LENGTH,
   passwordResetSchema,
   toPasswordResetPayload,
@@ -107,8 +106,7 @@ export function ResetPasswordModal({ user, onClose }: ResetPasswordModalProps) {
         ) : null}
 
         <Alert variant="info">
-          Set a new password ({MIN_PASSWORD_LENGTH}–{MAX_PASSWORD_LENGTH}{' '}
-          characters) for{' '}
+          Set a new password (at least {MIN_PASSWORD_LENGTH} characters) for{' '}
           <span className="font-mono font-semibold">{user.username}</span>.
         </Alert>
 
@@ -116,7 +114,6 @@ export function ResetPasswordModal({ user, onClose }: ResetPasswordModalProps) {
           type="password"
           label="New password"
           placeholder={`Minimum ${MIN_PASSWORD_LENGTH} characters`}
-          maxLength={MAX_PASSWORD_LENGTH}
           autoComplete="new-password"
           disabled={isPending}
           error={errors.new_password?.message}
@@ -127,7 +124,6 @@ export function ResetPasswordModal({ user, onClose }: ResetPasswordModalProps) {
           type="password"
           label="Confirm password"
           placeholder="Re-enter new password"
-          maxLength={MAX_PASSWORD_LENGTH}
           autoComplete="new-password"
           disabled={isPending}
           error={errors.confirm_password?.message}

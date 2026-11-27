@@ -11,6 +11,7 @@ import type { BranchFormValues } from '../schemas/branchSchema';
 
 export interface BranchFormFieldsProps {
   isEdit: boolean;
+  canToggleStatus?: boolean;
   disabled: boolean;
   register: UseFormRegister<BranchFormValues>;
   control: Control<BranchFormValues>;
@@ -19,6 +20,7 @@ export interface BranchFormFieldsProps {
 
 export function BranchFormFields({
   isEdit,
+  canToggleStatus = true,
   disabled,
   register,
   control,
@@ -63,7 +65,7 @@ export function BranchFormFields({
         disabled={disabled}
       />
 
-      {isEdit ? (
+      {isEdit && canToggleStatus ? (
         <Controller
           name="is_active"
           control={control}

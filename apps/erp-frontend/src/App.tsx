@@ -5,7 +5,10 @@ import { toast } from 'react-toastify';
 import { ToastHost } from './components/ui/ToastHost';
 import { PATHS, router } from './routes';
 import { queryClient } from './lib/queryClient';
-import { registerSessionEndHandler } from './lib/auth/sessionEvents';
+import {
+  registerSessionEndHandler,
+  registerSessionUserUpdatedHandler,
+} from './lib/auth/sessionEvents';
 import { useAuthStore } from './stores/authStore';
 
 export default function App() {
@@ -17,8 +20,7 @@ export default function App() {
 
   useEffect(() => {
     // The Axios client lives outside React, so it announces the end of a session
-    // here and this handler reacts to it: reset the session, clear the cached
-    // server data, tell the user and go back to the login page.
+    // or a silent refresh user update here and this shell reacts to it.
     registerSessionEndHandler((reason) => {
       useAuthStore.getState().resetSession();
 
@@ -29,7 +31,14 @@ export default function App() {
       void router.navigate(PATHS.LOGIN, { replace: true });
     });
 
-    return () => registerSessionEndHandler(null);
+    registerSessionUserUpdatedHandler((user) => {
+      useAuthStore.getState().syncCurrentUser(user);
+    });
+
+    return () => {
+      registerSessionEndHandler(null);
+      registerSessionUserUpdatedHandler(null);
+    };
   }, []);
 
   return (

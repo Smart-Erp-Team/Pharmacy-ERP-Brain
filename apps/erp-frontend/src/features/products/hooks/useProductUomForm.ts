@@ -43,12 +43,18 @@ const KEYS = [
 ] as const;
 
 const uomResolver =
-  (isEdit: boolean): Resolver<UomFormValues> =>
+  (isEdit: boolean, isBaseUom = false): Resolver<UomFormValues> =>
   async (values) => {
+    const normalizedValues =
+      isEdit && isBaseUom
+        ? { ...values, is_base: true, conversion_to_base: '1' }
+        : values;
     const res = (isEdit ? editUomFormSchema : createUomFormSchema).safeParse(
-      values
+      normalizedValues
     );
-    if (res.success) return { values: { ...values, ...res.data }, errors: {} };
+    if (res.success) {
+      return { values: { ...normalizedValues, ...res.data }, errors: {} };
+    }
     const errors: FieldErrors<UomFormValues> = {};
     for (const issue of res.error.issues) {
       const key = KEYS.find((k) => k === issue.path[0]);
@@ -63,7 +69,7 @@ const getDefaults = (uom: ProductUom | null): UomFormValues =>
         ...DEFAULT_CREATE_UOM_FORM_VALUES,
         ...uomDtoToEditFormValues(uom),
         uom_code: uom.uom_code,
-        conversion_to_base: String(uom.conversion_to_base),
+        conversion_to_base: uom.is_base ? '1' : String(uom.conversion_to_base),
         is_base: uom.is_base,
       }
     : { ...DEFAULT_CREATE_UOM_FORM_VALUES, is_active: true };
@@ -88,7 +94,7 @@ export function useProductUomForm(
     setValue,
     formState: { errors, isDirty },
   } = useForm<UomFormValues>({
-    resolver: uomResolver(isEdit),
+    resolver: uomResolver(isEdit, uom?.is_base ?? false),
     mode: 'onTouched',
     defaultValues: getDefaults(uom),
   });
@@ -121,7 +127,7 @@ export function useProductUomForm(
         ? patchMut.mutateAsync({
             productId,
             uomId: uom.product_uom_id,
-            payload: toPatchProductUomPayload(values),
+            payload: toPatchProductUomPayload(values, uom),
           })
         : createMut.mutateAsync({
             productId,

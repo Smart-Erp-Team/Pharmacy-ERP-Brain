@@ -5,6 +5,7 @@ import { toast } from 'react-toastify';
 import type { BadgeVariant } from '../../../components/ui/Badge';
 import { useAuth } from '../../../hooks/useAuth';
 import { ApiClientError } from '../../../lib/api/client';
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../../../lib/api/pagination';
 import type {
   BatchQualityStatus,
   InventoryBatch,
@@ -34,9 +35,9 @@ import {
   usePatchInventoryLocationMutation,
 } from './useInventoryMutations';
 import {
-  useAllInventoryBalancesQuery,
-  useAllInventoryBatchesQuery,
   useAllInventoryLocationsQuery,
+  useInventoryBalancesQuery,
+  useInventoryBatchesQuery,
   useInventoryLocationsQuery,
 } from './useInventoryQueries';
 
@@ -72,6 +73,8 @@ export interface GroupedBalanceItem {
   location: InventoryLocation | undefined;
 }
 
+export const OVERVIEW_MAX_PAGE_SIZE = MAX_PAGE_SIZE;
+export const STOCK_BALANCES_PAGE_SIZE = DEFAULT_PAGE_SIZE;
 export const STORAGE_LOCATIONS_PAGE_SIZE = 20;
 
 export const BALANCE_LOCATION_OPTIONS = [
@@ -112,6 +115,12 @@ export const BATCH_QUALITY_BADGE_VARIANT: Record<
   RECALLED: 'danger',
 };
 
+const LOCAL_BUSINESS_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
 export function parseLocationFilter(value: string): LocationFilter {
   if (
     value === 'SELLABLE' ||
@@ -141,13 +150,51 @@ export function isNonLotBatchNumber(
   return (batchNumber ?? '').trim().toUpperCase() === 'NON-LOT';
 }
 
-export function utcDateOffset(days = 0): string {
+export function localDateOffset(days = 0): string {
   const now = new Date();
-  return new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + days)
-  )
-    .toISOString()
-    .slice(0, 10);
+  return LOCAL_BUSINESS_DATE_FORMATTER.format(
+    new Date(now.getFullYear(), now.getMonth(), now.getDate() + days)
+  );
+}
+
+export function isBatchExpired(
+  batch: Pick<InventoryBatch, 'batch_number' | 'expires_on' | 'quality_status'>,
+  today = localDateOffset(0)
+): boolean {
+  if (batch.quality_status === 'EXPIRED') {
+    return true;
+  }
+  return (
+    !isNonLotBatchNumber(batch.batch_number) &&
+    batch.expires_on !== null &&
+    batch.expires_on <= today
+  );
+}
+
+export function isBalanceExpired(
+  balance: StockBalance,
+  expiresOn: string | null,
+  today = localDateOffset(0),
+  isLocationActive = true
+): boolean {
+  if (balance.quality_status === 'EXPIRED') {
+    return true;
+  }
+  const isNonLot = isNonLotBatchNumber(balance.batch_number);
+  if (isNonLot || expiresOn === null) {
+    return false;
+  }
+  if (expiresOn <= today) {
+    return true;
+  }
+  return (
+    balance.location_type === 'SELLABLE' &&
+    balance.is_location_sellable &&
+    isLocationActive &&
+    balance.quality_status === 'AVAILABLE' &&
+    balance.on_hand_qty_base > 0 &&
+    balance.available_qty_base === 0
+  );
 }
 
 export function sortBalancesFefo(
@@ -300,8 +347,15 @@ export function useInventoryBranchState(): UseInventoryBranchStateResult {
 }
 
 export function useStockOverviewData(branchId: string) {
-  const balancesQuery = useAllInventoryBalancesQuery({ branch_id: branchId });
-  const batchesQuery = useAllInventoryBatchesQuery();
+  const balancesQuery = useInventoryBalancesQuery({
+    branch_id: branchId,
+    page: 1,
+    page_size: OVERVIEW_MAX_PAGE_SIZE,
+  });
+  const batchesQuery = useInventoryBatchesQuery({
+    page: 1,
+    page_size: OVERVIEW_MAX_PAGE_SIZE,
+  });
   const locationsQuery = useAllInventoryLocationsQuery({
     branch_id: branchId,
     include_inactive: false,
@@ -309,18 +363,35 @@ export function useStockOverviewData(branchId: string) {
   const productsQuery = useAllProductsQuery({ include_inactive: true });
 
   const balances = useMemo(
-    () => balancesQuery.data ?? [],
-    [balancesQuery.data]
+    () => balancesQuery.data?.items ?? [],
+    [balancesQuery.data?.items]
   );
-  const batches = useMemo(() => batchesQuery.data ?? [], [batchesQuery.data]);
+  const batches = useMemo(
+    () => batchesQuery.data?.items ?? [],
+    [batchesQuery.data?.items]
+  );
   const locations = useMemo(
     () => locationsQuery.data ?? [],
     [locationsQuery.data]
   );
 
+  const totalBalanceCount = balancesQuery.data?.total_count ?? null;
+  const totalBatchCount = batchesQuery.data?.total_count ?? null;
+  const isTruncatedSummary =
+    (totalBalanceCount !== null &&
+      totalBalanceCount > OVERVIEW_MAX_PAGE_SIZE) ||
+    (totalBatchCount !== null && totalBatchCount > OVERVIEW_MAX_PAGE_SIZE);
+  const truncationNotice =
+    totalBalanceCount !== null && totalBalanceCount > OVERVIEW_MAX_PAGE_SIZE
+      ? `Showing overview metrics from the first ${OVERVIEW_MAX_PAGE_SIZE} of ${totalBalanceCount} balance records.`
+      : totalBatchCount !== null && totalBatchCount > OVERVIEW_MAX_PAGE_SIZE
+        ? `Showing overview metrics from the first ${OVERVIEW_MAX_PAGE_SIZE} of ${totalBatchCount} batch records.`
+        : null;
+
   const flaggedRows = useMemo(() => {
-    const today = utcDateOffset(0);
+    const today = localDateOffset(0);
     const batchMap = new Map(batches.map((b) => [b.batch_id, b]));
+    const locationMap = new Map(locations.map((l) => [l.location_id, l]));
     const productMap = new Map<string, Product>(
       (productsQuery.data ?? []).map((p) => [p.product_id, p])
     );
@@ -328,20 +399,24 @@ export function useStockOverviewData(branchId: string) {
     return balances
       .map((balance) => {
         const batch = batchMap.get(balance.batch_id);
+        const location = locationMap.get(balance.location_id);
         const product = productMap.get(balance.product_id);
         const alertDays = product?.expiry_alert_days ?? 0;
         const isNonLot = isNonLotBatchNumber(balance.batch_number);
         const exp = isNonLot
           ? null
           : (balance.expires_on ?? batch?.expires_on ?? null);
-        const expired = Boolean(
-          balance.quality_status === 'EXPIRED' || (exp && exp < today)
+        const expired = isBalanceExpired(
+          balance,
+          exp,
+          today,
+          location?.is_active ?? true
         );
         const held =
           balance.quality_status === 'QUARANTINED' ||
           balance.quality_status === 'RECALLED';
         const nearing = Boolean(
-          !expired && exp && alertDays > 0 && exp <= utcDateOffset(alertDays)
+          !expired && exp && alertDays > 0 && exp <= localDateOffset(alertDays)
         );
         const reason = expired
           ? 'Expired'
@@ -353,7 +428,7 @@ export function useStockOverviewData(branchId: string) {
         return { balance, batch, product, reason };
       })
       .filter((item) => item.reason !== null);
-  }, [balances, batches, productsQuery.data]);
+  }, [balances, batches, locations, productsQuery.data]);
 
   const retry = () => {
     if (balancesQuery.isError) void balancesQuery.refetch();
@@ -367,6 +442,10 @@ export function useStockOverviewData(branchId: string) {
     batches,
     locations,
     flaggedRows,
+    totalBalanceCount,
+    totalBatchCount,
+    isTruncatedSummary,
+    truncationNotice,
     isBalancesLoading: balancesQuery.isLoading,
     isBalancesError: balancesQuery.isError,
     isBatchesLoading: batchesQuery.isLoading,
@@ -389,22 +468,63 @@ export function useStockOverviewData(branchId: string) {
 
 export function useStockBalancesState(branchId: string) {
   const [search, setSearch] = useState('');
-  const [locationType, setLocationType] = useState<LocationFilter>('ALL');
+  const [locationType, setLocationTypeState] = useState<LocationFilter>('ALL');
+  const [locationId, setLocationId] = useState('');
   const [expiryFilter, setExpiryFilter] = useState<ExpiryFilter>('ALL');
+  const [paging, setPaging] = useState<{ scope: string; page: number }>({
+    scope: '',
+    page: 1,
+  });
   const [expandedIds, setExpandedIds] = useState<string[]>([]);
 
-  const balancesQ = useAllInventoryBalancesQuery({ branch_id: branchId });
-  const batchesQ = useAllInventoryBatchesQuery();
+  const scopeKey = `${branchId}|${locationId}|${locationType}|${expiryFilter}|${search.trim().toLowerCase()}`;
+  const page = paging.scope === scopeKey ? paging.page : 1;
+
+  const balancesQ = useInventoryBalancesQuery({
+    branch_id: branchId,
+    location_id: locationId || undefined,
+    page,
+    page_size: STOCK_BALANCES_PAGE_SIZE,
+  });
   const locationsQ = useAllInventoryLocationsQuery({
     branch_id: branchId,
     include_inactive: true,
   });
   const productsQ = useAllProductsQuery({ include_inactive: true });
 
+  const locationOptions = useMemo(() => {
+    const matching = (locationsQ.data ?? []).filter(
+      (loc) => locationType === 'ALL' || loc.location_type === locationType
+    );
+    return [
+      { value: '', label: 'All storage locations' },
+      ...matching.map((loc) => ({
+        value: loc.location_id,
+        label: `${loc.name} (${loc.location_code})`,
+      })),
+    ];
+  }, [locationsQ.data, locationType]);
+
+  const setLocationType = (nextType: LocationFilter) => {
+    setLocationTypeState(nextType);
+    if (nextType !== 'ALL' && locationId) {
+      const selectedLoc = (locationsQ.data ?? []).find(
+        (loc) => loc.location_id === locationId
+      );
+      if (selectedLoc && selectedLoc.location_type !== nextType) {
+        setLocationId('');
+      }
+    }
+  };
+
+  const pageItems = useMemo(
+    () => balancesQ.data?.items ?? [],
+    [balancesQ.data?.items]
+  );
+
   const groupedProducts = useMemo(() => {
-    const today = utcDateOffset(0);
+    const today = localDateOffset(0);
     const q = search.trim().toLowerCase();
-    const batchMap = new Map((batchesQ.data ?? []).map((b) => [b.batch_id, b]));
     const locMap = new Map(
       (locationsQ.data ?? []).map((l) => [l.location_id, l])
     );
@@ -416,8 +536,7 @@ export function useStockBalancesState(branchId: string) {
       { product: Product | undefined; items: GroupedBalanceItem[] }
     >();
 
-    for (const balance of balancesQ.data ?? []) {
-      const batch = batchMap.get(balance.batch_id);
+    for (const balance of pageItems) {
       const location = locMap.get(balance.location_id);
       const product = prodMap.get(balance.product_id);
       if (locationType !== 'ALL' && balance.location_type !== locationType) {
@@ -425,15 +544,16 @@ export function useStockBalancesState(branchId: string) {
       }
 
       const isNonLot = isNonLotBatchNumber(balance.batch_number);
-      const exp = isNonLot
-        ? null
-        : (balance.expires_on ?? batch?.expires_on ?? null);
-      const expired = Boolean(
-        balance.quality_status === 'EXPIRED' || (exp && exp < today)
+      const exp = isNonLot ? null : (balance.expires_on ?? null);
+      const expired = isBalanceExpired(
+        balance,
+        exp,
+        today,
+        location?.is_active ?? true
       );
       const alertDays = product?.expiry_alert_days ?? 0;
       const nearing = Boolean(
-        !expired && exp && alertDays > 0 && exp <= utcDateOffset(alertDays)
+        !expired && exp && alertDays > 0 && exp <= localDateOffset(alertDays)
       );
 
       if (expiryFilter === 'NON_LOT' && !isNonLot) continue;
@@ -459,7 +579,7 @@ export function useStockBalancesState(branchId: string) {
       }
 
       const entry = groups.get(balance.product_id) ?? { product, items: [] };
-      entry.items.push({ balance, batch, location });
+      entry.items.push({ balance, batch: undefined, location });
       groups.set(balance.product_id, entry);
     }
 
@@ -469,14 +589,26 @@ export function useStockBalancesState(branchId: string) {
       return nameA.localeCompare(nameB);
     });
   }, [
-    balancesQ.data,
-    batchesQ.data,
+    pageItems,
     locationsQ.data,
     productsQ.data,
     locationType,
     expiryFilter,
     search,
   ]);
+
+  const totalCount = balancesQ.data?.total_count ?? null;
+  const hasNextPage = balancesQ.data
+    ? balancesQ.data.next_cursor !== null ||
+      balancesQ.data.page * balancesQ.data.page_size <
+        balancesQ.data.total_count
+    : false;
+
+  const handlePageChange = (nextPage: number) => {
+    if (nextPage < 1) return;
+    if (nextPage > page && !hasNextPage) return;
+    setPaging({ scope: scopeKey, page: nextPage });
+  };
 
   const toggleExpand = (productId: string) => {
     setExpandedIds((prev) =>
@@ -488,13 +620,14 @@ export function useStockBalancesState(branchId: string) {
 
   const clearFilters = () => {
     setSearch('');
-    setLocationType('ALL');
+    setLocationTypeState('ALL');
+    setLocationId('');
     setExpiryFilter('ALL');
+    setPaging({ scope: '', page: 1 });
   };
 
   const retry = () => {
     if (balancesQ.isError) void balancesQ.refetch();
-    if (batchesQ.isError) void batchesQ.refetch();
     if (locationsQ.isError) void locationsQ.refetch();
     if (productsQ.isError) void productsQ.refetch();
   };
@@ -504,26 +637,40 @@ export function useStockBalancesState(branchId: string) {
     setSearch,
     locationType,
     setLocationType,
+    locationId,
+    setLocationId,
+    locationOptions,
     expiryFilter,
     setExpiryFilter,
+    page,
+    totalCount,
+    hasNextPage,
+    pageItemCount: pageItems.length,
+    isMultiPage: totalCount !== null && totalCount > pageItems.length,
+    showPagination:
+      groupedProducts.length > 0 ||
+      page > 1 ||
+      (totalCount !== null && totalCount > STOCK_BALANCES_PAGE_SIZE),
+    paginationProps: {
+      page,
+      pageSize: STOCK_BALANCES_PAGE_SIZE,
+      itemCount: totalCount,
+      hasNextPage,
+      onPageChange: handlePageChange,
+    },
     expandedIds,
     toggleExpand,
     groupedProducts,
     hasFilters:
       search.trim().length > 0 ||
       locationType !== 'ALL' ||
+      locationId !== '' ||
       expiryFilter !== 'ALL',
     isLoading:
-      balancesQ.isLoading ||
-      batchesQ.isLoading ||
-      locationsQ.isLoading ||
-      productsQ.isLoading,
-    isError:
-      balancesQ.isError ||
-      batchesQ.isError ||
-      locationsQ.isError ||
-      productsQ.isError,
+      balancesQ.isLoading || locationsQ.isLoading || productsQ.isLoading,
+    isError: balancesQ.isError || locationsQ.isError || productsQ.isError,
     clearFilters,
+    handlePageChange,
     retry,
   };
 }

@@ -1,4 +1,5 @@
 import { Plus } from 'lucide-react';
+import { Alert } from '../../../components/ui/Alert';
 import { Button } from '../../../components/ui/Button';
 import { Card } from '../../../components/ui/Card';
 import { PageHeading } from '../../../components/ui/PageHeading';
@@ -24,7 +25,9 @@ export function UsersPage() {
 
   const hasActiveFilters =
     state.searchTerm.trim().length > 0 ||
-    state.branchFilter !== '' ||
+    (state.isOrgAdmin
+      ? state.branchFilter !== ''
+      : state.branchFilter !== state.defaultAssignedBranchId) ||
     state.roleFilter !== 'all' ||
     state.statusFilter !== 'active';
 
@@ -33,8 +36,9 @@ export function UsersPage() {
     !usersQuery.isError &&
     (filteredUsers.length > 0 || page > 1 || hasNextPage);
 
-  const openCreateModal = () =>
-    state.setFormModalState({ open: true, user: null });
+  const openCreateModal = () => {
+    if (state.canWrite) state.setFormModalState({ open: true, user: null });
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -43,16 +47,27 @@ export function UsersPage() {
         title="User Accounts"
         description="Manage user accounts, roles, branch access scope, and session security."
         actions={
-          <Button
-            variant="primary"
-            leadingIcon={<Plus className="h-4 w-4" />}
-            onClick={openCreateModal}
-          >
-            Add user
-          </Button>
+          state.canWrite ? (
+            <Button
+              variant="primary"
+              leadingIcon={<Plus className="h-4 w-4" />}
+              onClick={openCreateModal}
+            >
+              Add user
+            </Button>
+          ) : undefined
         }
       />
-
+      {!state.canWrite ? (
+        <Alert variant="info" title="Read-only mode">
+          User account changes require the Cloud deployment.
+        </Alert>
+      ) : !state.isOrgAdmin ? (
+        <Alert variant="info" title="Assigned branch administration">
+          You can manage Pharmacist and Cashier accounts within your assigned
+          branches. Admin and organization-wide (ALL) accounts are read-only.
+        </Alert>
+      ) : null}
       <Card>
         <UsersFilterBar
           searchTerm={state.searchTerm}
@@ -61,15 +76,18 @@ export function UsersPage() {
           statusFilter={state.statusFilter}
           branches={state.branches}
           isBranchesError={state.branchesDirectory.isError}
+          isOrgAdmin={state.isOrgAdmin}
+          allowedBranchIds={state.allowedBranchIds}
           onSearchChange={state.setSearchTerm}
           onBranchChange={state.handleBranchChange}
           onRoleChange={state.handleRoleChange}
           onStatusChange={state.handleStatusChange}
         />
-
         <UsersTable
           users={filteredUsers}
           currentUserId={state.currentUserId}
+          canWrite={state.canWrite}
+          canManageUser={state.canManageUser}
           getEmployeeDisplay={state.getEmployeeDisplay}
           getBranchAccessDisplay={state.getBranchAccessDisplay}
           referenceNowMs={state.referenceNowMs}
@@ -77,17 +95,22 @@ export function UsersPage() {
           errorMessage={queryErrorMessage}
           togglingUserIds={state.togglingUserIds}
           hasActiveFilters={hasActiveFilters}
-          onRetry={() => {
-            void usersQuery.refetch();
-          }}
+          onRetry={() => void usersQuery.refetch()}
           onResetFilters={state.resetFilters}
           onAddUser={openCreateModal}
-          onEdit={(user) => state.setFormModalState({ open: true, user })}
-          onResetPassword={(user) => state.setResetPasswordUser(user)}
-          onRevokeSessions={(user) => state.setRevokeSessionsUser(user)}
-          onToggleActive={(user, nextActive) => {
-            void state.handleToggleActive(user, nextActive);
+          onEdit={(user) => {
+            if (state.canManageUser(user))
+              state.setFormModalState({ open: true, user });
           }}
+          onResetPassword={(user) => {
+            if (state.canManageUser(user)) state.setResetPasswordUser(user);
+          }}
+          onRevokeSessions={(user) => {
+            if (state.canManageUser(user)) state.setRevokeSessionsUser(user);
+          }}
+          onToggleActive={(user, nextActive) =>
+            void state.handleToggleActive(user, nextActive)
+          }
         />
 
         {showPagination ? (
@@ -103,17 +126,19 @@ export function UsersPage() {
       </Card>
 
       <UserFormModal
-        open={state.formModalState.open}
+        open={state.canWrite && state.formModalState.open}
         user={state.formModalState.user}
         eligibleEmployees={state.eligibleEmployees}
         getEmployeeDisplay={state.getEmployeeDisplay}
         employeesDirectory={state.employeesDirectory}
         branches={state.branches}
         branchesDirectory={state.branchesDirectory}
+        isOrgAdmin={state.isOrgAdmin}
+        allowedBranchIds={state.allowedBranchIds}
         onClose={() => state.setFormModalState({ open: false, user: null })}
       />
 
-      {state.resetPasswordUser ? (
+      {state.canWrite && state.resetPasswordUser ? (
         <ResetPasswordModal
           key={state.resetPasswordUser.user_id}
           user={state.resetPasswordUser}
@@ -121,7 +146,7 @@ export function UsersPage() {
         />
       ) : null}
 
-      {state.revokeSessionsUser ? (
+      {state.canWrite && state.revokeSessionsUser ? (
         <RevokeSessionsModal
           key={state.revokeSessionsUser.user_id}
           user={state.revokeSessionsUser}

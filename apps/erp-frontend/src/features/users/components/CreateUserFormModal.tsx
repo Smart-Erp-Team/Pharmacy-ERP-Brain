@@ -22,6 +22,8 @@ export interface CreateUserFormModalProps {
   employeesDirectory: DirectoryQueryStatus;
   branches: readonly Branch[];
   branchesDirectory: DirectoryQueryStatus;
+  isOrgAdmin: boolean;
+  allowedBranchIds: readonly string[];
   onClose: () => void;
 }
 
@@ -30,6 +32,8 @@ export function CreateUserFormModal({
   employeesDirectory,
   branches,
   branchesDirectory,
+  isOrgAdmin,
+  allowedBranchIds,
   onClose,
 }: CreateUserFormModalProps) {
   const formId = useId();
@@ -62,10 +66,10 @@ export function CreateUserFormModal({
   };
 
   const handleAccessChange = (patch: UserAccessPatch) => {
-    if (patch.role) {
+    if (patch.role && (isOrgAdmin || patch.role !== 'Admin')) {
       form.setValue('role', patch.role, { shouldDirty: true });
     }
-    if (patch.branch_scope) {
+    if (patch.branch_scope && (isOrgAdmin || patch.branch_scope !== 'ALL')) {
       form.setValue('branch_scope', patch.branch_scope, { shouldDirty: true });
       form.clearErrors('branch_scope');
       if (patch.branch_scope === 'ALL') {
@@ -131,6 +135,8 @@ export function CreateUserFormModal({
         branches={branches}
         branchesDirectory={branchesDirectory}
         disabled={isPending}
+        isOrgAdmin={isOrgAdmin}
+        allowedBranchIds={allowedBranchIds}
         roleError={errors.role?.message}
         branchScopeError={errors.branch_scope?.message}
         branchIdsError={errors.branch_ids?.message}

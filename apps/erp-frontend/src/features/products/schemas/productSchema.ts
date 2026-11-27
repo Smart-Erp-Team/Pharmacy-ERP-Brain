@@ -165,6 +165,11 @@ const baseUomFormSchema = z
 
 const productCoreFields = {
   category_id: z.string().trim().min(1, 'Category is required'),
+  sku: z
+    .string()
+    .trim()
+    .min(1, 'SKU is required')
+    .max(40, 'SKU must be at most 40 characters'),
   name: z
     .string()
     .trim()
@@ -187,11 +192,6 @@ const productCoreFields = {
 
 export const createProductFormSchema = z.object({
   ...productCoreFields,
-  sku: z
-    .string()
-    .trim()
-    .min(1, 'SKU is required')
-    .max(40, 'SKU must be at most 40 characters'),
   base_uom: baseUomFormSchema,
 });
 
@@ -251,6 +251,11 @@ export function toCreateProductPayload(
 
 export const editProductFormSchema = z.object({
   ...productCoreFields,
+  base_uom_code: z
+    .string()
+    .trim()
+    .min(1, 'Base UOM code is required')
+    .max(20, 'Base UOM code must be at most 20 characters'),
   is_active: z.boolean(),
 });
 
@@ -261,6 +266,8 @@ export function productDtoToEditFormValues(
 ): EditProductFormValues {
   return {
     category_id: product.category_id,
+    sku: product.sku,
+    base_uom_code: product.base_uom_code,
     name: product.name,
     barcode: product.barcode ?? '',
     generic_name: product.generic_name ?? '',
@@ -278,6 +285,8 @@ export function toPatchProductPayload(
 ): UpdateProductRequest {
   return {
     category_id: values.category_id.trim(),
+    sku: values.sku.trim(),
+    base_uom_code: values.base_uom_code.trim(),
     barcode: normalizeOptionalString(values.barcode),
     name: values.name.trim(),
     generic_name: normalizeOptionalString(values.generic_name),
@@ -291,3 +300,4 @@ export function toPatchProductPayload(
 }
 
 export const toProductPatchPayload = toPatchProductPayload;
+export const toUpdateProductPayload = toPatchProductPayload;

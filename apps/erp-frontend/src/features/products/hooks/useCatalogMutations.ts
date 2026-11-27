@@ -138,10 +138,14 @@ export function usePatchProductMutation() {
       }),
     onSuccess: async (_product, variables) => {
       attemptRef.current = null;
+      const productId = variables.productId.trim();
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: productsKeys.lists() }),
         queryClient.invalidateQueries({
-          queryKey: productsKeys.detail(variables.productId.trim()),
+          queryKey: productsKeys.detail(productId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: productsKeys.uoms(productId),
         }),
       ]);
     },

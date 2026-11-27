@@ -20,6 +20,7 @@ export interface EmployeesTableProps {
   errorMessage: string | null;
   togglingEmployeeId: string | null;
   hasActiveFilters: boolean;
+  canWrite: boolean;
   onRetry: () => void;
   onResetFilters: () => void;
   onAddEmployee: () => void;
@@ -38,16 +39,6 @@ const COLUMNS = [
   { label: 'Actions', skeleton: 'h-8 w-20' },
 ] as const;
 
-const HEADERS = (
-  <TableHeader>
-    <TableRow>
-      {COLUMNS.map((col) => (
-        <TableHead key={col.label}>{col.label}</TableHead>
-      ))}
-    </TableRow>
-  </TableHeader>
-);
-
 export function EmployeesTable({
   employees,
   getBranchLabel,
@@ -55,12 +46,27 @@ export function EmployeesTable({
   errorMessage,
   togglingEmployeeId,
   hasActiveFilters,
+  canWrite,
   onRetry,
   onResetFilters,
   onAddEmployee,
   onEdit,
   onToggleActive,
 }: EmployeesTableProps) {
+  const visibleColumns = canWrite
+    ? COLUMNS
+    : COLUMNS.filter((col) => col.label !== 'Actions');
+
+  const headers = (
+    <TableHeader>
+      <TableRow>
+        {visibleColumns.map((col) => (
+          <TableHead key={col.label}>{col.label}</TableHead>
+        ))}
+      </TableRow>
+    </TableHeader>
+  );
+
   if (errorMessage) {
     return (
       <div className="p-6">
@@ -80,11 +86,11 @@ export function EmployeesTable({
     return (
       <div role="status" aria-busy="true" aria-label="Loading employees">
         <Table>
-          {HEADERS}
+          {headers}
           <TableBody>
             {[0, 1, 2, 3].map((row) => (
               <TableRow key={row}>
-                {COLUMNS.map((col) => (
+                {visibleColumns.map((col) => (
                   <TableCell key={col.label}>
                     <Skeleton className={col.skeleton} />
                   </TableCell>
@@ -101,6 +107,7 @@ export function EmployeesTable({
     return (
       <EmployeesTableEmptyState
         hasActiveFilters={hasActiveFilters}
+        canWrite={canWrite}
         onResetFilters={onResetFilters}
         onAddEmployee={onAddEmployee}
       />
@@ -109,7 +116,7 @@ export function EmployeesTable({
 
   return (
     <Table>
-      {HEADERS}
+      {headers}
       <TableBody>
         {employees.map((employee) => (
           <EmployeeTableRow
@@ -117,6 +124,7 @@ export function EmployeesTable({
             employee={employee}
             branchLabel={getBranchLabel(employee.branch_id)}
             isToggling={togglingEmployeeId === employee.employee_id}
+            canWrite={canWrite}
             onEdit={onEdit}
             onToggleActive={onToggleActive}
           />

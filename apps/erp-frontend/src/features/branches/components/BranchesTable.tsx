@@ -1,7 +1,5 @@
-import { Building2 } from 'lucide-react';
 import { Alert } from '../../../components/ui/Alert';
 import { Button } from '../../../components/ui/Button';
-import { EmptyState } from '../../../components/ui/EmptyState';
 import { Skeleton } from '../../../components/ui/Skeleton';
 import {
   Table,
@@ -12,6 +10,7 @@ import {
   TableRow,
 } from '../../../components/ui/Table';
 import type { Branch } from '../../../types/api';
+import { BranchesTableEmptyState } from './BranchesTableEmptyState';
 import { BranchTableRow } from './BranchTableRow';
 
 export interface BranchesTableProps {
@@ -20,6 +19,11 @@ export interface BranchesTableProps {
   errorMessage: string | null;
   togglingBranchId: string | null;
   hasActiveFilters: boolean;
+  canCreateBranch: boolean;
+  canToggleBranchStatus: boolean;
+  canEditBranch: (branchId: string) => boolean;
+  canIssueEnrollmentToken: (branchId: string) => boolean;
+  showActionsWhileLoading: boolean;
   onRetry: () => void;
   onResetFilters: () => void;
   onAddBranch: () => void;
@@ -28,17 +32,25 @@ export interface BranchesTableProps {
   onGenerateToken: (branch: Branch) => void;
 }
 
-const HEADERS = (
-  <TableHeader>
-    <TableRow>
-      <TableHead>Code</TableHead>
-      <TableHead>Branch</TableHead>
-      <TableHead>Location</TableHead>
-      <TableHead>Status</TableHead>
-      <TableHead>Actions</TableHead>
-    </TableRow>
-  </TableHeader>
-);
+const BRANCH_COLUMNS = [
+  { label: 'Code', skeleton: 'h-4 w-20' },
+  { label: 'Branch', skeleton: 'h-4 w-44' },
+  { label: 'Location', skeleton: 'h-4 w-28' },
+  { label: 'Status', skeleton: 'h-5 w-24' },
+  { label: 'Actions', skeleton: 'h-8 w-40' },
+] as const;
+
+function renderHeaders(columns: readonly { label: string }[]) {
+  return (
+    <TableHeader>
+      <TableRow>
+        {columns.map((col) => (
+          <TableHead key={col.label}>{col.label}</TableHead>
+        ))}
+      </TableRow>
+    </TableHeader>
+  );
+}
 
 export function BranchesTable({
   branches,
@@ -46,6 +58,11 @@ export function BranchesTable({
   errorMessage,
   togglingBranchId,
   hasActiveFilters,
+  canCreateBranch,
+  canToggleBranchStatus,
+  canEditBranch,
+  canIssueEnrollmentToken,
+  showActionsWhileLoading,
   onRetry,
   onResetFilters,
   onAddBranch,
@@ -69,27 +86,20 @@ export function BranchesTable({
   }
 
   if (isLoading) {
+    const skeletonColumns = showActionsWhileLoading
+      ? BRANCH_COLUMNS
+      : BRANCH_COLUMNS.filter((col) => col.label !== 'Actions');
     return (
       <Table aria-busy="true" aria-label="Loading branches">
-        {HEADERS}
+        {renderHeaders(skeletonColumns)}
         <TableBody>
           {[0, 1, 2, 3].map((row) => (
             <TableRow key={row}>
-              <TableCell>
-                <Skeleton className="h-4 w-20" />
-              </TableCell>
-              <TableCell>
-                <Skeleton className="h-4 w-44" />
-              </TableCell>
-              <TableCell>
-                <Skeleton className="h-4 w-28" />
-              </TableCell>
-              <TableCell>
-                <Skeleton className="h-5 w-24" />
-              </TableCell>
-              <TableCell>
-                <Skeleton className="h-8 w-40" />
-              </TableCell>
+              {skeletonColumns.map((col) => (
+                <TableCell key={col.label}>
+                  <Skeleton className={col.skeleton} />
+                </TableCell>
+              ))}
             </TableRow>
           ))}
         </TableBody>
@@ -99,42 +109,37 @@ export function BranchesTable({
 
   if (branches.length === 0) {
     return (
-      <EmptyState
-        icon={<Building2 className="h-5 w-5" />}
-        title={
-          hasActiveFilters
-            ? 'No branches match your filters'
-            : 'No branches yet'
-        }
-        description={
-          hasActiveFilters
-            ? 'Try clearing your search term or including inactive branches.'
-            : 'Create your first pharmacy branch to initialize its stock locations and enroll local terminals.'
-        }
-        action={
-          hasActiveFilters ? (
-            <Button variant="secondary" onClick={onResetFilters}>
-              Clear filters
-            </Button>
-          ) : (
-            <Button variant="primary" onClick={onAddBranch}>
-              Add branch
-            </Button>
-          )
-        }
+      <BranchesTableEmptyState
+        hasActiveFilters={hasActiveFilters}
+        canCreateBranch={canCreateBranch}
+        onResetFilters={onResetFilters}
+        onAddBranch={onAddBranch}
       />
     );
   }
 
+  const showActionsColumn = branches.some(
+    (branch) =>
+      canEditBranch(branch.branch_id) ||
+      canIssueEnrollmentToken(branch.branch_id)
+  );
+  const visibleColumns = showActionsColumn
+    ? BRANCH_COLUMNS
+    : BRANCH_COLUMNS.filter((col) => col.label !== 'Actions');
+
   return (
     <Table>
-      {HEADERS}
+      {renderHeaders(visibleColumns)}
       <TableBody>
         {branches.map((branch) => (
           <BranchTableRow
             key={branch.branch_id}
             branch={branch}
             isToggling={togglingBranchId === branch.branch_id}
+            canToggleStatus={canToggleBranchStatus}
+            canEdit={canEditBranch(branch.branch_id)}
+            canIssueToken={canIssueEnrollmentToken(branch.branch_id)}
+            showActionsColumn={showActionsColumn}
             onEdit={onEdit}
             onToggleActive={onToggleActive}
             onGenerateToken={onGenerateToken}

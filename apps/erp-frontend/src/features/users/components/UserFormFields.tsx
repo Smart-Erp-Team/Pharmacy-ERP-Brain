@@ -18,6 +18,8 @@ export interface UserFormFieldsProps {
   branches: readonly Branch[];
   branchesDirectory: DirectoryQueryStatus;
   disabled: boolean;
+  isOrgAdmin?: boolean;
+  allowedBranchIds?: readonly string[];
   lockRoleAndScope?: boolean;
   roleError?: string;
   branchScopeError?: string;
@@ -26,6 +28,9 @@ export interface UserFormFieldsProps {
 }
 
 const ROLE_OPTIONS = USER_ROLES.map((role) => ({ value: role, label: role }));
+const ASSIGNED_ADMIN_ROLE_OPTIONS = USER_ROLES.filter(
+  (role) => role !== 'Admin'
+).map((role) => ({ value: role, label: role }));
 
 const ADMIN_SCOPE_OPTIONS = [
   { value: 'ALL', label: 'ALL — All organization branches' },
@@ -51,6 +56,8 @@ export function UserFormFields({
   branches,
   branchesDirectory,
   disabled,
+  isOrgAdmin = true,
+  allowedBranchIds,
   lockRoleAndScope = false,
   roleError,
   branchScopeError,
@@ -58,8 +65,11 @@ export function UserFormFields({
   onAccessChange,
 }: UserFormFieldsProps) {
   const isAdmin = role === 'Admin';
-  const scopeOptions = isAdmin ? ADMIN_SCOPE_OPTIONS : RESTRICTED_SCOPE_OPTIONS;
+  const roleOptions = isOrgAdmin ? ROLE_OPTIONS : ASSIGNED_ADMIN_ROLE_OPTIONS;
+  const scopeOptions =
+    isOrgAdmin && isAdmin ? ADMIN_SCOPE_OPTIONS : RESTRICTED_SCOPE_OPTIONS;
   const roleAndScopeDisabled = disabled || lockRoleAndScope;
+  const scopeDisabled = roleAndScopeDisabled || !isOrgAdmin;
 
   const handleToggleBranch = (branchId: string) => {
     const nextIds = branchIds.includes(branchId)
@@ -73,12 +83,15 @@ export function UserFormFields({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Select
           label="Role"
-          options={ROLE_OPTIONS}
+          options={roleOptions}
           value={role}
           disabled={roleAndScopeDisabled}
           error={roleError}
           onChange={(event) => {
             if (isUserRole(event.target.value)) {
+              if (!isOrgAdmin && event.target.value === 'Admin') {
+                return;
+              }
               const forcedScope =
                 event.target.value !== 'Admin' && branchScope === 'ALL'
                   ? 'ASSIGNED'
@@ -94,15 +107,20 @@ export function UserFormFields({
           label="Branch scope"
           options={scopeOptions}
           value={branchScope}
-          disabled={roleAndScopeDisabled}
+          disabled={scopeDisabled}
           hint={
-            isAdmin
-              ? undefined
-              : 'Non-Admin accounts are restricted to ASSIGNED branch scope.'
+            !isOrgAdmin
+              ? 'Assigned branch administrators can only grant ASSIGNED branch scope.'
+              : isAdmin
+                ? undefined
+                : 'Non-Admin accounts are restricted to ASSIGNED branch scope.'
           }
           error={branchScopeError}
           onChange={(event) => {
             if (isBranchScope(event.target.value)) {
+              if (!isOrgAdmin && event.target.value === 'ALL') {
+                return;
+              }
               onAccessChange({ branch_scope: event.target.value });
             }
           }}
@@ -113,6 +131,7 @@ export function UserFormFields({
         <BranchAccessSelector
           branches={branches}
           selectedBranchIds={branchIds}
+          allowedBranchIds={isOrgAdmin ? undefined : allowedBranchIds}
           isLoading={branchesDirectory.isLoading}
           isError={branchesDirectory.isError}
           disabled={disabled}

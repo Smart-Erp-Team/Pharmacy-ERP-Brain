@@ -93,6 +93,10 @@ function mapEditProductField(
   switch (normalizeWireFieldPath(field)) {
     case 'category_id':
       return 'category_id';
+    case 'sku':
+      return 'sku';
+    case 'base_uom_code':
+      return 'base_uom_code';
     case 'name':
       return 'name';
     case 'barcode':
@@ -142,6 +146,8 @@ function mapEditUomField(field: string): Path<EditUomFormValues> | null {
   switch (normalizeWireFieldPath(field)) {
     case 'display_name':
       return 'display_name';
+    case 'conversion_to_base':
+      return 'conversion_to_base';
     case 'is_sellable':
       return 'is_sellable';
     case 'is_purchasable':

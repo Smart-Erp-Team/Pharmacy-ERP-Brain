@@ -25,6 +25,8 @@ export interface UsersFilterBarProps {
   statusFilter: UserStatusFilter;
   branches: readonly Branch[];
   isBranchesError: boolean;
+  isOrgAdmin: boolean;
+  allowedBranchIds: readonly string[];
   onSearchChange: (value: string) => void;
   onBranchChange: (value: string) => void;
   onRoleChange: (value: string) => void;
@@ -38,18 +40,32 @@ export function UsersFilterBar({
   statusFilter,
   branches,
   isBranchesError,
+  isOrgAdmin,
+  allowedBranchIds,
   onSearchChange,
   onBranchChange,
   onRoleChange,
   onStatusChange,
 }: UsersFilterBarProps) {
-  const branchOptions = [
-    { value: '', label: 'All branches' },
-    ...branches.map((branch) => ({
-      value: branch.branch_id,
-      label: `${branch.branch_code} — ${branch.name}`,
-    })),
-  ];
+  const branchOptions = isOrgAdmin
+    ? [
+        { value: '', label: 'All branches' },
+        ...branches.map((branch) => ({
+          value: branch.branch_id,
+          label: `${branch.branch_code} — ${branch.name}`,
+        })),
+      ]
+    : allowedBranchIds.map((branchId) => {
+        const matched = branches.find(
+          (branch) => branch.branch_id === branchId
+        );
+        return {
+          value: branchId,
+          label: matched
+            ? `${matched.branch_code} — ${matched.name}`
+            : branchId,
+        };
+      });
 
   return (
     <div className="border-border flex flex-col gap-4 border-b p-4 lg:flex-row lg:items-end">

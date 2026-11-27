@@ -6,7 +6,10 @@ import type {
   InventoryLocation,
   StockBalance,
 } from '../../../types/api';
-import { isNonLotBatchNumber } from '../hooks/useInventoryBranchState';
+import {
+  isBatchExpired,
+  localDateOffset,
+} from '../hooks/useInventoryBranchState';
 import { formatNumericDisplay } from '../schemas/inventoryAdjustmentSchema';
 
 export interface StockOverviewKpiCardsProps {
@@ -21,23 +24,14 @@ export interface StockOverviewKpiCardsProps {
   isLocationsError: boolean;
 }
 
-function getTodayUtcDate(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function isBatchFlagged(batch: InventoryBatch, todayUtc: string): boolean {
+function isBatchFlagged(batch: InventoryBatch, today: string): boolean {
   if (
     batch.quality_status === 'QUARANTINED' ||
-    batch.quality_status === 'EXPIRED' ||
     batch.quality_status === 'RECALLED'
   ) {
     return true;
   }
-  return Boolean(
-    !isNonLotBatchNumber(batch.batch_number) &&
-    batch.expires_on !== null &&
-    batch.expires_on < todayUtc
-  );
+  return isBatchExpired(batch, today);
 }
 
 export function StockOverviewKpiCards({
@@ -51,7 +45,7 @@ export function StockOverviewKpiCards({
   isLocationsLoading,
   isLocationsError,
 }: StockOverviewKpiCardsProps) {
-  const todayUtc = getTodayUtcDate();
+  const today = localDateOffset(0);
 
   const activeSkuCount = new Set(
     balances
@@ -65,7 +59,7 @@ export function StockOverviewKpiCards({
   );
 
   const flaggedBatchCount = batches.filter((batch) =>
-    isBatchFlagged(batch, todayUtc)
+    isBatchFlagged(batch, today)
   ).length;
 
   const activeLocationCount = locations.filter((loc) => loc.is_active).length;

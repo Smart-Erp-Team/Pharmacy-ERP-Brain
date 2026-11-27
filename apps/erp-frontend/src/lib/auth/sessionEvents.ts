@@ -10,12 +10,16 @@
  * file has to import another one just to end a session.
  */
 
+import type { CurrentUser } from '../../types/api';
+
 /** Why the session ended. */
 export type SessionEndReason = 'expired' | 'logout';
 
 export type SessionEndHandler = (reason: SessionEndReason) => void;
+export type SessionUserUpdatedHandler = (user: CurrentUser) => void;
 
 let sessionEndHandler: SessionEndHandler | null = null;
+let sessionUserUpdatedHandler: SessionUserUpdatedHandler | null = null;
 
 /**
  * Registers the single handler that reacts to a session end.
@@ -32,4 +36,22 @@ export const registerSessionEndHandler = (
  */
 export const notifySessionEnd = (reason: SessionEndReason): void => {
   sessionEndHandler?.(reason);
+};
+
+/**
+ * Registers the single handler that syncs refreshed user context (`LoginResponse.user`)
+ * back into the auth store after silent token rotation.
+ * Pass `null` to unregister (used when the app unmounts).
+ */
+export const registerSessionUserUpdatedHandler = (
+  handler: SessionUserUpdatedHandler | null
+): void => {
+  sessionUserUpdatedHandler = handler;
+};
+
+/**
+ * Announces updated user identity/scope context from `/auth/refresh`.
+ */
+export const notifySessionUserUpdated = (user: CurrentUser): void => {
+  sessionUserUpdatedHandler?.(user);
 };

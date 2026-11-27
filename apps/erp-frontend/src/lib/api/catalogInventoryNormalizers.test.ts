@@ -199,20 +199,32 @@ describe('Stage 1 Inventory closed vocabularies and predicates', () => {
 });
 
 describe('requireNullableNumber', () => {
-  it('returns finite numbers (including 0 and negatives) and normalizes null/undefined to null', () => {
+  it('returns finite numbers (including 0 and negatives) and normalizes explicit null to null', () => {
     expect(requireNullableNumber({ price: 10.5 }, 'price', '/uoms')).toBe(10.5);
     expect(requireNullableNumber({ price: 0 }, 'price', '/uoms')).toBe(0);
     expect(requireNullableNumber({ delta: -7.25 }, 'delta', '/txns')).toBe(
       -7.25
     );
     expect(requireNullableNumber({ price: null }, 'price', '/uoms')).toBeNull();
-    expect(requireNullableNumber({}, 'price', '/uoms')).toBeNull();
     expect(
-      requireNullableNumber({ price: undefined }, 'price', '/uoms')
+      requireNullableNumber({}, 'price', '/uoms', { allowUndefined: true })
+    ).toBeNull();
+    expect(
+      requireNullableNumber({ price: undefined }, 'price', '/uoms', {
+        allowUndefined: true,
+      })
     ).toBeNull();
   });
 
-  it('rejects string decimals, NaN, Infinity, booleans, and objects with INVALID_RESPONSE', () => {
+  it('rejects missing keys, undefined (by default), string decimals, NaN, Infinity, booleans, and objects with INVALID_RESPONSE', () => {
+    expectInvalidResponse(
+      () => requireNullableNumber({}, 'price', '/uoms'),
+      '/uoms'
+    );
+    expectInvalidResponse(
+      () => requireNullableNumber({ price: undefined }, 'price', '/uoms'),
+      '/uoms'
+    );
     expectInvalidResponse(
       () => requireNullableNumber({ price: '10.50' }, 'price', '/uoms'),
       '/uoms'
@@ -255,7 +267,7 @@ describe('requireNullableNumber', () => {
 });
 
 describe('normalizeProductCategory', () => {
-  it('accepts valid ProductCategoryDto and normalizes null/undefined nullable strings', () => {
+  it('accepts valid ProductCategoryDto with explicit null nullable strings and rejects missing keys', () => {
     const populated = normalizeProductCategory(
       VALID_CATEGORY_PAYLOAD,
       '/product-categories'
@@ -265,7 +277,7 @@ describe('normalizeProductCategory', () => {
     const rootCategory = normalizeProductCategory(
       {
         ...VALID_CATEGORY_PAYLOAD,
-        parent_category_id: undefined,
+        parent_category_id: null,
         description: null,
         is_active: false,
       },
@@ -274,6 +286,23 @@ describe('normalizeProductCategory', () => {
     expect(rootCategory.parent_category_id).toBeNull();
     expect(rootCategory.description).toBeNull();
     expect(rootCategory.is_active).toBe(false);
+
+    expectInvalidResponse(
+      () =>
+        normalizeProductCategory(
+          { ...VALID_CATEGORY_PAYLOAD, parent_category_id: undefined },
+          '/product-categories'
+        ),
+      '/product-categories'
+    );
+    expectInvalidResponse(
+      () =>
+        normalizeProductCategory(
+          { ...VALID_CATEGORY_PAYLOAD, description: undefined },
+          '/product-categories'
+        ),
+      '/product-categories'
+    );
   });
 
   it('rejects malformed ProductCategoryDto payloads with INVALID_RESPONSE', () => {
@@ -309,7 +338,7 @@ describe('normalizeProductCategory', () => {
 });
 
 describe('normalizeProductUom', () => {
-  it('accepts valid ProductUomDto including 0 and null/undefined sale_unit_price', () => {
+  it('accepts valid ProductUomDto including 0 and explicit null sale_unit_price while rejecting omitted sale_unit_price', () => {
     const baseUom = normalizeProductUom(productFixture.uoms[0], '/uoms');
     expect(baseUom.uom_code).toBe('TAB');
     expect(baseUom.conversion_to_base).toBe(1);
@@ -318,7 +347,7 @@ describe('normalizeProductUom', () => {
     const nonSellableUom = normalizeProductUom(
       {
         ...productFixture.uoms[0],
-        sale_unit_price: undefined,
+        sale_unit_price: null,
         is_sellable: false,
       },
       '/uoms'
@@ -333,6 +362,15 @@ describe('normalizeProductUom', () => {
       '/uoms'
     );
     expect(zeroPriceUom.sale_unit_price).toBe(0);
+
+    expectInvalidResponse(
+      () =>
+        normalizeProductUom(
+          { ...productFixture.uoms[0], sale_unit_price: undefined },
+          '/uoms'
+        ),
+      '/uoms'
+    );
   });
 
   it('rejects legacy string decimals on conversion_to_base and sale_unit_price', () => {
@@ -369,14 +407,14 @@ describe('normalizeProduct', () => {
     expect(normalized.uoms).toHaveLength(3);
   });
 
-  it('accepts 0 values, empty uoms array, and undefined/null nullable strings', () => {
+  it('accepts 0 values, empty uoms array, and explicit null nullable strings while rejecting omitted nullable keys', () => {
     const minimalProduct = normalizeProduct(
       {
         ...productFixture,
-        barcode: undefined,
+        barcode: null,
         generic_name: null,
-        brand_name: undefined,
-        image_url: undefined,
+        brand_name: null,
+        image_url: null,
         tax_rate: 0,
         expiry_alert_days: 0,
         lot_tracking_required: false,
@@ -391,6 +429,15 @@ describe('normalizeProduct', () => {
     expect(minimalProduct.tax_rate).toBe(0);
     expect(minimalProduct.expiry_alert_days).toBe(0);
     expect(minimalProduct.uoms).toEqual([]);
+
+    expectInvalidResponse(
+      () =>
+        normalizeProduct(
+          { ...productFixture, barcode: undefined },
+          '/products'
+        ),
+      '/products'
+    );
   });
 
   it('rejects legacy string decimals, non-integer expiry_alert_days, or invalid nested UOMs', () => {
@@ -438,7 +485,7 @@ describe('normalizeProduct', () => {
 });
 
 describe('normalizeReorderRule', () => {
-  it('accepts valid ReorderRuleDto including reorder_point_base: 0 and null/undefined max_quantity_base', () => {
+  it('accepts valid ReorderRuleDto including reorder_point_base: 0 and explicit null max_quantity_base while rejecting missing max_quantity_base', () => {
     const normalized = normalizeReorderRule(
       VALID_REORDER_RULE_PAYLOAD,
       '/reorder-rule'
@@ -450,13 +497,22 @@ describe('normalizeReorderRule', () => {
         ...VALID_REORDER_RULE_PAYLOAD,
         reorder_point_base: 0,
         reorder_quantity_base: 0,
-        max_quantity_base: undefined,
+        max_quantity_base: null,
       },
       '/reorder-rule'
     );
     expect(zeroPointNoMax.reorder_point_base).toBe(0);
     expect(zeroPointNoMax.reorder_quantity_base).toBe(0);
     expect(zeroPointNoMax.max_quantity_base).toBeNull();
+
+    expectInvalidResponse(
+      () =>
+        normalizeReorderRule(
+          { ...VALID_REORDER_RULE_PAYLOAD, max_quantity_base: undefined },
+          '/reorder-rule'
+        ),
+      '/reorder-rule'
+    );
   });
 
   it('rejects string decimals or missing fields on ReorderRuleDto', () => {
@@ -519,7 +575,7 @@ describe('normalizeInventoryLocation', () => {
 });
 
 describe('normalizeInventoryBatch', () => {
-  it('accepts valid InventoryBatchDto and normalizes null/undefined dates', () => {
+  it('accepts valid InventoryBatchDto with explicit null dates and rejects missing nullable date keys', () => {
     const fullBatch = normalizeInventoryBatch(
       VALID_BATCH_PAYLOAD,
       '/inventory/batches'
@@ -529,7 +585,7 @@ describe('normalizeInventoryBatch', () => {
     const undatedBatch = normalizeInventoryBatch(
       {
         ...VALID_BATCH_PAYLOAD,
-        manufactured_on: undefined,
+        manufactured_on: null,
         expires_on: null,
         quality_status: 'QUARANTINED',
       },
@@ -538,6 +594,23 @@ describe('normalizeInventoryBatch', () => {
     expect(undatedBatch.manufactured_on).toBeNull();
     expect(undatedBatch.expires_on).toBeNull();
     expect(undatedBatch.quality_status).toBe('QUARANTINED');
+
+    expectInvalidResponse(
+      () =>
+        normalizeInventoryBatch(
+          { ...VALID_BATCH_PAYLOAD, manufactured_on: undefined },
+          '/inventory/batches'
+        ),
+      '/inventory/batches'
+    );
+    expectInvalidResponse(
+      () =>
+        normalizeInventoryBatch(
+          { ...VALID_BATCH_PAYLOAD, expires_on: undefined },
+          '/inventory/batches'
+        ),
+      '/inventory/batches'
+    );
   });
 
   it('rejects invalid quality_status or non-string dates', () => {
@@ -577,14 +650,14 @@ describe('normalizeStockBalance', () => {
     expect(normalized.row_version).toBe(3);
   });
 
-  it('accepts DAMAGED location_type, 0 quantities/costs/row_version, and null/undefined dates', () => {
+  it('accepts DAMAGED location_type, 0 quantities/costs/row_version, and explicit null dates while rejecting missing date keys', () => {
     const zeroDamagedBalance = normalizeStockBalance(
       {
         ...inventoryBalanceFixture,
         location_type: 'DAMAGED',
         is_location_sellable: false,
         manufactured_on: null,
-        expires_on: undefined,
+        expires_on: null,
         quality_status: 'EXPIRED',
         on_hand_qty_base: 0,
         available_qty_base: 0,
@@ -600,6 +673,15 @@ describe('normalizeStockBalance', () => {
     expect(zeroDamagedBalance.available_qty_base).toBe(0);
     expect(zeroDamagedBalance.average_unit_cost).toBe(0);
     expect(zeroDamagedBalance.row_version).toBe(0);
+
+    expectInvalidResponse(
+      () =>
+        normalizeStockBalance(
+          { ...inventoryBalanceFixture, expires_on: undefined },
+          '/inventory/balances'
+        ),
+      '/inventory/balances'
+    );
   });
 
   it('rejects legacy string decimals and non-integer row_version', () => {
@@ -776,7 +858,7 @@ describe('normalizeInventoryTxnLine', () => {
 });
 
 describe('normalizeInventoryTxn', () => {
-  it('accepts valid InventoryTxnDto, empty idempotency_key, and null/undefined nullable strings', () => {
+  it('accepts valid InventoryTxnDto, empty idempotency_key, and explicit null nullable strings while rejecting missing nullable keys', () => {
     const posted = normalizeInventoryTxn(
       VALID_TXN_PAYLOAD,
       '/inventory/transactions'
@@ -788,11 +870,11 @@ describe('normalizeInventoryTxn', () => {
         ...VALID_TXN_PAYLOAD,
         transaction_type: 'REVERSAL',
         status: 'DRAFT',
-        reason_code: undefined,
+        reason_code: null,
         note: null,
         idempotency_key: '',
         reverses_inventory_txn_id: '11111111-8888-4111-8111-000000000000',
-        posted_at: undefined,
+        posted_at: null,
         lines: [],
       },
       '/inventory/transactions'
@@ -807,6 +889,23 @@ describe('normalizeInventoryTxn', () => {
     );
     expect(draftReversal.posted_at).toBeNull();
     expect(draftReversal.lines).toEqual([]);
+
+    expectInvalidResponse(
+      () =>
+        normalizeInventoryTxn(
+          { ...VALID_TXN_PAYLOAD, reason_code: undefined },
+          '/inventory/transactions'
+        ),
+      '/inventory/transactions'
+    );
+    expectInvalidResponse(
+      () =>
+        normalizeInventoryTxn(
+          { ...VALID_TXN_PAYLOAD, posted_at: undefined },
+          '/inventory/transactions'
+        ),
+      '/inventory/transactions'
+    );
   });
 
   it('rejects non-string idempotency_key, invalid enums, or malformed lines', () => {

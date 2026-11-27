@@ -28,6 +28,11 @@ export default defineConfig({
     ? undefined
     : {
         command: 'npm run dev -- --host 127.0.0.1 --port 5174 --strictPort',
+        env: {
+          ...process.env,
+          VITE_ENABLE_MSW: process.env.VITE_ENABLE_MSW ?? 'true',
+          VITE_API_BASE_URL: process.env.VITE_API_BASE_URL ?? '/api/v1',
+        },
         url: E2E_BASE_URL,
         reuseExistingServer: false,
         timeout: 60_000,

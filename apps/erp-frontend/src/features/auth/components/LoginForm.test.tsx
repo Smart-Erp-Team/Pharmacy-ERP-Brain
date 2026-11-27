@@ -15,7 +15,7 @@ import { cleanup, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'react-toastify';
 import authTokenPair from '@contracts/fixtures/auth-token-pair.json';
-import { handlers } from '../../../mocks/handlers';
+import { handlers, resetMockAuth } from '../../../mocks/handlers';
 import { tokenStorage } from '../../../lib/auth/tokenStorage';
 import { useAuthStore } from '../../../stores/authStore';
 import { renderWithProviders } from '../../../test/renderWithProviders';
@@ -27,6 +27,7 @@ beforeAll(() => server.listen());
 afterEach(() => {
   cleanup();
   server.resetHandlers();
+  resetMockAuth();
   toast.dismiss();
   tokenStorage.clearTokens();
 });
@@ -39,6 +40,7 @@ beforeEach(() => {
     activeBranchId: null,
     isAuthenticated: false,
     isInitializing: false,
+    initError: null,
   });
 });
 

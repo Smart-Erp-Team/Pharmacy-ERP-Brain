@@ -41,11 +41,11 @@ describe('loginSchema', () => {
     expect(result.password).toBe(' password123 ');
   });
 
-  it('rejects values above the contract limits', () => {
+  it('rejects organization_code and username above the contract limits', () => {
     const result = loginSchema.safeParse({
       organization_code: 'o'.repeat(31),
       username: 'u'.repeat(81),
-      password: 'p'.repeat(129),
+      password: 'password123',
     });
 
     expect(result.success).toBe(false);
@@ -56,7 +56,20 @@ describe('loginSchema', () => {
         'Organization code must be 30 characters or fewer'
       );
       expect(messages).toContain('Username must be 80 characters or fewer');
-      expect(messages).toContain('Password must be 128 characters or fewer');
+    }
+  });
+
+  it('accepts a 129-character password without an undocumented max length cap', () => {
+    const longPassword = 'p'.repeat(129);
+    const result = loginSchema.safeParse({
+      organization_code: 'PHARMAPLUS',
+      username: 'fa.pharmacist',
+      password: longPassword,
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.password).toBe(longPassword);
     }
   });
 });

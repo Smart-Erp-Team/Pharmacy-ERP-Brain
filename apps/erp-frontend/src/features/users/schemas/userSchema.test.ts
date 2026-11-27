@@ -238,7 +238,7 @@ describe('userSchema', () => {
       }
     });
 
-    it('enforces 12-character minimum password, 128-character max, and username bounds', () => {
+    it('enforces 12-character minimum password, allows 129-character passwords, and enforces username bounds', () => {
       const elevenCharResult = createUserFormSchema.safeParse({
         employee_id: '   ',
         username: '   ',
@@ -268,7 +268,17 @@ describe('userSchema', () => {
       });
       expect(exactTwelveResult.success).toBe(true);
 
-      const longResult = createUserFormSchema.safeParse({
+      const longPasswordResult = createUserFormSchema.safeParse({
+        employee_id: UNASSIGNED_EMPLOYEE_ID,
+        username: 'long.pass@medcare.test',
+        password: 'p'.repeat(129),
+        role: 'Admin',
+        branch_scope: 'ALL',
+        branch_ids: [],
+      });
+      expect(longPasswordResult.success).toBe(true);
+
+      const longUsernameResult = createUserFormSchema.safeParse({
         employee_id: UNASSIGNED_EMPLOYEE_ID,
         username: 'u'.repeat(81),
         password: 'p'.repeat(129),
@@ -277,13 +287,13 @@ describe('userSchema', () => {
         branch_ids: [],
       });
 
-      expect(longResult.success).toBe(false);
-      if (!longResult.success) {
-        const paths = longResult.error.issues.map((issue) =>
+      expect(longUsernameResult.success).toBe(false);
+      if (!longUsernameResult.success) {
+        const paths = longUsernameResult.error.issues.map((issue) =>
           issue.path.join('.')
         );
         expect(paths).toContain('username');
-        expect(paths).toContain('password');
+        expect(paths).not.toContain('password');
       }
     });
 
@@ -446,7 +456,7 @@ describe('userSchema', () => {
   });
 
   describe('passwordResetSchema & toPasswordResetPayload', () => {
-    it('accepts matching passwords within 12-128 chars without trimming', () => {
+    it('accepts matching passwords >= 12 chars including 129-char passwords without trimming', () => {
       const parsed = passwordResetSchema.parse({
         new_password: ' ResetPass!23 ',
         confirm_password: ' ResetPass!23 ',
@@ -455,9 +465,16 @@ describe('userSchema', () => {
       expect(toPasswordResetPayload(parsed)).toEqual({
         new_password: ' ResetPass!23 ',
       });
+
+      const longPassword = 'x'.repeat(129);
+      const longResult = passwordResetSchema.safeParse({
+        new_password: longPassword,
+        confirm_password: longPassword,
+      });
+      expect(longResult.success).toBe(true);
     });
 
-    it('rejects <12 char passwords, >128 char passwords, empty confirmation, and mismatches', () => {
+    it('rejects <12 char passwords, empty confirmation, and mismatches', () => {
       const emptyResult = passwordResetSchema.safeParse(
         DEFAULT_PASSWORD_RESET_VALUES
       );
@@ -494,12 +511,6 @@ describe('userSchema', () => {
           ])
         );
       }
-
-      const tooLongResult = passwordResetSchema.safeParse({
-        new_password: 'x'.repeat(129),
-        confirm_password: 'x'.repeat(129),
-      });
-      expect(tooLongResult.success).toBe(false);
     });
 
     it('integrates passwordResetSchema with React Hook Form zodResolver', async () => {
@@ -846,9 +857,22 @@ describe('usersApi, usersKeys, useUsers, and userHandlers integration', () => {
       })
     ).rejects.toMatchObject({ status: 422, code: 'VALIDATION_ERROR' });
 
+    // Missing Idempotency-Key -> 400 MALFORMED_REQUEST
+    const missingKeyResponse = await fetch('http://localhost/api/v1/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'missing.key@medcare.test' }),
+    });
+    expect(missingKeyResponse.status).toBe(400);
+    await expect(missingKeyResponse.json()).resolves.toMatchObject({
+      error: { code: 'MALFORMED_REQUEST' },
+    });
+
     // Non-object body -> 400 MALFORMED_REQUEST
     await expect(
-      apiClient.post('/users', ['not-object'])
+      apiClient.post('/users', ['not-object'], {
+        headers: { 'Idempotency-Key': 'test-malformed-user-body' },
+      })
     ).rejects.toMatchObject({
       status: 400,
       code: 'MALFORMED_REQUEST',
@@ -865,7 +889,8 @@ describe('usersApi, usersKeys, useUsers, and userHandlers integration', () => {
 
     const afterImmutableCheck = await apiClient.patch<User>(
       `/users/${MONA_USER_ID}`,
-      { username: 'attempted.override' }
+      { username: 'attempted.override' },
+      { headers: { 'Idempotency-Key': 'test-immutable-username' } }
     );
     expect(afterImmutableCheck.data.username).toBe('ph.mona@medcare.test');
 

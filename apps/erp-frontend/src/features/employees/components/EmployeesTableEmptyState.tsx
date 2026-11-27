@@ -4,12 +4,14 @@ import { EmptyState } from '../../../components/ui/EmptyState';
 
 export interface EmployeesTableEmptyStateProps {
   hasActiveFilters: boolean;
+  canWrite: boolean;
   onResetFilters: () => void;
   onAddEmployee: () => void;
 }
 
 export function EmployeesTableEmptyState({
   hasActiveFilters,
+  canWrite,
   onResetFilters,
   onAddEmployee,
 }: EmployeesTableEmptyStateProps) {
@@ -32,11 +34,17 @@ export function EmployeesTableEmptyState({
     <EmptyState
       icon={<Users className="h-5 w-5" />}
       title="No employees yet"
-      description="Add your first employee to record their home branch, job role, and hire date."
+      description={
+        canWrite
+          ? 'Add your first employee to record their home branch, job role, and hire date.'
+          : 'No employee records are available for this branch yet.'
+      }
       action={
-        <Button variant="primary" onClick={onAddEmployee}>
-          Add employee
-        </Button>
+        canWrite ? (
+          <Button variant="primary" onClick={onAddEmployee}>
+            Add employee
+          </Button>
+        ) : undefined
       }
     />
   );

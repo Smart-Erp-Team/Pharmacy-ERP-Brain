@@ -173,7 +173,7 @@ describe('AppShell', () => {
     expect(screen.getByRole('link', { name: 'Inventory' })).toBeDefined();
   });
 
-  it('hides organization screens from Pharmacist and Cashier while keeping Branch Enrollment on Cloud', () => {
+  it('shows Branches and Branch Enrollment to Pharmacist on Cloud while hiding Employees and User Accounts', () => {
     useAuthStore.setState({
       currentUser: buildUser({
         user_id: '11111111-4444-4111-8111-000000000005',
@@ -193,7 +193,7 @@ describe('AppShell', () => {
     renderShell();
 
     expect(screen.getByText('sarah.pharm@medcare.test')).toBeDefined();
-    expect(screen.queryByRole('link', { name: 'Branches' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Branches' })).toBeDefined();
     expect(screen.queryByRole('link', { name: 'Employees' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'User Accounts' })).toBeNull();
     expect(
@@ -202,7 +202,7 @@ describe('AppShell', () => {
     expect(screen.getByRole('link', { name: 'Products' })).toBeDefined();
   });
 
-  it('hides Cloud-only screens including Branch Enrollment on the BranchLocal runtime', () => {
+  it('hides Cloud-only Branch Enrollment on BranchLocal while keeping readable organization screens for Admin', () => {
     useAuthStore.setState({
       currentUser: buildUser({
         runtime_mode: 'BranchLocal',
@@ -220,9 +220,9 @@ describe('AppShell', () => {
     expect(
       screen.queryByRole('link', { name: 'Branch Enrollment' })
     ).toBeNull();
-    expect(screen.queryByRole('link', { name: 'Branches' })).toBeNull();
-    expect(screen.queryByRole('link', { name: 'Employees' })).toBeNull();
-    expect(screen.queryByRole('link', { name: 'User Accounts' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Branches' })).toBeDefined();
+    expect(screen.getByRole('link', { name: 'Employees' })).toBeDefined();
+    expect(screen.getByRole('link', { name: 'User Accounts' })).toBeDefined();
     expect(screen.getByRole('link', { name: 'Products' })).toBeDefined();
     expect(screen.getByRole('link', { name: 'Inventory' })).toBeDefined();
   });

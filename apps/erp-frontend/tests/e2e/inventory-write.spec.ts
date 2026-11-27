@@ -53,6 +53,13 @@ test('Pharmacist on BranchLocal posts atomic immediate adjustment and reverses T
   await line2.getByLabel('Quantity').fill('15');
   await line2.getByLabel('Unit cost').fill('65');
 
+  // Client validation blocks lot-tracked line missing expiry date before submitting
+  await page.getByRole('button', { name: 'Submit adjustment' }).click();
+  await expect(
+    line1.getByText('Expiry date is required for lot-tracked products')
+  ).toBeVisible();
+  await line1.getByLabel('Expiry date').fill('2027-07-31');
+
   await page.getByRole('button', { name: 'Submit adjustment' }).click();
   await expect(
     page.getByText('Adjustment TXN-2026-000004 posted (ADJUSTMENT_IN)')

@@ -32,7 +32,7 @@ import type {
 export type { MutationRequestOptions };
 
 export interface ListInventoryLocationsParams {
-  branch_id?: string;
+  branch_id: string;
   is_sellable?: boolean;
   include_inactive?: boolean;
   page?: number;
@@ -48,7 +48,7 @@ export interface ListInventoryBatchesParams {
 }
 
 export interface ListInventoryBalancesParams {
-  branch_id?: string;
+  branch_id: string;
   product_id?: string;
   location_id?: string;
   batch_id?: string;
@@ -62,7 +62,7 @@ export interface GetInventorySummaryParams {
 }
 
 export interface ListInventoryTransactionsParams {
-  branch_id?: string;
+  branch_id: string;
   type?: InventoryTransactionType;
   product_id?: string;
   from_date?: string;
@@ -88,16 +88,19 @@ function normalizeContractResponse<T>(
 }
 
 export async function listInventoryLocations(
-  params: ListInventoryLocationsParams = {}
+  params: ListInventoryLocationsParams
 ): Promise<PagedResult<InventoryLocation>> {
   const endpoint = '/inventory/locations';
-  const branchId = params.branch_id?.trim();
+  const branchId = params.branch_id.trim();
+  if (!branchId) {
+    throw new Error('branch_id is required.');
+  }
   const queryParams: ListInventoryLocationsParams = {
     ...buildPaginationQueryParams({
       page: params.page,
       page_size: params.page_size,
     }),
-    ...(branchId ? { branch_id: branchId } : {}),
+    branch_id: branchId,
     ...(params.is_sellable !== undefined
       ? { is_sellable: params.is_sellable }
       : {}),
@@ -180,10 +183,13 @@ export async function listInventoryBatches(
 }
 
 export async function listInventoryBalances(
-  params: ListInventoryBalancesParams = {}
+  params: ListInventoryBalancesParams
 ): Promise<PagedResult<StockBalance>> {
   const endpoint = '/inventory/balances';
-  const branchId = params.branch_id?.trim();
+  const branchId = params.branch_id.trim();
+  if (!branchId) {
+    throw new Error('branch_id is required.');
+  }
   const productId = params.product_id?.trim();
   const locationId = params.location_id?.trim();
   const batchId = params.batch_id?.trim();
@@ -192,7 +198,7 @@ export async function listInventoryBalances(
       page: params.page,
       page_size: params.page_size,
     }),
-    ...(branchId ? { branch_id: branchId } : {}),
+    branch_id: branchId,
     ...(productId ? { product_id: productId } : {}),
     ...(locationId ? { location_id: locationId } : {}),
     ...(batchId ? { batch_id: batchId } : {}),
@@ -229,10 +235,13 @@ export async function getInventorySummary(
 }
 
 export async function listInventoryTransactions(
-  params: ListInventoryTransactionsParams = {}
+  params: ListInventoryTransactionsParams
 ): Promise<PagedResult<InventoryTxn>> {
   const endpoint = '/inventory/transactions';
-  const branchId = params.branch_id?.trim();
+  const branchId = params.branch_id.trim();
+  if (!branchId) {
+    throw new Error('branch_id is required.');
+  }
   const productId = params.product_id?.trim();
   const fromDate = params.from_date?.trim();
   const toDate = params.to_date?.trim();
@@ -241,7 +250,7 @@ export async function listInventoryTransactions(
       page: params.page,
       page_size: params.page_size,
     }),
-    ...(branchId ? { branch_id: branchId } : {}),
+    branch_id: branchId,
     ...(params.type !== undefined ? { type: params.type } : {}),
     ...(productId ? { product_id: productId } : {}),
     ...(fromDate ? { from_date: fromDate } : {}),

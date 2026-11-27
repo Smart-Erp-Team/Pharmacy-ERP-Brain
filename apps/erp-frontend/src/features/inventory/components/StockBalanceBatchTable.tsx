@@ -9,10 +9,11 @@ import {
 } from '../../../components/ui/Table';
 import {
   BATCH_QUALITY_BADGE_VARIANT,
+  isBalanceExpired,
   isNonLotBatchNumber,
+  localDateOffset,
   LOCATION_TYPE_BADGE_VARIANT,
   sortBalancesFefo,
-  utcDateOffset,
   type GroupedBalanceItem,
 } from '../hooks/useInventoryBranchState';
 import { formatNumericDisplay } from '../schemas/inventoryAdjustmentSchema';
@@ -28,9 +29,9 @@ export function StockBalanceBatchTable({
   items,
   expiryAlertDays = 0,
 }: StockBalanceBatchTableProps) {
-  const todayUtc = utcDateOffset(0);
+  const today = localDateOffset(0);
   const alertCutoff =
-    expiryAlertDays > 0 ? utcDateOffset(expiryAlertDays) : null;
+    expiryAlertDays > 0 ? localDateOffset(expiryAlertDays) : null;
   const sorted = sortBalancesFefo(items);
 
   return (
@@ -53,7 +54,12 @@ export function StockBalanceBatchTable({
           const expiresOn = isNonLot
             ? null
             : (balance.expires_on ?? batch?.expires_on ?? null);
-          const isExpired = Boolean(expiresOn && expiresOn < todayUtc);
+          const isExpired = isBalanceExpired(
+            balance,
+            expiresOn,
+            today,
+            location?.is_active ?? true
+          );
           const isNearing = Boolean(
             !isExpired && expiresOn && alertCutoff && expiresOn <= alertCutoff
           );

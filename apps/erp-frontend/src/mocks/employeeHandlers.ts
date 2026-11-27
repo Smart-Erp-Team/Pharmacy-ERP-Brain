@@ -1,6 +1,10 @@
 import { http, HttpResponse } from 'msw';
 import currentUserContext from '@contracts/fixtures/current-user-context.json';
 import {
+  IDEMPOTENCY_KEY_HEADER,
+  IDEMPOTENCY_KEY_MAX_LENGTH,
+} from '../lib/api/idempotency';
+import {
   DEFAULT_PAGE,
   DEFAULT_PAGE_SIZE,
   MAX_PAGE_SIZE,
@@ -343,6 +347,43 @@ function createMockEmployeeId(): string {
   return `11111111-3333-4111-8111-${String(createdEmployeeCounter + 4).padStart(12, '0')}`;
 }
 
+function requireIdempotencyKey(request: Request): Response | null {
+  const key = request.headers.get(IDEMPOTENCY_KEY_HEADER)?.trim() ?? '';
+  if (key.length === 0) {
+    return HttpResponse.json(
+      createMockErrorEnvelope(
+        'MALFORMED_REQUEST',
+        'The idempotency key is required.',
+        'mock-trace-employee-idempotency-missing',
+        [
+          {
+            field: IDEMPOTENCY_KEY_HEADER,
+            issue: 'The idempotency key is required.',
+          },
+        ]
+      ),
+      { status: 400 }
+    );
+  }
+  if (key.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
+    return HttpResponse.json(
+      createMockErrorEnvelope(
+        'MALFORMED_REQUEST',
+        `The idempotency key must be at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`,
+        'mock-trace-employee-idempotency-length',
+        [
+          {
+            field: IDEMPOTENCY_KEY_HEADER,
+            issue: `The idempotency key must be at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`,
+          },
+        ]
+      ),
+      { status: 400 }
+    );
+  }
+  return null;
+}
+
 function malformedRequestResponse(message: string) {
   return HttpResponse.json(
     createMockErrorEnvelope(
@@ -470,6 +511,11 @@ export const employeeHandlers = [
   }),
 
   http.post('*/api/v1/employees', async ({ request }) => {
+    const idempotencyError = requireIdempotencyKey(request);
+    if (idempotencyError) {
+      return idempotencyError;
+    }
+
     const body: unknown = await request.json().catch(() => null);
     if (!isRecord(body)) {
       return malformedRequestResponse(
@@ -583,6 +629,11 @@ export const employeeHandlers = [
   }),
 
   http.patch('*/api/v1/employees/:employeeId', async ({ params, request }) => {
+    const idempotencyError = requireIdempotencyKey(request);
+    if (idempotencyError) {
+      return idempotencyError;
+    }
+
     const index = mockEmployees.findIndex(
       (item) => item.employee_id === params.employeeId
     );

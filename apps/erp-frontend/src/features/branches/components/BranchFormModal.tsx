@@ -24,22 +24,21 @@ import { BranchFormFields } from './BranchFormFields';
 export interface BranchFormModalProps {
   open: boolean;
   branch: Branch | null;
+  canToggleStatus?: boolean;
   onClose: () => void;
 }
 
-interface BranchFormModalBodyProps {
-  branch: Branch | null;
-  onClose: () => void;
-}
-
-function BranchFormModalContent({ branch, onClose }: BranchFormModalBodyProps) {
+function BranchFormModalContent({
+  branch,
+  canToggleStatus,
+  onClose,
+}: Omit<BranchFormModalProps, 'open'> & { canToggleStatus: boolean }) {
   const isEdit = branch !== null;
   const formId = useId();
   const createMutation = useCreateBranchMutation();
   const patchMutation = usePatchBranchMutation();
   const isPending = createMutation.isPending || patchMutation.isPending;
   const [submitError, setSubmitError] = useState<string | null>(null);
-
   const {
     register,
     control,
@@ -55,22 +54,17 @@ function BranchFormModalContent({ branch, onClose }: BranchFormModalBodyProps) {
   });
 
   const handleClose = () => {
-    if (!isPending) {
-      onClose();
-    }
+    if (!isPending) onClose();
   };
 
   const onSubmit = async (values: BranchFormValues) => {
-    if (isPending || (isEdit && !isDirty)) {
-      return;
-    }
-
+    if (isPending || (isEdit && !isDirty)) return;
     setSubmitError(null);
     try {
       if (branch) {
         await patchMutation.mutateAsync({
           branchId: branch.branch_id,
-          payload: toBranchPatchPayload(values),
+          payload: toBranchPatchPayload(values, canToggleStatus),
         });
         toast.success(`Branch "${values.name.trim()}" updated`);
       } else {
@@ -136,6 +130,7 @@ function BranchFormModalContent({ branch, onClose }: BranchFormModalBodyProps) {
 
         <BranchFormFields
           isEdit={isEdit}
+          canToggleStatus={canToggleStatus}
           disabled={isPending}
           register={register}
           control={control}
@@ -149,6 +144,7 @@ function BranchFormModalContent({ branch, onClose }: BranchFormModalBodyProps) {
 export function BranchFormModal({
   open,
   branch,
+  canToggleStatus = true,
   onClose,
 }: BranchFormModalProps) {
   if (!open) {
@@ -159,6 +155,7 @@ export function BranchFormModal({
     <BranchFormModalContent
       key={branch?.branch_id ?? 'new'}
       branch={branch}
+      canToggleStatus={canToggleStatus}
       onClose={onClose}
     />
   );

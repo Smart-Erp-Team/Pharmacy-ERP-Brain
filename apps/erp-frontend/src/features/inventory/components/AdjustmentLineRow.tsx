@@ -122,6 +122,7 @@ export function AdjustmentLineRow({
                 inputMode={item.inputMode}
                 maxLength={item.maxLength}
                 placeholder={item.placeholder}
+                required={item.isRequired}
                 value={field.value}
                 onBlur={field.onBlur}
                 onChange={(e) => field.onChange(e.target.value)}

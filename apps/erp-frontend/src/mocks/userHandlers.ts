@@ -1,13 +1,19 @@
 import { http, HttpResponse } from 'msw';
 import currentUserContext from '@contracts/fixtures/current-user-context.json';
 import {
+  IDEMPOTENCY_KEY_HEADER,
+  IDEMPOTENCY_KEY_MAX_LENGTH,
+} from '../lib/api/idempotency';
+import {
   DEFAULT_PAGE,
   DEFAULT_PAGE_SIZE,
   MAX_PAGE_SIZE,
 } from '../lib/api/pagination';
+import { useAuthStore } from '../stores/authStore';
 import type {
   ApiErrorEnvelopeDto,
   BranchScope,
+  CurrentUser,
   ErrorCode,
   NormalizedApiErrorDetail,
   PagedResult,
@@ -60,7 +66,6 @@ export const INITIAL_USERS: readonly User[] = [
 ];
 
 const MIN_PASSWORD_LENGTH = 12;
-const MAX_PASSWORD_LENGTH = 128;
 
 const VALID_ROLES = [
   'Admin',
@@ -191,10 +196,83 @@ function validationErrorResponse(
   );
 }
 
+function requireIdempotencyKey(request: Request): Response | null {
+  const key = request.headers.get(IDEMPOTENCY_KEY_HEADER)?.trim() ?? '';
+  if (key.length === 0) {
+    return errorResponse(
+      400,
+      'MALFORMED_REQUEST',
+      'The idempotency key is required.',
+      'mock-trace-user-idempotency-missing',
+      [
+        {
+          field: IDEMPOTENCY_KEY_HEADER,
+          issue: 'The idempotency key is required.',
+        },
+      ]
+    );
+  }
+  if (key.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
+    return errorResponse(
+      400,
+      'MALFORMED_REQUEST',
+      `The idempotency key must be at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`,
+      'mock-trace-user-idempotency-length',
+      [
+        {
+          field: IDEMPOTENCY_KEY_HEADER,
+          issue: `The idempotency key must be at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`,
+        },
+      ]
+    );
+  }
+  return null;
+}
+
+function getAssignedAdminActor(): CurrentUser | null {
+  const actor = useAuthStore.getState().currentUser;
+  if (actor && actor.role === 'Admin' && actor.branch_scope === 'ASSIGNED') {
+    return actor;
+  }
+  return null;
+}
+
+function authorizeAssignedAdminTarget(
+  actor: CurrentUser,
+  target: User
+): Response | null {
+  if (target.role === 'Admin' || target.branch_scope === 'ALL') {
+    return errorResponse(
+      403,
+      'FORBIDDEN',
+      'Assigned branch administrators cannot manage Admin or ALL-scope accounts.',
+      'mock-trace-user-hierarchy-forbidden'
+    );
+  }
+  if (
+    actor.branch_ids.length === 0 ||
+    target.branch_ids.length === 0 ||
+    !target.branch_ids.every((id) => actor.branch_ids.includes(id))
+  ) {
+    return errorResponse(
+      403,
+      'FORBIDDEN_BRANCH',
+      'Target user belongs to branches outside your authorized scope.',
+      'mock-trace-user-branch-forbidden'
+    );
+  }
+  return null;
+}
+
 async function handleResetPassword(
   userId: string | undefined,
   request: Request
 ) {
+  const idempotencyError = requireIdempotencyKey(request);
+  if (idempotencyError) {
+    return idempotencyError;
+  }
+
   const index = mockUsers.findIndex((item) => item.user_id === userId);
   if (index === -1) {
     return userNotFoundResponse();
@@ -203,6 +281,14 @@ async function handleResetPassword(
   const current = mockUsers[index];
   if (!current) {
     return userNotFoundResponse();
+  }
+
+  const assignedAdmin = getAssignedAdminActor();
+  if (assignedAdmin) {
+    const authError = authorizeAssignedAdminTarget(assignedAdmin, current);
+    if (authError) {
+      return authError;
+    }
   }
 
   const body: unknown = await request.json().catch(() => null);
@@ -218,15 +304,6 @@ async function handleResetPassword(
       {
         field: 'new_password',
         issue: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
-      },
-    ]);
-  }
-
-  if (newPassword.length > MAX_PASSWORD_LENGTH) {
-    return validationErrorResponse('Invalid password reset request.', [
-      {
-        field: 'new_password',
-        issue: `Password must be at most ${MAX_PASSWORD_LENGTH} characters.`,
       },
     ]);
   }
@@ -295,6 +372,19 @@ export const userHandlers = [
     const includeInactive = url.searchParams.get('include_inactive') === 'true';
     const branchId = url.searchParams.get('branch_id')?.trim() ?? '';
 
+    const assignedAdmin = getAssignedAdminActor();
+    if (
+      assignedAdmin &&
+      (branchId.length === 0 || !assignedAdmin.branch_ids.includes(branchId))
+    ) {
+      return errorResponse(
+        403,
+        'FORBIDDEN_BRANCH',
+        'A valid authorized branch_id is required.',
+        'mock-trace-users-list-branch-forbidden'
+      );
+    }
+
     const filtered = mockUsers.filter((user) => {
       if (!includeInactive && !user.is_active) {
         return false;
@@ -339,6 +429,11 @@ export const userHandlers = [
   }),
 
   http.post('*/api/v1/users', async ({ request }) => {
+    const idempotencyError = requireIdempotencyKey(request);
+    if (idempotencyError) {
+      return idempotencyError;
+    }
+
     const body: unknown = await request.json().catch(() => null);
     if (!isRecord(body)) {
       return malformedBodyResponse();
@@ -375,11 +470,6 @@ export const userHandlers = [
       details.push({
         field: 'password',
         issue: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
-      });
-    } else if (password.length > MAX_PASSWORD_LENGTH) {
-      details.push({
-        field: 'password',
-        issue: `Password must be at most ${MAX_PASSWORD_LENGTH} characters.`,
       });
     }
 
@@ -421,6 +511,28 @@ export const userHandlers = [
 
     if (details.length > 0 || !role || !branchScope || !parsedBranchIds) {
       return validationErrorResponse('Invalid user account details.', details);
+    }
+
+    const assignedAdmin = getAssignedAdminActor();
+    if (assignedAdmin) {
+      if (role === 'Admin' || branchScope === 'ALL') {
+        return errorResponse(
+          403,
+          'FORBIDDEN',
+          'Assigned branch administrators cannot create Admin or ALL-scope accounts.',
+          'mock-trace-user-create-forbidden'
+        );
+      }
+      if (
+        !parsedBranchIds.every((id) => assignedAdmin.branch_ids.includes(id))
+      ) {
+        return errorResponse(
+          403,
+          'FORBIDDEN_BRANCH',
+          'All assigned branches must belong to your authorized branches.',
+          'mock-trace-user-create-branch-forbidden'
+        );
+      }
     }
 
     const normalizedEmployeeId = employeeId.toLowerCase();
@@ -480,6 +592,11 @@ export const userHandlers = [
   }),
 
   http.patch('*/api/v1/users/:id', async ({ params, request }) => {
+    const idempotencyError = requireIdempotencyKey(request);
+    if (idempotencyError) {
+      return idempotencyError;
+    }
+
     const id = typeof params.id === 'string' ? params.id : '';
     const index = mockUsers.findIndex((item) => item.user_id === id);
     if (index === -1) {
@@ -573,6 +690,30 @@ export const userHandlers = [
           ? [...parsedBranchIds]
           : [...current.branch_ids];
 
+    const assignedAdmin = getAssignedAdminActor();
+    if (assignedAdmin) {
+      if (nextRole === 'Admin' || nextScope === 'ALL') {
+        return errorResponse(
+          403,
+          'FORBIDDEN',
+          'Assigned branch administrators cannot assign Admin role or ALL scope.',
+          'mock-trace-user-patch-forbidden'
+        );
+      }
+      const targetError = authorizeAssignedAdminTarget(assignedAdmin, current);
+      if (targetError) {
+        return targetError;
+      }
+      if (!nextBranchIds.every((b) => assignedAdmin.branch_ids.includes(b))) {
+        return errorResponse(
+          403,
+          'FORBIDDEN_BRANCH',
+          'All assigned branches must belong to your authorized branches.',
+          'mock-trace-user-patch-branch-forbidden'
+        );
+      }
+    }
+
     const updated: User = {
       ...current,
       role: nextRole,
@@ -599,11 +740,24 @@ export const userHandlers = [
     )
   ),
 
-  http.post('*/api/v1/users/:id/revoke-sessions', ({ params }) => {
+  http.post('*/api/v1/users/:id/revoke-sessions', ({ params, request }) => {
+    const idempotencyError = requireIdempotencyKey(request);
+    if (idempotencyError) {
+      return idempotencyError;
+    }
+
     const id = typeof params.id === 'string' ? params.id : '';
     const user = mockUsers.find((item) => item.user_id === id);
     if (!user) {
       return userNotFoundResponse();
+    }
+
+    const assignedAdmin = getAssignedAdminActor();
+    if (assignedAdmin) {
+      const targetError = authorizeAssignedAdminTarget(assignedAdmin, user);
+      if (targetError) {
+        return targetError;
+      }
     }
 
     return new HttpResponse(null, { status: 204 });

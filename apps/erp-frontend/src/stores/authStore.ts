@@ -5,13 +5,18 @@
  * Follows STRUCTURE.md: stores/authStore.ts.
  */
 
+import axios from 'axios';
 import { create } from 'zustand';
 import { authService } from '../features/auth/api/authService';
+import { ApiClientError } from '../lib/api/client';
 import { isAllowedBranch } from '../lib/auth/permissions';
 import { tokenStorage } from '../lib/auth/tokenStorage';
 import { notifySessionEnd } from '../lib/auth/sessionEvents';
 import { queryClient } from '../lib/queryClient';
 import type { CurrentUser, LoginRequest } from '../types/api';
+
+const DEFAULT_SESSION_INIT_ERROR =
+  'Unable to reach the server to restore your session.';
 
 function resolveInitialBranchId(userContext: CurrentUser): string | null {
   if (userContext.branch_scope === 'ASSIGNED') {
@@ -20,15 +25,44 @@ function resolveInitialBranchId(userContext: CurrentUser): string | null {
   return null;
 }
 
+function reconcileActiveBranchId(
+  userContext: CurrentUser,
+  currentActiveBranchId: string | null
+): string | null {
+  if (userContext.branch_scope === 'ASSIGNED') {
+    if (
+      currentActiveBranchId !== null &&
+      userContext.branch_ids.includes(currentActiveBranchId)
+    ) {
+      return currentActiveBranchId;
+    }
+    return userContext.branch_ids[0] ?? null;
+  }
+  return currentActiveBranchId;
+}
+
+function isDefinitiveAuthRejection(error: unknown): boolean {
+  if (error instanceof ApiClientError) {
+    return error.status === 401 || error.status === 403;
+  }
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status;
+    return status === 401 || status === 403;
+  }
+  return false;
+}
+
 export interface AuthState {
   currentUser: CurrentUser | null;
   organizationCode: string | null;
   activeBranchId: string | null;
   isAuthenticated: boolean;
   isInitializing: boolean;
+  initError: string | null;
   login: (credentials: LoginRequest) => Promise<void>;
   logout: () => Promise<void>;
   initialize: () => Promise<void>;
+  syncCurrentUser: (user: CurrentUser) => void;
   setActiveBranch: (branchId: string | null) => void;
   resetSession: () => void;
 }
@@ -39,6 +73,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   activeBranchId: null,
   isAuthenticated: false,
   isInitializing: true,
+  initError: null,
 
   login: async (credentials: LoginRequest) => {
     // 1. Authenticate with credentials and store tokens + organization code
@@ -55,6 +90,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
         activeBranchId: resolveInitialBranchId(userContext),
         isAuthenticated: true,
         isInitializing: false,
+        initError: null,
       });
     } catch (error: unknown) {
       get().resetSession();
@@ -79,6 +115,8 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   },
 
   initialize: async () => {
+    set({ isInitializing: true, initError: null });
+
     const token = tokenStorage.getAccessToken();
 
     if (!token) {
@@ -88,6 +126,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
         activeBranchId: null,
         isAuthenticated: false,
         isInitializing: false,
+        initError: null,
       });
       return;
     }
@@ -100,18 +139,45 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
         activeBranchId: resolveInitialBranchId(userContext),
         isAuthenticated: true,
         isInitializing: false,
+        initError: null,
       });
     } catch (error: unknown) {
       console.warn('Failed to restore auth session from storage', error);
-      tokenStorage.clearTokens();
+
+      if (isDefinitiveAuthRejection(error)) {
+        tokenStorage.clearTokens();
+        set({
+          currentUser: null,
+          organizationCode: null,
+          activeBranchId: null,
+          isAuthenticated: false,
+          isInitializing: false,
+          initError: null,
+        });
+        return;
+      }
+
       set({
         currentUser: null,
         organizationCode: null,
         activeBranchId: null,
         isAuthenticated: false,
         isInitializing: false,
+        initError:
+          error instanceof Error && error.message.trim().length > 0
+            ? error.message
+            : DEFAULT_SESSION_INIT_ERROR,
       });
     }
+  },
+
+  syncCurrentUser: (user: CurrentUser) => {
+    set((state) => ({
+      currentUser: user,
+      activeBranchId: reconcileActiveBranchId(user, state.activeBranchId),
+      isAuthenticated: true,
+      initError: null,
+    }));
   },
 
   setActiveBranch: (branchId: string | null) => {
@@ -143,6 +209,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       activeBranchId: null,
       isAuthenticated: false,
       isInitializing: false,
+      initError: null,
     });
   },
 }));

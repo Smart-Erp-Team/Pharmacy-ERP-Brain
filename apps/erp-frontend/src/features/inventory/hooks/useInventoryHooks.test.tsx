@@ -307,12 +307,44 @@ describe('inventoryApi and inventoryHandlers Stage 1 integration', () => {
     ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
-  it('lists, creates, and patches locations (including DAMAGED), enforces sellability rules, and updates balance availability', async () => {
-    await expect(listInventoryLocations({})).rejects.toMatchObject({
+  it('lists, creates, and patches locations (including DAMAGED), enforces mandatory branch_id & Idempotency-Key, enforces sellability rules, and updates balance availability', async () => {
+    await expect(
+      listInventoryLocations({ branch_id: '   ' })
+    ).rejects.toThrowError('branch_id is required.');
+    await expect(listInventoryBalances({ branch_id: '' })).rejects.toThrowError(
+      'branch_id is required.'
+    );
+    await expect(
+      listInventoryTransactions({ branch_id: '  ' })
+    ).rejects.toThrowError('branch_id is required.');
+
+    await expect(apiClient.get('/inventory/locations')).rejects.toMatchObject({
       status: 422,
       code: 'VALIDATION_ERROR',
       details: [{ field: 'branch_id', issue: expect.any(String) }],
     });
+
+    for (const writeEndpoint of [
+      { method: 'POST', url: 'http://localhost/api/v1/inventory/locations' },
+      {
+        method: 'PATCH',
+        url: `http://localhost/api/v1/inventory/locations/${MOCK_LOCATION_IDS.MAIN_SELLABLE}`,
+      },
+      { method: 'POST', url: 'http://localhost/api/v1/inventory/adjustments' },
+    ]) {
+      const noIdempotencyRes = await fetch(writeEndpoint.url, {
+        method: writeEndpoint.method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          idempotency_key: 'body-only-should-not-bypass',
+        }),
+      });
+      expect(noIdempotencyRes.status).toBe(400);
+      const errBody: unknown = await noIdempotencyRes.json();
+      expect(errBody).toMatchObject({
+        error: { code: 'MALFORMED_REQUEST' },
+      });
+    }
 
     const dtActive = await listInventoryLocations({
       branch_id: MOCK_BRANCH_IDS.DOWNTOWN,
@@ -737,11 +769,11 @@ describe('useInventoryQueries hooks', () => {
     const { result: idleHooks } = renderHook(
       () => ({
         locsBlank: useInventoryLocationsQuery({ branch_id: '   ' }),
-        allLocsNull: useAllInventoryLocationsQuery({ branch_id: null }),
+        allLocsBlank: useAllInventoryLocationsQuery({ branch_id: '' }),
         batchesDisabled: useInventoryBatchesQuery({}, { enabled: false }),
         allBatchesDisabled: useAllInventoryBatchesQuery({}, { enabled: false }),
         balancesBlank: useInventoryBalancesQuery({ branch_id: '' }),
-        allBalancesNull: useAllInventoryBalancesQuery({ branch_id: null }),
+        allBalancesBlank: useAllInventoryBalancesQuery({ branch_id: '   ' }),
         summaryNoBranch: useInventorySummaryQuery({
           branch_id: null,
           product_id: MOCK_PRODUCT_IDS.AUGMENTIN_1G,
@@ -751,23 +783,23 @@ describe('useInventoryQueries hooks', () => {
           product_id: '  ',
         }),
         txnsBlank: useInventoryTransactionsQuery({ branch_id: ' ' }),
-        allTxnsUndef: useAllInventoryTransactionsQuery({
-          branch_id: undefined,
+        allTxnsBlank: useAllInventoryTransactionsQuery({
+          branch_id: '',
         }),
       }),
       { wrapper }
     );
 
     expect(idleHooks.current.locsBlank.fetchStatus).toBe('idle');
-    expect(idleHooks.current.allLocsNull.fetchStatus).toBe('idle');
+    expect(idleHooks.current.allLocsBlank.fetchStatus).toBe('idle');
     expect(idleHooks.current.batchesDisabled.fetchStatus).toBe('idle');
     expect(idleHooks.current.allBatchesDisabled.fetchStatus).toBe('idle');
     expect(idleHooks.current.balancesBlank.fetchStatus).toBe('idle');
-    expect(idleHooks.current.allBalancesNull.fetchStatus).toBe('idle');
+    expect(idleHooks.current.allBalancesBlank.fetchStatus).toBe('idle');
     expect(idleHooks.current.summaryNoBranch.fetchStatus).toBe('idle');
     expect(idleHooks.current.summaryNoProduct.fetchStatus).toBe('idle');
     expect(idleHooks.current.txnsBlank.fetchStatus).toBe('idle');
-    expect(idleHooks.current.allTxnsUndef.fetchStatus).toBe('idle');
+    expect(idleHooks.current.allTxnsBlank.fetchStatus).toBe('idle');
 
     const { result: liveHooks } = renderHook(
       () => ({

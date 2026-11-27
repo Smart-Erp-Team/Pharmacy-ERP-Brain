@@ -23,8 +23,8 @@ import type {
 } from '../../../types/api';
 import {
   createEmptyAdjustmentLine,
+  createInventoryAdjustmentFormSchema,
   DEFAULT_ADJUSTMENT_FORM_VALUES,
-  inventoryAdjustmentFormSchema,
   toCreateInventoryAdjustmentPayload,
   type InventoryAdjustmentFormValues,
   type InventoryAdjustmentLineFormValues,
@@ -148,6 +148,7 @@ export function buildAdjustmentLineFieldConfigs(params: {
 
   const selectedProduct = products.find((p) => p.product_id === productId);
   const isNonLot = selectedProduct?.lot_tracking_required === false;
+  const isLotTracked = selectedProduct?.lot_tracking_required === true;
   const uoms = selectedProduct?.uoms ?? [];
   const showUnitCost =
     transactionType === 'OPENING_BALANCE' ||
@@ -191,8 +192,13 @@ export function buildAdjustmentLineFieldConfigs(params: {
       inputMode: undefined,
       maxLength: 80,
       placeholder: isNonLot ? 'NON-LOT' : 'e.g. MEDCARE-LOT-2601',
+      isRequired: isLotTracked,
       isDisabled: disabled || isNonLot,
-      hint: isNonLot ? 'Non-lot product (automatic NON-LOT batch)' : undefined,
+      hint: isNonLot
+        ? 'Non-lot product (automatic NON-LOT batch)'
+        : isLotTracked
+          ? 'Required for lot-tracked product (cannot be NON-LOT)'
+          : undefined,
       error: lineErrors?.batch_number?.message,
     },
     {
@@ -202,6 +208,7 @@ export function buildAdjustmentLineFieldConfigs(params: {
       inputMode: undefined,
       maxLength: undefined,
       placeholder: undefined,
+      isRequired: false,
       isDisabled: disabled || isNonLot,
       hint: undefined,
       error: lineErrors?.manufactured_on?.message,
@@ -213,8 +220,9 @@ export function buildAdjustmentLineFieldConfigs(params: {
       inputMode: undefined,
       maxLength: undefined,
       placeholder: undefined,
+      isRequired: isLotTracked,
       isDisabled: disabled || isNonLot,
-      hint: undefined,
+      hint: isLotTracked ? 'Required for lot-tracked product' : undefined,
       error: lineErrors?.expires_on?.message,
     },
     {
@@ -224,6 +232,7 @@ export function buildAdjustmentLineFieldConfigs(params: {
       inputMode: 'decimal' as const,
       maxLength: undefined,
       placeholder: 'e.g. 10',
+      isRequired: true,
       isDisabled: disabled,
       hint: selectedProduct
         ? `Entered in selected UOM (base: ${selectedProduct.base_uom_code})`
@@ -242,6 +251,7 @@ export function buildAdjustmentLineFieldConfigs(params: {
           inputMode: 'decimal' as const,
           maxLength: undefined,
           placeholder: '0.00',
+          isRequired: true,
           isDisabled: disabled,
           hint: 'Required non-negative cost per entered UOM',
           error: lineErrors?.unit_cost_entered?.message,
@@ -314,6 +324,19 @@ export function useAdjustmentForm({
     }
   }
 
+  const products = useMemo(
+    () => productsQuery.data ?? [],
+    [productsQuery.data]
+  );
+  const productsById = useMemo(
+    () => new Map(products.map((product) => [product.product_id, product])),
+    [products]
+  );
+  const adjustmentSchema = useMemo(
+    () => createInventoryAdjustmentFormSchema(productsById),
+    [productsById]
+  );
+
   const initialDefaults =
     initialReversalTxn && initialReversalTxn.branch_id === branchId
       ? buildReversalFormValues(initialReversalTxn)
@@ -328,7 +351,7 @@ export function useAdjustmentForm({
     getValues,
     reset,
   } = useForm<InventoryAdjustmentFormValues>({
-    resolver: zodResolver(inventoryAdjustmentFormSchema),
+    resolver: zodResolver(adjustmentSchema),
     defaultValues: initialDefaults,
     mode: 'onTouched',
   });
@@ -366,10 +389,6 @@ export function useAdjustmentForm({
   const reversesTxnId =
     useWatch({ control, name: 'reverses_inventory_txn_id' }) ?? '';
 
-  const products = useMemo(
-    () => productsQuery.data ?? [],
-    [productsQuery.data]
-  );
   const locations = useMemo(
     () => locationsQuery.data ?? [],
     [locationsQuery.data]
@@ -459,15 +478,16 @@ export function useAdjustmentForm({
       clearErrors(`lines.${index}.product_uom_id`);
     }
 
+    clearErrors([
+      `lines.${index}.batch_number`,
+      `lines.${index}.manufactured_on`,
+      `lines.${index}.expires_on`,
+    ]);
+
     if (!product.lot_tracking_required) {
       setValue(`lines.${index}.batch_number`, '', { shouldDirty: true });
       setValue(`lines.${index}.manufactured_on`, '', { shouldDirty: true });
       setValue(`lines.${index}.expires_on`, '', { shouldDirty: true });
-      clearErrors([
-        `lines.${index}.batch_number`,
-        `lines.${index}.manufactured_on`,
-        `lines.${index}.expires_on`,
-      ]);
     }
   };
 

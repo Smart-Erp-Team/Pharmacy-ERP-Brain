@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import authTokenPairFixture from '@contracts/fixtures/auth-token-pair.json';
 import currentUserContextFixture from '@contracts/fixtures/current-user-context.json';
+import { authService } from '../features/auth/api/authService';
 import { handlers, resetMockAuth } from '../mocks/handlers';
 import { IDEMPOTENCY_KEY_HEADER } from '../lib/api/idempotency';
 import { normalizeCurrentUser } from '../lib/api/normalizers';
@@ -23,6 +25,7 @@ beforeEach(() => {
     activeBranchId: null,
     isAuthenticated: false,
     isInitializing: true,
+    initError: null,
   });
 });
 
@@ -162,5 +165,164 @@ describe('authStore (Stage 1)', () => {
     expect(tokenStorage.getAccessToken()).toBeNull();
     expect(tokenStorage.getRefreshToken()).toBeNull();
     expect(tokenStorage.getOrganizationCode()).toBeNull();
+  });
+
+  it('session-bound MSW auth returns Pharmacist from both /auth/login and /auth/me for sarah.pharm@medcare.test and Admin for admin@medcare.test', async () => {
+    const pharmLogin = await authService.login({
+      organization_code: 'MEDCARE',
+      username: 'sarah.pharm@medcare.test',
+      password: 'password123',
+    });
+    expect(pharmLogin.user.username).toBe('sarah.pharm@medcare.test');
+    expect(pharmLogin.user.role).toBe('Pharmacist');
+
+    await useAuthStore.getState().initialize();
+    const pharmState = useAuthStore.getState();
+    expect(pharmState.isAuthenticated).toBe(true);
+    expect(pharmState.currentUser?.username).toBe('sarah.pharm@medcare.test');
+    expect(pharmState.currentUser?.role).toBe('Pharmacist');
+    expect(pharmState.activeBranchId).toBe(
+      '11111111-2222-4111-8111-000000000001'
+    );
+
+    const adminLogin = await authService.login({
+      organization_code: 'MEDCARE',
+      username: 'admin@medcare.test',
+      password: 'password123',
+    });
+    expect(adminLogin.user.username).toBe('admin@medcare.test');
+    expect(adminLogin.user.role).toBe('Admin');
+
+    await useAuthStore.getState().initialize();
+    const adminState = useAuthStore.getState();
+    expect(adminState.isAuthenticated).toBe(true);
+    expect(adminState.currentUser?.username).toBe('admin@medcare.test');
+    expect(adminState.currentUser?.role).toBe('Admin');
+    expect(adminState.activeBranchId).toBeNull();
+  });
+
+  it('initialize() preserves tokens and sets initError on network error or 503, and clears tokens on 401 or 403', async () => {
+    tokenStorage.setTokens('saved_access', 'saved_refresh');
+    tokenStorage.setOrganizationCode('MEDCARE');
+
+    server.use(http.get('*/api/v1/auth/me', () => HttpResponse.error()));
+    await useAuthStore.getState().initialize();
+
+    let state = useAuthStore.getState();
+    expect(state.isInitializing).toBe(false);
+    expect(state.isAuthenticated).toBe(false);
+    expect(state.initError).toBeTruthy();
+    expect(tokenStorage.getAccessToken()).toBe('saved_access');
+    expect(tokenStorage.getRefreshToken()).toBe('saved_refresh');
+
+    server.use(
+      http.get('*/api/v1/auth/me', () =>
+        HttpResponse.json(
+          {
+            error: {
+              code: 'INTERNAL_SERVER_ERROR',
+              message: 'Gateway 503 outage',
+              details: [],
+              trace_id: 'trace-me-503',
+            },
+          },
+          { status: 503 }
+        )
+      )
+    );
+    await useAuthStore.getState().initialize();
+
+    state = useAuthStore.getState();
+    expect(state.isInitializing).toBe(false);
+    expect(state.isAuthenticated).toBe(false);
+    expect(state.initError).toBe('Gateway 503 outage');
+    expect(tokenStorage.getAccessToken()).toBe('saved_access');
+    expect(tokenStorage.getRefreshToken()).toBe('saved_refresh');
+
+    server.use(
+      http.get('*/api/v1/auth/me', () =>
+        HttpResponse.json(
+          {
+            error: {
+              code: 'FORBIDDEN',
+              message: 'Account disabled',
+              details: [],
+              trace_id: 'trace-me-403',
+            },
+          },
+          { status: 403 }
+        )
+      )
+    );
+    await useAuthStore.getState().initialize();
+
+    state = useAuthStore.getState();
+    expect(state.isInitializing).toBe(false);
+    expect(state.isAuthenticated).toBe(false);
+    expect(state.initError).toBeNull();
+    expect(tokenStorage.getAccessToken()).toBeNull();
+    expect(tokenStorage.getRefreshToken()).toBeNull();
+
+    tokenStorage.setTokens('expired_access');
+    server.use(
+      http.get('*/api/v1/auth/me', () =>
+        HttpResponse.json(
+          {
+            error: {
+              code: 'UNAUTHORIZED',
+              message: 'Invalid token',
+              details: [],
+              trace_id: 'trace-me-401',
+            },
+          },
+          { status: 401 }
+        )
+      )
+    );
+    await useAuthStore.getState().initialize();
+
+    state = useAuthStore.getState();
+    expect(state.isInitializing).toBe(false);
+    expect(state.isAuthenticated).toBe(false);
+    expect(state.initError).toBeNull();
+    expect(tokenStorage.getAccessToken()).toBeNull();
+  });
+
+  it('syncCurrentUser() updates currentUser and reconciles activeBranchId for ASSIGNED and ALL scopes', () => {
+    const branchA = '11111111-2222-4111-8111-000000000001';
+    const branchB = '11111111-2222-4111-8111-000000000002';
+    const pharmacist = normalizeCurrentUser(authTokenPairFixture.user);
+    const admin = normalizeCurrentUser(currentUserContextFixture);
+
+    useAuthStore.setState({
+      currentUser: admin,
+      activeBranchId: branchB,
+      isAuthenticated: true,
+      isInitializing: false,
+      initError: null,
+    });
+
+    // ASSIGNED user without branchB reconciles activeBranchId to branchA (branch_ids[0])
+    useAuthStore.getState().syncCurrentUser({
+      ...pharmacist,
+      branch_scope: 'ASSIGNED',
+      branch_ids: [branchA],
+    });
+    expect(useAuthStore.getState().currentUser?.role).toBe('Pharmacist');
+    expect(useAuthStore.getState().activeBranchId).toBe(branchA);
+
+    // ASSIGNED user where activeBranchId IS in branch_ids preserves activeBranchId
+    useAuthStore.setState({ activeBranchId: branchB });
+    useAuthStore.getState().syncCurrentUser({
+      ...pharmacist,
+      branch_scope: 'ASSIGNED',
+      branch_ids: [branchA, branchB],
+    });
+    expect(useAuthStore.getState().activeBranchId).toBe(branchB);
+
+    // ALL scope user keeps current activeBranchId as-is
+    useAuthStore.getState().syncCurrentUser(admin);
+    expect(useAuthStore.getState().currentUser?.role).toBe('Admin');
+    expect(useAuthStore.getState().activeBranchId).toBe(branchB);
   });
 });

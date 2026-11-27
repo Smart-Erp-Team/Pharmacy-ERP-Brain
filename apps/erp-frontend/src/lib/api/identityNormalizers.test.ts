@@ -125,17 +125,17 @@ describe('normalizeBranch', () => {
     });
   });
 
-  it('normalizes omitted or null optional address fields to null', () => {
+  it('normalizes explicit null optional address fields to null and rejects missing nullable keys', () => {
     const normalized = normalizeBranch(
       {
         ...branchFixture,
         is_active: false,
         address: {
           line1: '10 Nile Corniche',
-          line2: undefined,
+          line2: null,
           city: 'Giza',
           region: null,
-          postal_code: undefined,
+          postal_code: null,
           country_code: 'EG',
         },
       },
@@ -150,6 +150,24 @@ describe('normalizeBranch', () => {
       postal_code: null,
       country_code: 'EG',
     });
+
+    expectInvalidResponse(
+      () =>
+        normalizeBranch(
+          {
+            ...branchFixture,
+            address: {
+              line1: '10 Nile Corniche',
+              city: 'Giza',
+              region: null,
+              postal_code: null,
+              country_code: 'EG',
+            },
+          },
+          '/branches'
+        ),
+      '/branches'
+    );
   });
 
   it('rejects malformed branch fields or invalid nested address', () => {
@@ -295,7 +313,7 @@ describe('normalizeEmployee', () => {
     expect(normalized.address.city).toBe('Cairo');
   });
 
-  it('normalizes email and phone set to null or undefined to null', () => {
+  it('normalizes email and phone set to explicit null and rejects missing/undefined nullable keys', () => {
     const withNulls = normalizeEmployee(
       {
         ...VALID_EMPLOYEE_PAYLOAD,
@@ -307,16 +325,28 @@ describe('normalizeEmployee', () => {
     expect(withNulls.email).toBeNull();
     expect(withNulls.phone).toBeNull();
 
-    const withUndefined = normalizeEmployee(
-      {
-        ...VALID_EMPLOYEE_PAYLOAD,
-        email: undefined,
-        phone: undefined,
-      },
+    expectInvalidResponse(
+      () =>
+        normalizeEmployee(
+          {
+            ...VALID_EMPLOYEE_PAYLOAD,
+            email: undefined,
+          },
+          '/employees'
+        ),
       '/employees'
     );
-    expect(withUndefined.email).toBeNull();
-    expect(withUndefined.phone).toBeNull();
+    expectInvalidResponse(
+      () =>
+        normalizeEmployee(
+          {
+            ...VALID_EMPLOYEE_PAYLOAD,
+            phone: undefined,
+          },
+          '/employees'
+        ),
+      '/employees'
+    );
   });
 
   it('rejects malformed nullable fields, missing strings, or invalid address', () => {
@@ -360,7 +390,7 @@ describe('normalizeEmployee', () => {
 });
 
 describe('normalizeUser', () => {
-  it('accepts valid UserDto payloads including ALL scope with empty branch_ids and access_failed_count: 0', () => {
+  it('accepts valid UserDto payloads with explicit null nullable timestamps and rejects missing nullable keys', () => {
     const admin = normalizeUser(VALID_USER_PAYLOAD, '/users');
     expect(admin.role).toBe('Admin');
     expect(admin.branch_scope).toBe('ALL');
@@ -374,7 +404,7 @@ describe('normalizeUser', () => {
         role: 'Cashier',
         branch_scope: 'ASSIGNED',
         branch_ids: ['11111111-2222-4111-8111-000000000001'],
-        last_login_at: undefined,
+        last_login_at: null,
         lockout_end: '2026-11-26T15:00:00+00:00',
         access_failed_count: 3,
         is_active: false,
@@ -390,6 +420,23 @@ describe('normalizeUser', () => {
     expect(cashier.lockout_end).toBe('2026-11-26T15:00:00+00:00');
     expect(cashier.access_failed_count).toBe(3);
     expect(cashier.is_active).toBe(false);
+
+    expectInvalidResponse(
+      () =>
+        normalizeUser(
+          { ...VALID_USER_PAYLOAD, last_login_at: undefined },
+          '/users'
+        ),
+      '/users'
+    );
+    expectInvalidResponse(
+      () =>
+        normalizeUser(
+          { ...VALID_USER_PAYLOAD, lockout_end: undefined },
+          '/users'
+        ),
+      '/users'
+    );
   });
 
   it('rejects invalid enums, malformed branch_ids, non-integer access_failed_count, or bad nullable dates', () => {

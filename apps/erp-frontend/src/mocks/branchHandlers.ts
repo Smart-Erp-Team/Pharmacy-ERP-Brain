@@ -1,6 +1,10 @@
 import { http, HttpResponse } from 'msw';
 import branchFixture from '@contracts/fixtures/branch.json';
 import currentUserContext from '@contracts/fixtures/current-user-context.json';
+import {
+  IDEMPOTENCY_KEY_HEADER,
+  IDEMPOTENCY_KEY_MAX_LENGTH,
+} from '../lib/api/idempotency';
 import { isPlainRecord } from '../lib/api/normalizers';
 import type {
   Branch,
@@ -130,6 +134,43 @@ function createMockErrorEnvelope(
       trace_id: traceId,
     },
   };
+}
+
+function requireIdempotencyKey(request: Request): Response | null {
+  const key = request.headers.get(IDEMPOTENCY_KEY_HEADER)?.trim() ?? '';
+  if (key.length === 0) {
+    return HttpResponse.json(
+      createMockErrorEnvelope(
+        'MALFORMED_REQUEST',
+        'The idempotency key is required.',
+        'mock-trace-branch-idempotency-missing',
+        [
+          {
+            field: IDEMPOTENCY_KEY_HEADER,
+            issue: 'The idempotency key is required.',
+          },
+        ]
+      ),
+      { status: 400 }
+    );
+  }
+  if (key.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
+    return HttpResponse.json(
+      createMockErrorEnvelope(
+        'MALFORMED_REQUEST',
+        `The idempotency key must be at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`,
+        'mock-trace-branch-idempotency-length',
+        [
+          {
+            field: IDEMPOTENCY_KEY_HEADER,
+            issue: `The idempotency key must be at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`,
+          },
+        ]
+      ),
+      { status: 400 }
+    );
+  }
+  return null;
 }
 
 function readOptionalNullableString(
@@ -356,6 +397,11 @@ export const branchHandlers = [
   }),
 
   http.post('*/api/v1/branches', async ({ request }) => {
+    const idempotencyError = requireIdempotencyKey(request);
+    if (idempotencyError) {
+      return idempotencyError;
+    }
+
     const body: unknown = await request.json().catch(() => null);
     if (!isPlainRecord(body)) {
       return HttpResponse.json(
@@ -446,6 +492,11 @@ export const branchHandlers = [
   }),
 
   http.patch('*/api/v1/branches/:branchId', async ({ params, request }) => {
+    const idempotencyError = requireIdempotencyKey(request);
+    if (idempotencyError) {
+      return idempotencyError;
+    }
+
     const branchId = typeof params.branchId === 'string' ? params.branchId : '';
     const index = mockBranches.findIndex((item) => item.branch_id === branchId);
     const current = index >= 0 ? mockBranches[index] : undefined;
@@ -540,48 +591,57 @@ export const branchHandlers = [
     return HttpResponse.json(updated, { status: 200 });
   }),
 
-  http.post('*/api/v1/branches/:branchId/enrollment-tokens', ({ params }) => {
-    const branchId = typeof params.branchId === 'string' ? params.branchId : '';
-    const branch = mockBranches.find((item) => item.branch_id === branchId);
-    if (!branch) {
-      return HttpResponse.json(
-        createMockErrorEnvelope(
-          'NOT_FOUND',
-          'Branch was not found.',
-          'mock-trace-branch-not-found'
-        ),
-        { status: 404 }
-      );
+  http.post(
+    '*/api/v1/branches/:branchId/enrollment-tokens',
+    ({ params, request }) => {
+      const idempotencyError = requireIdempotencyKey(request);
+      if (idempotencyError) {
+        return idempotencyError;
+      }
+
+      const branchId =
+        typeof params.branchId === 'string' ? params.branchId : '';
+      const branch = mockBranches.find((item) => item.branch_id === branchId);
+      if (!branch) {
+        return HttpResponse.json(
+          createMockErrorEnvelope(
+            'NOT_FOUND',
+            'Branch was not found.',
+            'mock-trace-branch-not-found'
+          ),
+          { status: 404 }
+        );
+      }
+
+      if (!branch.is_active) {
+        return HttpResponse.json(
+          createMockErrorEnvelope(
+            'CONFLICT',
+            'Cannot issue an enrollment token for an inactive branch.',
+            'mock-trace-enrollment-inactive'
+          ),
+          { status: 409 }
+        );
+      }
+
+      enrollmentTokenSequence += 1;
+      const token = `enr_live_${branch.branch_code.toLowerCase()}_${String(enrollmentTokenSequence).padStart(4, '0')}`;
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+      mockEnrollmentTokens.set(token, {
+        branch_id: branch.branch_id,
+        expires_at: expiresAt,
+        consumed: false,
+      });
+
+      const tokenPayload: EnrollmentToken = {
+        token,
+        expires_at: expiresAt,
+      };
+
+      return HttpResponse.json(tokenPayload, { status: 201 });
     }
-
-    if (!branch.is_active) {
-      return HttpResponse.json(
-        createMockErrorEnvelope(
-          'CONFLICT',
-          'Cannot issue an enrollment token for an inactive branch.',
-          'mock-trace-enrollment-inactive'
-        ),
-        { status: 409 }
-      );
-    }
-
-    enrollmentTokenSequence += 1;
-    const token = `enr_live_${branch.branch_code.toLowerCase()}_${String(enrollmentTokenSequence).padStart(4, '0')}`;
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-
-    mockEnrollmentTokens.set(token, {
-      branch_id: branch.branch_id,
-      expires_at: expiresAt,
-      consumed: false,
-    });
-
-    const tokenPayload: EnrollmentToken = {
-      token,
-      expires_at: expiresAt,
-    };
-
-    return HttpResponse.json(tokenPayload, { status: 201 });
-  }),
+  ),
 
   http.post('*/api/v1/branch-enrollment', async ({ request }) => {
     const body: unknown = await request.json().catch(() => null);

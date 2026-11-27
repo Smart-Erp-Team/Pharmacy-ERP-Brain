@@ -99,8 +99,6 @@ function EditProductModalContent({
         ) : null}
 
         <EditProductFormFields
-          sku={product.sku}
-          baseUomCode={product.base_uom_code}
           currentCategoryId={product.category_id}
           categories={categories}
           disabled={isPending}

@@ -1,4 +1,5 @@
 import { Plus } from 'lucide-react';
+import { Alert } from '../../../components/ui/Alert';
 import { Button } from '../../../components/ui/Button';
 import { Card } from '../../../components/ui/Card';
 import { PageHeading } from '../../../components/ui/PageHeading';
@@ -11,6 +12,7 @@ import { useEmployeesPageState } from '../hooks/useEmployeesPageState';
 
 export function EmployeesPage() {
   const {
+    canWrite,
     searchTerm,
     branchFilter,
     statusFilter,
@@ -52,15 +54,23 @@ export function EmployeesPage() {
         title="Employees"
         description="Manage employees, home branch assignments, job roles, and account status."
         actions={
-          <Button
-            variant="primary"
-            leadingIcon={<Plus className="h-4 w-4" />}
-            onClick={() => setFormModalState({ open: true, employee: null })}
-          >
-            Add employee
-          </Button>
+          canWrite ? (
+            <Button
+              variant="primary"
+              leadingIcon={<Plus className="h-4 w-4" />}
+              onClick={() => setFormModalState({ open: true, employee: null })}
+            >
+              Add employee
+            </Button>
+          ) : undefined
         }
       />
+
+      {!canWrite ? (
+        <Alert variant="info" title="Read-only mode">
+          Employee changes require the Cloud deployment.
+        </Alert>
+      ) : null}
 
       <Card>
         <EmployeesFilterBar
@@ -81,6 +91,7 @@ export function EmployeesPage() {
           errorMessage={queryErrorMessage}
           togglingEmployeeId={togglingEmployeeId}
           hasActiveFilters={hasActiveFilters}
+          canWrite={canWrite}
           onRetry={() => {
             void employeesQuery.refetch();
           }}
@@ -109,7 +120,7 @@ export function EmployeesPage() {
       </Card>
 
       <EmployeeFormModal
-        open={formModalState.open}
+        open={canWrite && formModalState.open}
         employee={formModalState.employee}
         branches={branches}
         isBranchesLoading={

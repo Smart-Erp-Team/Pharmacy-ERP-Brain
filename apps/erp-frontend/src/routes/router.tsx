@@ -5,7 +5,9 @@
  * Follows STRUCTURE.md: routes/router.tsx.
  *
  * Route gates (contracts/FRONTEND.md §2 and §4):
- * - Organization & Identity screens → Admin role, Cloud runtime.
+ * - Branches read → every role, both runtimes (writes gated on Cloud + Admin).
+ * - Employees & User Accounts reads → Admin role with user:admin scope, both
+ *   runtimes (writes gated on Cloud inside the pages).
  * - Catalog and inventory reads → every role, both runtimes.
  * - Branch device enrollment → public (POST /api/v1/branch-enrollment is a
  *   public endpoint on the Cloud runtime per openapi.erp.yaml &
@@ -34,7 +36,6 @@ import type { PermissionScope, Role, RuntimeMode } from '../types/api';
 
 const ADMIN_ONLY: readonly Role[] = ['Admin'];
 const ALL_ROLES: readonly Role[] = ['Admin', 'Pharmacist', 'Cashier'];
-const CLOUD_ONLY: readonly RuntimeMode[] = ['Cloud'];
 const BOTH_RUNTIMES: readonly RuntimeMode[] = ['Cloud', 'BranchLocal'];
 const USER_ADMIN_SCOPE: readonly PermissionScope[] = ['user:admin'];
 const INVENTORY_READ_SCOPE: readonly PermissionScope[] = ['inventory:read'];
@@ -68,8 +69,8 @@ export const routes: RouteObject[] = [
       {
         path: PATHS.BRANCHES,
         element: (
-          <RoleGate allowedRoles={ADMIN_ONLY}>
-            <RuntimeGate allowedRuntimes={CLOUD_ONLY}>
+          <RoleGate allowedRoles={ALL_ROLES}>
+            <RuntimeGate allowedRuntimes={BOTH_RUNTIMES}>
               <BranchesPage />
             </RuntimeGate>
           </RoleGate>
@@ -79,7 +80,7 @@ export const routes: RouteObject[] = [
         path: PATHS.EMPLOYEES,
         element: (
           <RoleGate allowedRoles={ADMIN_ONLY}>
-            <RuntimeGate allowedRuntimes={CLOUD_ONLY}>
+            <RuntimeGate allowedRuntimes={BOTH_RUNTIMES}>
               <ScopeGate requiredScopes={USER_ADMIN_SCOPE}>
                 <EmployeesPage />
               </ScopeGate>
@@ -91,7 +92,7 @@ export const routes: RouteObject[] = [
         path: PATHS.USERS,
         element: (
           <RoleGate allowedRoles={ADMIN_ONLY}>
-            <RuntimeGate allowedRuntimes={CLOUD_ONLY}>
+            <RuntimeGate allowedRuntimes={BOTH_RUNTIMES}>
               <ScopeGate requiredScopes={USER_ADMIN_SCOPE}>
                 <UsersPage />
               </ScopeGate>

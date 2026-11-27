@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { toast } from 'react-toastify';
+import { useAuth } from '../../../hooks/useAuth';
 import { ApiClientError } from '../../../lib/api/client';
 import { DEFAULT_PAGE, DEFAULT_PAGE_SIZE } from '../../../lib/api/pagination';
 import type { Branch, EnrollmentToken } from '../../../types/api';
@@ -13,6 +14,16 @@ import {
 export const BRANCHES_PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
 export function useBranchesPageState() {
+  const { runtime, branchScope, hasRole, canAccessBranch } = useAuth();
+  const isAdmin = hasRole('Admin');
+  const isCloud = runtime === 'Cloud';
+  const canCreateBranch = isAdmin && branchScope === 'ALL' && isCloud;
+  const canToggleBranchStatus = isAdmin && branchScope === 'ALL' && isCloud;
+  const canEditBranch = (branchId: string): boolean =>
+    isAdmin && isCloud && canAccessBranch(branchId);
+  const canIssueEnrollmentToken = (branchId: string): boolean =>
+    isAdmin && isCloud && canAccessBranch(branchId);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] =
     useState<BranchStatusFilter>('active');
@@ -65,6 +76,9 @@ export function useBranchesPageState() {
   };
 
   const handleToggleActive = async (branch: Branch, nextActive: boolean) => {
+    if (!canToggleBranchStatus) {
+      return;
+    }
     setTogglingBranchId(branch.branch_id);
     try {
       await patchBranchMutation.mutateAsync({
@@ -86,6 +100,9 @@ export function useBranchesPageState() {
   };
 
   const requestEnrollmentToken = async (branch: Branch) => {
+    if (!canIssueEnrollmentToken(branch.branch_id)) {
+      return;
+    }
     setTokenModalState({
       open: true,
       branch,
@@ -118,6 +135,13 @@ export function useBranchesPageState() {
   };
 
   return {
+    runtime,
+    branchScope,
+    isAdmin,
+    canCreateBranch,
+    canToggleBranchStatus,
+    canEditBranch,
+    canIssueEnrollmentToken,
     searchTerm,
     statusFilter,
     page,
