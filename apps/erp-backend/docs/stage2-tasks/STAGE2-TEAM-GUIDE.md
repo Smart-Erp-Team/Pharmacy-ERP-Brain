@@ -86,16 +86,19 @@ powershell -ExecutionPolicy Bypass -File .\setup-local-db.ps1
 
 ---
 
-## 5. كيف يعمل الـ AI Workflow تلقائياً؟
+## 5. كيف يعمل الـ AI Multi-Agent Workflow تلقائياً؟
 
-تم تجهيز `.agent/workflows/execute-stage-task.md` و`.agent/workflows/stage-final-audit.md` مع كل القواعد والـ Skills (`.agent/rules/00-backend-guardrails.md`, `.agent/skills/pharmacy-stage1-baseline/SKILL.md`, `.agent/skills/pharmacy-backend-engineering/SKILL.md`, `.agent/skills/backend-security-audit/SKILL.md`, `.agent/skills/performance-concurrency-guard/SKILL.md`, `.agent/skills/architecture-unifier/SKILL.md`). عندما تطلب من الـ Agent تنفيذ أي مهمة، يقوم أوتوماتيكياً بـ **6 مراحل**:
+تم ترقية النظام بالكامل إلى **Modern Antigravity Skills** مع **حماية برمجية حتمية (`.agent/hooks.json`)** و**فصل حقيقي بين 3 Agents مستقلين** داخل `.agent/skills/execute-stage-task/SKILL.md` و`.agent/skills/review-stage-task/SKILL.md` و`.agent/skills/stage-final-audit/SKILL.md` (مع القواعد `.agent/rules/00-backend-guardrails.md` و`.agent/rules/audit-guidelines.md` وملفات الـ Audit والـ References بنظام Progressive Disclosure):
 
-1. **Hard Prerequisite Gate:** يفحص الكود المحلي للتأكد أن مهام زملائك المطلوبة لهذه المهمة مدمجة وموجودة فعلياً؛ **وإذا نقص أي شرط يتوقف ويرفض التنفيذ** ويخبرك بالعربي ما هو الـ PR المطلوب سحبه من `stage2-dev` أولاً.
-2. **Implementation Plan:** يقرأ ملفات Stage 1 المشابهة ويصمم خطة التنفيذ قبل التعديل.
-3. **Clean Implementation:** يكتب الكود في ملفاتك المخصصة فقط (دون لمس `Program.cs` أو `PharmacyDbContext.cs` أو ملفات زملائك).
-4. **Tests & Boot Check:** يكتب Unit + Integration Tests، يحدّث `contracts/openapi.v1.json` و`ContractsArtifactSyncTests` عند إضافة Routes/DTOs، يشغّل `dotnet build PharmacyERP.sln --no-restore` (`0 Warnings`) و`dotnet test PharmacyERP.sln --no-restore` (`100% Pass`)، ويتأكد من إقلاع الـ API.
-5. **Self-Review:** يراجع الأمان (RLS، الصلاحيات، الـ Idempotency، `snake_case`) والأداء (`.AsNoTracking()`, `FOR UPDATE`).
-6. **Arabic Debrief:** يشرح لك بالعربي ماذا بنى، ولماذا، وما هي الخطوة التالية.
+- **حماية برمجية تلقائية (`hooks.json`):** تمنع تلقائياً تعديل `Program.cs` أو `PharmacyDbContext.cs` أو `ERP-Backend-Blueprint-v1.1.md` أو أي ملف برة `apps/erp-backend/` و`contracts/`، وتمنع أوامر `git push` / `reset --hard` / `DROP DATABASE` حتى في وضع الـ Auto-Approve.
+- **مراحل `/execute-stage-task` (3 Agents منفصلين + سكربتات تحقق حتمية):**
+  0. **Preflight Script (`check-preflight.ps1`):** يفحص الفرع الحالي (يمنع الشغل على `main` وينبّه لو على `stage2-dev`)، يتحقق من نظافة Wave 0، ويستخرج **قسم المهمة المطلوبة فقط** بدون تحميل ملف الـ 130KB بالكامل.
+  1. **Agent 1 — Gatekeeper & Planner (Read-Only Subagent):** يفحص الكود المحلي للتأكد من وجود كل الـ Prerequisites؛ **وإذا نقص أي شرط يتوقف فوراً ويرفض التنفيذ** ويخبرك بالعربي ما هو الـ PR المطلوب سحبه أولاً. إذا نجح الشرط، يبني خطة تنفيذية مكتوبة ويصنّف درجة الخطورة:
+     - **مهام عادية (DTOs / Validators / Enums / Queries / Tests):** يكمل أوتوماتيك للـ Implementer.
+     - **مهام حساسة (Migrations / RLS / Triggers / Auth / Middleware / Sync / Endpoints جديدة):** يتوقف ويعرض الخطة للمطور لأخذ موافقته قبل كتابة أي كود.
+  2. **Agent 2 — Clean-Context Implementer (Write Subagent):** يستلم الخطة والمهمة فقط في Context نظيف، يكتب الكود والاختبارات ويحدّث `contracts/openapi.v1.json` و`ContractsArtifactSyncTests` عند الحاجة، ويشغّل **Tier 1 Fast Verification** (`verify-task.ps1 -FastFilter`).
+  3. **Agent 3 — Independent Adversarial Reviewer & Verifier (Fresh Context Subagent):** مراجع مستقل تماماً **لم يَرَ تفكير الـ Implementer**؛ يراجع `git diff -- .` مقابل المواصفة والخطة وقوائم الـ Security/Concurrency/Architecture وجودة الاختبارات، ويشغّل **Tier 2 Full Verification** (`verify-task.ps1 -Full -CheckMigrations -BootCheck`) مع ضمان إغلاق عملية الـ API في `try/finally`. لو لقى أي عيب `P0`/`P1` يرجّعه للـ Implementer في **Fix Loop بحد أقصى محاولتين**.
+  4. **Arabic Debrief & PR Handoff:** يشرح لك بالعربي ماذا بُني ولماذا، ويعطيك إثبات التحقق المستقل + رسالة Commit وملخص PR جاهز للنسخ على `stage2-dev` + المهمة التالية.
 
 ---
 
@@ -115,7 +118,12 @@ powershell -ExecutionPolicy Bypass -File .\setup-local-db.ps1
 ```
 *(أمثلة: `AH-02` من `ahmed-hassan.md` · `YA-03` من `yassin.md` · `AS-05` من `ahmed-salah.md`)*
 
-### ج) برومت المراجعة النهائية (المهمة الأخيرة `*-FINAL`)
+### ج) برومت المراجعة المستقلة لأي فرع أو PR قبل الدمج (Read-Only)
+```text
+/review-stage-task راجع التعديلات الحالية على الفرع مقابل المهمة <TASK-ID> من ملف docs/stage2-tasks/<your-file>.md وشغّل verify-task.ps1 بالكامل وأعطني قرار الدمج بالعربي.
+```
+
+### د) برومت المراجعة النهائية متعددة الـ Auditors (المهمة الأخيرة `*-FINAL`)
 ```text
 /stage-final-audit نفذ المهمة <TASK-ID> من ملف docs/stage2-tasks/<your-file>.md وأنشئ تقرير المراجعة النهائي في docs/stage2-reports/
 ```

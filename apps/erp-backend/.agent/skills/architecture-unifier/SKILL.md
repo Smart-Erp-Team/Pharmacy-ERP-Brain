@@ -1,38 +1,28 @@
 ---
 name: architecture-unifier
-description: Architecture and code consistency audit checklist across all 4 developers' modules in PharmacyERP. Use when checking Clean Architecture boundaries, DI lifetime mismatches in DependencyInjection.cs or Program.cs, consistent Result/ApiErrorEnvelopeDto error handling, swallowed exceptions, or Outbox/Audit/Idempotency integration.
+description: Architecture, Wave 0, Wire Contract, and code consistency audit checklist across all 4 developers' modules in PharmacyERP. Use when checking Clean Architecture boundaries, DI lifetimes, Result/ApiErrorEnvelopeDto error handling, Wire Contract snake_case & OpenAPI sync, EF migrations sync, or Outbox/Audit/Idempotency integration.
 ---
 
-# Architecture Unifier (Clean Architecture & Cross-Module Consistency)
+# Architecture Unifier (Clean Architecture, Wave 0 & Wire Contracts)
 
-## 1. Dependency Injection & Lifetime Audit (`Program.cs` & `DependencyInjection.cs`)
-- [ ] **Wave 0 Entrypoint Cleanliness:** Verify `Program.cs` only wires `AddApplicationServices()`, `AddInfrastructureServices(builder.Configuration)`, `AddApiServices()`, `UsePharmacyErpMiddlewares()`, and `MapControllers()`.
-- [ ] **No Captive Dependencies:**
-  - `PharmacyDbContext`, `ITenantContext`, `ICurrentUser`, `IUnitOfWork`, `TenantRlsConnectionInterceptor`, all Repositories, and all Application Services MUST be `Scoped`.
-  - `Singleton` services (`IDateTimeProvider`, `IRuntimeModeProvider`, `JwksKeyProvider`) and `BackgroundService` (`OutboxPublisherWorker`) MUST NEVER inject `Scoped` services (`PharmacyDbContext`, `ITenantContext`, `IUnitOfWork`, Repositories) directly via constructor. Background workers must use `IServiceScopeFactory.CreateScope()`.
-- [ ] **No Duplicate/Conflicting Registrations:** Verify `TryAddScoped` temporary fallbacks in `Application/DependencyInjection.cs` (`TemporaryNonLotBatchInitializer`, `TemporaryProductInventoryUsageChecker`) are cleanly overridden by `Infrastructure/DependencyInjection.cs` (`NonLotBatchInitializer`, `ProductInventoryUsageChecker`) and both `v1` and `2` cross-module interfaces resolve to the real implementations.
+## 1. Wave 0, Ownership & DI Lifetimes
+- [ ] **Wave 0 Entrypoints Untouched:** `src/PharmacyERP.Api/Program.cs` and `src/PharmacyERP.Infrastructure/Persistence/Database/PharmacyDbContext.cs` have zero diff. Module `DbSet<T>`s live in partial classes (`PharmacyDbContext.<Module>.cs`).
+- [ ] **Modular Feature DI & Per-Developer Ownership:** Stage 2/3 services/repositories register in modular feature DI extensions invoked from `DependencyInjection.cs` without touching other teammates' owned files.
+- [ ] **No Captive Dependencies:** `PharmacyDbContext`, `ITenantContext`, `ICurrentUser`, `IUnitOfWork`, interceptors, repositories, and application services are `Scoped`. `Singleton` services (`IDateTimeProvider`, `IRuntimeModeProvider`, `JwksKeyProvider`) and `BackgroundService` (`OutboxPublisherWorker`) never inject `Scoped` services directly (use `IServiceScopeFactory`).
+- [ ] **Active Cross-Module Interfaces:** Stage 2/3 code injects active `INonLotBatchInitializer` and `IProductInventoryUsageChecker` (ignoring legacy `*2.cs` compatibility interfaces while leaving Stage 1 registrations intact).
 
-## 2. Clean Architecture / Onion Layer Boundaries
-- [ ] **Domain (`PharmacyERP.Domain`) Purity:**
-  - Zero references to `Microsoft.EntityFrameworkCore`, `Microsoft.AspNetCore.*`, `PharmacyERP.Application`, or `PharmacyERP.Infrastructure`.
-  - All domain exceptions inherit from `PharmacyERP.Domain.Exceptions.DomainException`.
-- [ ] **Application (`PharmacyERP.Application`) Purity:**
-  - References ONLY `PharmacyERP.Domain` (and abstractions). Zero references to `PharmacyERP.Infrastructure` or `PharmacyDbContext`.
-  - Services use repository interfaces, `IUnitOfWork`, `ITenantContext`, `ICurrentUser`, `IDateTimeProvider`, `IAuditLogger`, `IIdempotencyService`, `IOutboxService` via explicit constructor injection.
-- [ ] **Api (`PharmacyERP.Api`) Thin Controllers:**
-  - Controllers MUST NOT inject `PharmacyDbContext` or `IUnitOfWork` or `IGenericRepository<T>` directly.
-  - Controllers only validate model/headers, delegate to Application services, and map `Result` / `Result<T>` to HTTP responses.
-- [ ] **Single `PharmacyDbContext`:** Confirm no developer created a second `DbContext` class; all module `DbSet`s live in `PharmacyDbContext.*.cs` partial classes.
+## 2. Clean / Onion Layer Boundaries
+- [ ] **Domain (`PharmacyERP.Domain`):** Zero EF Core, Npgsql, ASP.NET Core, Application, or Infrastructure references. All domain exceptions inherit from `DomainException`.
+- [ ] **Application (`PharmacyERP.Application`):** References ONLY `PharmacyERP.Domain` and abstractions; zero `PharmacyDbContext` or `Infrastructure` references. Never calls `DateTime.UtcNow` directly (uses `IDateTimeProvider`).
+- [ ] **Api (`PharmacyERP.Api`):** Thin controllers only — zero direct `PharmacyDbContext`, `IUnitOfWork`, or repository injection.
+- [ ] **Repositories:** Never call `SaveChangesAsync`; `IUnitOfWork` owns transaction lifecycle and commits.
 
-## 3. Consistent Error Handling & Response Envelopes
-- [ ] **No Swallowed Exceptions:** Flag any `catch` block that silently returns `null`, `false`, `default`, or an empty list without logging/re-throwing or returning a structured `Result.Failure(...)`.
-- [ ] **Consistent `Result<T>` & `ErrorCode` Usage:**
-  - Expected business/validation failures should return `Result` / `Result<T>` using `ErrorCode` enum values and `ErrorMessages` constants (avoid magic strings).
-  - Unexpected/domain invariant violations throw `AppException` or `DomainException` so `ExceptionHandlingMiddleware` produces a uniform `ApiErrorEnvelopeDto` (`errorCode`, `message`, `details`, `traceId`).
-- [ ] **No `SaveChanges` Inside Repositories:** Repositories only query/add/update/remove; `IUnitOfWork` owns `BeginTransactionAsync`, `SaveChangesAsync`, `CommitTransactionAsync`, and `RollbackTransactionAsync`.
+## 3. Wire Contracts, Error Envelopes & OpenAPI Sync
+- [ ] **No Swallowed Exceptions & Consistent `Result<T>`:** Zero silent `catch` blocks returning `null`/`false`/empty. Expected business failures return `Result`/`Result<T>` + `ErrorCode` mapped via `ApiResultMapper` (`201 Created` via `ToCreatedResult` for resource creation).
+- [ ] **Strict `snake_case` & Enums:** Every `[FromQuery]` uses `[FromQuery(Name = "snake_case")]`; every `ApiErrorDetailDto.Field` uses exact wire `snake_case`; decimals are native JSON numbers; enums are exact case-sensitive strings (`allowIntegerValues: false`).
+- [ ] **`[ProducesResponseType]` & `ContractsArtifactSyncTests`:** Every controller action declares complete `[ProducesResponseType]` attributes. Any PR adding/changing `ErrorCode`, endpoints, DTOs, or `/canonical/capabilities` updates `ContractsArtifactSyncTests.cs`, `apps/erp-backend/contracts/schemas/*.json`, `apps/erp-backend/contracts/openapi.v1.json`, and `apps/erp-backend/contracts/README.md` in the same PR.
 
-## 4. Cross-Module & Outbox/Audit/Idempotency Consistency
-- [ ] **Idempotency on Mutations:** Mutating endpoints that accept `Idempotency-Key` must check `IIdempotencyService` with `CanonicalJsonHasher` SHA-256 payload hashing and return `409 Conflict` (`IDEMPOTENCY_MISMATCH`) on payload mismatch.
-- [ ] **Transactional Outbox & Sequence Ordering:** Domain events must be written via `IOutboxService` inside the same `IUnitOfWork` transaction as the state change, allocating gapless sequences from `OutboxEventCursor`.
-- [ ] **Audit Logging:** Security-sensitive and state-changing operations must record immutable `AuditLog` entries via `IAuditLogger` with accurate `AuditActorType` (`USER`, `SYSTEM`, `AI_ASSISTED` with `SourcePromptId`).
-- [ ] **Outbox Worker Resilience:** `OutboxPublisherWorker` must process events in `OrganizationId`, `EventSequence` order inside a scoped transaction with `AllowSystemBypass()` and record failures via `RecordPublishFailure(...)` without crashing the host loop.
+## 4. Persistence Sync, Outbox, Audit & Readability
+- [ ] **EF Core Model <-> Migrations Sync:** `PharmacyDbContextModelSnapshot.cs` and committed migrations match configurations 100% (`has-pending-model-changes` passes).
+- [ ] **Outbox & Audit Atomicity:** State-changing mutations enqueue `IOutboxService` events (gapless `OutboxEventCursor` sequence) and log `IAuditLogger` entries inside the same `IUnitOfWork` transaction.
+- [ ] **Readability & Hygiene:** Clean per-project `GlobalUsings.cs`, descriptive English identifiers, guard clauses, concise XML `<summary>` and *why* comments, and `0 Warning(s)`.

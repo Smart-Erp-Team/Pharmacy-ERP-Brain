@@ -1,30 +1,27 @@
 ---
 name: performance-concurrency-guard
-description: Runtime reliability, concurrency, and performance audit checklist for PharmacyERP. Use when auditing inventory/stock ledger mutations, EF Core queries, async/await code, and null safety for race conditions, missing RowVersion/transactions, NullReferenceException traps, async deadlocks, N+1 queries, missing AsNoTracking, or dropped CancellationTokens.
+description: Runtime reliability, concurrency, and performance audit checklist for PharmacyERP across Stage 1, Stage 2 (Sales & Sync), and Stage 3 (Purchasing). Use when auditing stock/FEFO/cash/sync mutations, EF Core queries, indexes, pagination, async/await code, and null safety.
 ---
 
-# Performance & Concurrency Guard
+# Performance & Concurrency Guard (Stage 1 / Stage 2 / Stage 3)
 
-## 1. Inventory & Stock Ledger Race Conditions
-- [ ] **Explicit Database Transactions:** Every multi-step write (especially `InventoryAdjustmentService`, `StockBalance` updates, `InventoryTxn` + `InventoryTxnLine` posting, `OutboxEventCursor` sequence allocation, and `OrganizationProvisioningService`) MUST be wrapped in an explicit `IUnitOfWork.BeginTransactionAsync` / `CommitTransactionAsync` / `RollbackTransactionAsync` block. Note: `TenantRlsConnectionInterceptor` also enforces an active transaction on tenant-scoped commands.
-- [ ] **Optimistic Concurrency (`RowVersion`):**
-  - Verify `StockBalance` and other concurrency-sensitive entities configure `IsConcurrencyToken()` on `row_version` (`RowVersion++` on mutation) and handle `DbUpdateConcurrencyException` cleanly (e.g., retry or map to `409 Conflict`, never silently overwrite).
-- [ ] **Atomic Sequence Allocation:** `OutboxEventCursor` updates must lock the organization's cursor row within the active transaction (`SELECT ... FOR UPDATE` or equivalent) to prevent duplicate `EventSequence` under concurrent requests.
-- [ ] **Immutable Posted Ledger:** Posted `InventoryTxn` / `InventoryTxnLine` records must never be mutated in place; corrections must use `REVERSAL` transactions.
+## 1. Concurrency, Locking & Financial Race Conditions
+- [ ] **Explicit Transactions:** Every multi-step write (stock adjustments, FEFO checkout, sales returns/refunds, `OutboxEventCursor` sequence allocation, sync batch apply, org provisioning) runs inside a single `IUnitOfWork` transaction. Every `Result.Failure(...)` early return inside an active write transaction calls `RollbackTransactionAsync(CancellationToken.None)`.
+- [ ] **Deterministic `FOR UPDATE` Lock Ordering:** Pessimistic row locks on `StockBalance`, `InventoryBatch`, `SalesOrder`, `SalesInvoice`, or `OutboxEventCursor` MUST acquire locks in a strict deterministic sort order (e.g., `(LocationId, BatchId)` or `(ProductId, ExpiryDate, BatchId)`) to prevent PostgreSQL deadlocks (`40P01`).
+- [ ] **Optimistic Concurrency & Conflict Mapping:** Mutable aggregate roots use `RowVersion` (`.IsConcurrencyToken()`); `DbUpdateConcurrencyException` and PostgreSQL `40001`/`40P01` map cleanly to `409 CONFLICT` (never silently overwritten or returned as `500`).
+- [ ] **Decimal & Rounding Integrity:** Quantities/unit costs use `numeric(18,4)` (`MidpointRounding.AwayFromZero`); monetary totals use `numeric(18,2)`; UOM conversion uses `numeric(18,6)`; tax/discount rates use `numeric(9,4)`. No `float`/`double` in financial calculations.
+- [ ] **Immutable Posted Records:** Posted invoices, payments, returns, stock ledger lines, and sync results are never updated in place; corrections use explicit returns/reversals.
 
 ## 2. `NullReferenceException` & InvalidOperation Traps
-- [ ] **Unsafe `.First()` / `.Single()`:** Flag `.First()`, `.Single()`, `.Last()` without `OrDefault` when a record might not exist; prefer `.FirstOrDefaultAsync(ct)` / `.SingleOrDefaultAsync(ct)` followed by an explicit null check returning `Result.Failure(ErrorCode.NOT_FOUND, ...)`.
-- [ ] **Un-Included Navigation Properties:** Check every access to navigation properties (e.g., `user.Employee`, `user.BranchAccesses`, `product.Uoms`, `txn.Lines`, `balance.Batch`) to ensure the repository query explicitly uses `.Include(...)` / `.ThenInclude(...)` or projects via `.Select(...)` (lazy loading is not enabled).
-- [ ] **Nullable Reference & Collection Safety:** Check `.Value` on `Nullable<T>` (`Guid?`, `DateTimeOffset?`, `decimal?`) without `.HasValue` guards, and verify repository/mock returns do not return `null` for `IReadOnlyList<T>` / `List<T>`.
+- [ ] **Unsafe `.First()` / `.Single()`:** Flag `.First()`, `.Single()`, `.Last()` without `OrDefault` when rows may be absent; return `Result.Failure(ErrorCode.NOT_FOUND, ...)`.
+- [ ] **Un-Included Navigation Properties:** Every accessed navigation property (`Lines`, `Batch`, `Uoms`, `Payments`, `Returns`, `Employee`) is explicitly `.Include(...)`/`.ThenInclude(...)` or projected via `.Select(...)`.
+- [ ] **Nullable Guards:** No `.Value` on `Nullable<T>` without `.HasValue` checks; repositories never return `null` for `IReadOnlyList<T>`.
 
-## 3. Async Deadlocks & Blocking Calls
-- [ ] **Zero Sync-Over-Async:** Search all `.cs` files for `.Result`, `.Wait()`, `.GetAwaiter().GetResult()`, `Task.Run(...).Result`, or synchronous EF Core calls (`ToList()`, `FirstOrDefault()`, `SaveChanges()`) inside async methods. Every I/O path must be `async`/`await` end-to-end.
+## 3. Async Hygiene & `CancellationToken`
+- [ ] **Zero Sync-Over-Async:** Zero `.Result`, `.Wait()`, `.GetAwaiter().GetResult()`, or sync EF Core calls (`ToList()`, `FirstOrDefault()`, `SaveChanges()`) inside async methods.
+- [ ] **End-to-End `CancellationToken`:** Every async controller, service, repository, and EF LINQ call forwards `CancellationToken ct` (reserving `CancellationToken.None` strictly for `RollbackTransactionAsync` in `catch`/`finally`).
 
-## 4. EF Core Query Performance (N+1 & Tracking)
-- [ ] **N+1 Queries Inside Loops:** Flag any `await _repository.*` or `await _dbContext.*` call inside `foreach`, `for`, or `while` loops (e.g., loading `ProductUom`, `InventoryBatch`, or `StockBalance` per line item). Batch-fetch with `Contains(...)` / dictionary lookup before the loop.
-- [ ] **Missing `AsNoTracking()` on Read-Only Queries:** All read-only list, search, pagination (`PagedResult<T>`), and canonical export queries in Repositories must use `.AsNoTracking()` (unless entities are intentionally tracked for subsequent mutation in the same UoW).
-- [ ] **Unbounded Queries:** Flag `.ToListAsync()` on tables that grow unbounded (`OutboxEvents`, `AuditLogs`, `InventoryTxns`, `Products`, `StockBalances`) without `.Take(...)`, cursor pagination, or `Skip`/`Take` limits.
-
-## 5. `CancellationToken` Propagation
-- [ ] **End-to-End Propagation:** Every `async` Controller action, Application Service method, Repository method, `IUnitOfWork` call, and EF Core LINQ call (`ToListAsync(ct)`, `FirstOrDefaultAsync(ct)`, `AnyAsync(ct)`, `SaveChangesAsync(ct)`) MUST accept and forward `CancellationToken ct = default`.
-- [ ] **Background Worker Cancellation:** `OutboxPublisherWorker` must pass `stoppingToken` into `ProcessPendingOutboxBatchAsync` and `Task.Delay` without swallowing `OperationCanceledException` when `stoppingToken.IsCancellationRequested` is true.
+## 4. EF Core Query Performance, Indexes & Pagination
+- [ ] **Zero N+1 Query Loops:** Flag `await _repository.*` / `await _dbContext.*` inside `foreach`/`for`/`while`. Batch-fetch via `GetByIdsAsync` / `GetActiveBaseUomsByProductIdsAsync` / `GetOrCreateForUpdateBatchAsync`; use `.AsSplitQuery()` when including multiple collections.
+- [ ] **`.AsNoTracking()` on Read Queries:** Every read-only query uses `.AsNoTracking()` and lean projections where full entity graphs are unnecessary.
+- [ ] **Bounded Pagination & Indexes:** Standard ERP lists enforce `page >= 1` and `1 <= page_size <= 200` (`422` out-of-range); canonical lists use cursor pagination (`OUTBOX_EVENT.event_sequence`). Composite/partial indexes in `IEntityTypeConfiguration<T>` are prefixed by `organization_id` (and `branch_id`) matching real `WHERE`/`ORDER BY` clauses.

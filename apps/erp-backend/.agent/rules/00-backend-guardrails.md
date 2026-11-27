@@ -27,7 +27,7 @@ Execute commands strictly with working directory inside `apps/erp-backend/` (tar
 - **Build & Test:** `dotnet build`, `dotnet test`, `dotnet restore` (only when explicitly needed).
 - **EF Core CLI:** `dotnet ef migrations add`, `dotnet ef migrations script`, `dotnet ef database update` (using `erp_migrator` or local dev DB).
 - **Local Smoke Checks:** `dotnet run` strictly for local verification (e.g., `GET /.well-known/jwks.json`, `/swagger/v1/swagger.json`, or target endpoint), and **always terminate the process cleanly** once verified.
-- **Read-Only Inspection:** `git status`, `git diff`, `git log`, `git check-ignore`, `git show`, `Get-Content`, `Select-String`, `Get-ChildItem`.
+- **Read-Only Inspection:** `git status --short -- .`, `git diff -- .`, `git log`, `git check-ignore`, `git show`, `Get-Content`, `Select-String`, `Get-ChildItem` *(always pass `-- .` to `git status`/`git diff` so monorepo siblings outside `apps/erp-backend/` are excluded)*.
 - **Safe Local Git State Changes:** `git checkout -b`, `git switch`, `git add`, `git commit` **ONLY** when explicitly requested by the developer.
 - **Onboarding Script:** `setup-local-db.ps1` **ONLY** during initial local environment onboarding.
 
@@ -61,7 +61,8 @@ Execute commands strictly with working directory inside `apps/erp-backend/` (tar
 
 - **NEVER** alter existing public API routes, HTTP verbs, query-parameter names, HTTP status-code mappings (`400`/`401`/`403`/`404`/`409`/`422`), `ApiErrorEnvelopeDto`, `ApiResultMapper`, or approved Blueprint DTO property names without explicit architectural approval.
 - All expected business errors MUST flow through `Result` / `Result<T>` (`src/PharmacyERP.Application/Common/DTOs/Result.cs`) and `ErrorCode` (`src/PharmacyERP.Domain/Enums/ErrorCode.cs`), mapped in controllers via `ApiResultMapper`.
-- All idempotent write endpoints MUST preserve `[AllowHeaderIdempotencyKey]` (`src/PharmacyERP.Api/Filters/AllowHeaderIdempotencyKeyAttribute.cs`) so clients can pass `Idempotency-Key` via HTTP header or request body.
+- All idempotent write endpoints MUST preserve `[AllowHeaderIdempotencyKey]` (`src/PharmacyERP.Api/Filters/AllowHeaderIdempotencyKeyAttribute.cs`) so clients can pass `Idempotency-Key` via HTTP header or request body (with `string? IdempotencyKey = null` as the trailing optional request DTO parameter).
+- **Strict Wire Contract & `ContractsArtifactSyncTests`:** Every `[FromQuery]` parameter and every `ApiErrorDetailDto.Field` MUST use exact `snake_case`; every Controller Action MUST declare complete `[ProducesResponseType]` attributes; any PR adding/changing `ErrorCode`, routes, DTOs, or `/canonical/capabilities` MUST update `ContractsArtifactSyncTests.cs`, `apps/erp-backend/contracts/schemas/*.json`, `apps/erp-backend/contracts/openapi.v1.json` (via `UPDATE_OPENAPI_SNAPSHOT="true"`), and `apps/erp-backend/contracts/README.md` in the same PR.
 
 ---
 
